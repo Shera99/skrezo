@@ -1,0 +1,77 @@
+"""Сборка зависимостей клиентского контура (repository → service → use-case)."""
+
+from __future__ import annotations
+
+from fastapi import Depends
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_session
+from app.core.redis import get_redis
+from app.modules.access.application.services.permission_resolver import PermissionResolver
+from app.modules.access.presentation.deps import get_permission_resolver
+from app.modules.identity.application.services.client_token_service import ClientTokenService
+from app.modules.identity.application.use_cases.change_password import ChangePasswordUseCase
+from app.modules.identity.application.use_cases.get_me import GetMeUseCase
+from app.modules.identity.application.use_cases.login import LoginUseCase
+from app.modules.identity.application.use_cases.logout import LogoutUseCase
+from app.modules.identity.application.use_cases.refresh_token import RefreshTokenUseCase
+from app.modules.identity.application.use_cases.select_clinic import SelectClinicUseCase
+from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
+from app.modules.identity.infrastructure.repositories.membership_repository import (
+    MembershipRepository,
+)
+
+
+def get_account_repository(session: AsyncSession = Depends(get_session)) -> AccountRepository:
+    return AccountRepository(session)
+
+
+def get_membership_repository(session: AsyncSession = Depends(get_session)) -> MembershipRepository:
+    return MembershipRepository(session)
+
+
+def get_client_token_service(redis: Redis = Depends(get_redis)) -> ClientTokenService:
+    return ClientTokenService(redis)
+
+
+def get_login_use_case(
+    accounts: AccountRepository = Depends(get_account_repository),
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> LoginUseCase:
+    return LoginUseCase(accounts, memberships, tokens)
+
+
+def get_change_password_use_case(
+    session: AsyncSession = Depends(get_session),
+    accounts: AccountRepository = Depends(get_account_repository),
+) -> ChangePasswordUseCase:
+    return ChangePasswordUseCase(session, accounts)
+
+
+def get_refresh_token_use_case(
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> RefreshTokenUseCase:
+    return RefreshTokenUseCase(tokens)
+
+
+def get_logout_use_case(
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> LogoutUseCase:
+    return LogoutUseCase(tokens)
+
+
+def get_select_clinic_use_case(
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> SelectClinicUseCase:
+    return SelectClinicUseCase(memberships, tokens)
+
+
+def get_get_me_use_case(
+    accounts: AccountRepository = Depends(get_account_repository),
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    resolver: PermissionResolver = Depends(get_permission_resolver),
+) -> GetMeUseCase:
+    return GetMeUseCase(accounts, memberships, resolver)

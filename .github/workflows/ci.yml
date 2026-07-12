@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Отменяем предыдущий прогон той же ветки/PR, если запущен новый.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-type-test:
+    name: ruff · mypy · pytest
+    runs-on: ubuntu-latest  # есть Docker для testcontainers (интеграционные тесты)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить uv (с кешем)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Синхронизировать зависимости
+        run: uv sync --dev
+
+      - name: Ruff (линт)
+        run: uv run ruff check app tests
+
+      - name: Mypy (типы)
+        run: uv run mypy app tests
+
+      - name: Pytest (юнит + интеграционные API на эфемерном Postgres)
+        run: uv run pytest -q

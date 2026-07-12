@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: skrezo
+      POSTGRES_PASSWORD: skrezo
+      POSTGRES_DB: skrezo
+    ports:
+      # Хостовый порт 5433, чтобы не конфликтовать с локальным Postgres на 5432
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skrezo -d skrezo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://skrezo:skrezo@postgres:5432/skrezo
+      REDIS_URL: redis://redis:6379/0
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    # Прогоняем миграции и поднимаем API
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://skrezo:skrezo@postgres:5432/skrezo
+      REDIS_URL: redis://redis:6379/0
+    env_file:
+      - .env
+    # Arq-воркер биллинг-джобов (появится на фазе 5)
+    command: ["arq", "app.jobs.worker.WorkerSettings"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

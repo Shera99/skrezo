@@ -1,0 +1,28 @@
+"""Таблица клиник (тенант). Расширена полями admin-спеки: type/city_id/seats_limit."""
+
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
+from app.shared.db.enums import DEFAULT_LANG, ClinicType, ClinicTypeType, Lang, LangType
+
+
+class Clinic(Base, UUIDPKMixin, TimestampMixin):
+    __tablename__ = "clinic"
+
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[ClinicType] = mapped_column(ClinicTypeType, nullable=False)
+    # Для соло город заполняется врачом в онбординге → допускаем NULL при создании.
+    city_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("city.id"), nullable=True)
+    # Для соло — опциональны, видны только в платформенной зоне.
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lang: Mapped[Lang] = mapped_column(LangType, nullable=False, server_default=DEFAULT_LANG.value)
+    # Лимит оплаченных мест (врачей) по тарифу — только для type=clinic.
+    seats_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Заметки саппорта — видны и правятся только в платформенной зоне.
+    support_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

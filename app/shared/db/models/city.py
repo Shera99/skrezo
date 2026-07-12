@@ -1,0 +1,15 @@
+"""Таблица городов (справочник). Название — в ``city_translation``."""
+
+from __future__ import annotations
+
+from sqlalchemy import Boolean, Integer, true
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.shared.db.base import Base, UUIDPKMixin
+
+
+class City(Base, UUIDPKMixin):
+    __tablename__ = "city"
+
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())

@@ -1,0 +1,76 @@
+"""Конфигурация приложения.
+
+Все настройки читаются из переменных окружения (или файла ``.env``) через
+Pydantic Settings. Единая точка доступа — функция :func:`get_settings`
+(кешируется, поэтому объект настроек создаётся один раз за процесс).
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Annotated, Literal
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Типизированные настройки сервиса."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # ── Приложение ──────────────────────────────────────────────────────────
+    app_env: Literal["local", "staging", "production"] = "local"
+    app_debug: bool = True
+    api_v1_prefix: str = "/api/v1"
+    # NoDecode — отключаем встроенный JSON-парсинг источника; строку
+    # «домен1,домен2» разбираем сами в валидаторе ниже.
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
+    # ── PostgreSQL / Redis ──────────────────────────────────────────────────
+    database_url: str = "postgresql+asyncpg://skrezo:skrezo@localhost:5432/skrezo"
+    redis_url: str = "redis://localhost:6379/0"
+
+    # ── JWT: единый контур авторизации ──────────────────────────────────────
+    # Один секрет на всех (команда Skrezo и сотрудники клиник входят одинаково —
+    # телефон + пароль). В production обязательно переопределить длинным
+    # случайным значением (≥32 байт для HS256): `openssl rand -hex 32`.
+    jwt_secret: str = "dev-only-change-me-jwt-secret-32-bytes-minimum"
+    jwt_algorithm: str = "HS256"
+    access_token_ttl_seconds: int = 900
+    refresh_token_ttl_seconds: int = 2_592_000
+
+    # ── Уведомления команды Skrezo ──────────────────────────────────────────
+    telegram_team_bot_token: str = ""
+    telegram_team_chat_id: str = ""
+
+    # ── Биллинг ─────────────────────────────────────────────────────────────
+    trial_days: int = 30
+    card_attach_deadline_days: int = 7
+    default_lang: str = "ru"
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_cors(cls, value: object) -> object:
+        """Разрешаем задавать CORS-домены строкой через запятую."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Вернуть закешированный синглтон настроек."""
+    return Settings()
+
+
+settings = get_settings()
