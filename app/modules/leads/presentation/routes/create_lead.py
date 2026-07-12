@@ -6,11 +6,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, status
 
+from app.core.config import settings
 from app.modules.leads.application.use_cases.create_lead import CreateLeadUseCase
 from app.modules.leads.presentation.deps import get_create_lead_use_case
 from app.modules.leads.presentation.schemas import CreateLeadRequest, LeadCreatedResponse
+from app.shared.api.rate_limit import ip_rate_limit
 
 router = APIRouter()
+
+_rate_limit = ip_rate_limit(
+    scope="lead", limit=settings.lead_rate_limit, window=settings.lead_rate_window_sec
+)
 
 _CONFLICT: dict[int | str, dict[str, Any]] = {
     409: {
@@ -38,6 +44,7 @@ _CONFLICT: dict[int | str, dict[str, Any]] = {
 async def create_lead(
     body: CreateLeadRequest,
     use_case: CreateLeadUseCase = Depends(get_create_lead_use_case),
+    _rl: None = Depends(_rate_limit),
 ) -> LeadCreatedResponse:
     """Принять заявку клиники (публично, без токена). Дедуп по телефону."""
     lead = await use_case.execute(

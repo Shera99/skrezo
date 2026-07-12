@@ -27,8 +27,8 @@ run:                ## Запустить API локально (reload)
 worker:             ## Запустить arq-воркер локально
 	uv run arq app.jobs.worker.WorkerSettings
 
-create-admin:       ## Создать/обновить пользователя Skrezo: make create-admin login=admin password=secret
-	uv run python -m app.scripts.create_platform_user --login $(login) --password $(password)
+create-admin:       ## Создать/обновить админа Skrezo: make create-admin phone=0700000001 password=secret
+	uv run python -m app.scripts.create_platform_user --phone $(phone) --password $(password)
 
 lint:
 	uv run ruff check app tests

@@ -114,6 +114,7 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/clients/{id}` | Карточка (сотрудники, подписка, платежи, заметки) |
 | `PATCH` | `/admin/clients/{id}` | Правка карточки (клиника + владелец) |
 | `POST` | `/admin/clients/{id}/admin-phone` | Смена номера админа (напрямую, без OTP) |
+| `POST` | `/admin/clients/{id}/reset-password` | Сброс пароля владельца → новый `tempPassword` |
 | `POST` | `/admin/clients/{id}/archive` | Архивация (→ cancelled) |
 | `POST` | `/admin/clients/{id}/doctors` | Добавить врача (занимает место; `tempPassword`) |
 | `PATCH` | `/admin/clients/{id}/doctors/{docId}` | Правка врача |
@@ -136,14 +137,22 @@ make run           # uvicorn с автоперезагрузкой
 |---|---|---|
 | `GET` · `POST` | `/clinic/staff` | Список / добавить работника (`staff.view` / `staff.manage`) |
 | `PUT` · `DELETE` | `/clinic/staff/{id}` | Правка / удаление работника (`staff.manage`) |
+| `POST` | `/clinic/staff/{id}/reset-password` | Сброс пароля работника → `tempPassword` (`staff.manage`) |
 
+**Защита (rate-limit).** На Redis, фиксированное окно, 429 `too_many_requests` с
+`retryAfter`: вход (`/auth/login`, по IP+телефон), смена пароля, лид-форма (по IP).
+Лимиты — в переменных окружения (`LOGIN_RATE_LIMIT` и др.).
+
+> Сброс пароля инициирует Skrezo/владелец (новый временный → смена). **Самообслуживаемого
+> «забыл пароль» нет** — нужен канал доставки кода (SMS/WhatsApp, не выбран).
+>
 > Отложено (зависит от биллинга): `POST /admin/billing/pay-now`, экспорт
 > платежей `GET /admin/payments/export`. Метрики `mrr`/`revenue`/`lifetimeRevenue`
 > и блок активности соло — заглушки (0/null), пока клиническое ядро и биллинг вне
 > скоупа.
 | `GET` | `/api/v1/admin/audit` | Журнал аудита (фильтры actor/clinicId/from/to) |
 
-Создать пользователя Skrezo: `make create-admin login=admin password=secret`.
+Создать админа Skrezo: `make create-admin phone=0700000001 password=secret`.
 Тестовая клиника (dev): `uv run python -m app.scripts.create_test_clinic --phone 0700123456`.
 
 ## Мультиязычность
