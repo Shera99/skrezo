@@ -1,0 +1,72 @@
+"""Зависимости модуля пациентов (repository → use-case)."""
+
+from __future__ import annotations
+
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_session
+from app.modules.patients.application.use_cases.create_patient import CreatePatientUseCase
+from app.modules.patients.application.use_cases.create_visit import CreateVisitUseCase
+from app.modules.patients.application.use_cases.get_patient import GetPatientUseCase
+from app.modules.patients.application.use_cases.get_visit import GetVisitUseCase
+from app.modules.patients.application.use_cases.list_patients import ListPatientsUseCase
+from app.modules.patients.application.use_cases.list_visits import ListVisitsUseCase
+from app.modules.patients.application.use_cases.tooth_history import ToothHistoryUseCase
+from app.modules.patients.application.use_cases.update_patient import UpdatePatientUseCase
+from app.modules.patients.infrastructure.repositories.patient_repository import PatientRepository
+
+
+def get_patient_repository(session: AsyncSession = Depends(get_session)) -> PatientRepository:
+    return PatientRepository(session)
+
+
+def get_list_patients_use_case(
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> ListPatientsUseCase:
+    return ListPatientsUseCase(patients)
+
+
+def get_create_patient_use_case(
+    session: AsyncSession = Depends(get_session),
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> CreatePatientUseCase:
+    return CreatePatientUseCase(session, patients)
+
+
+def get_get_patient_use_case(
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> GetPatientUseCase:
+    return GetPatientUseCase(patients)
+
+
+def get_update_patient_use_case(
+    session: AsyncSession = Depends(get_session),
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> UpdatePatientUseCase:
+    return UpdatePatientUseCase(session, patients)
+
+
+def get_tooth_history_use_case(
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> ToothHistoryUseCase:
+    return ToothHistoryUseCase(patients)
+
+
+def get_list_visits_use_case(
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> ListVisitsUseCase:
+    return ListVisitsUseCase(patients)
+
+
+def get_create_visit_use_case(
+    session: AsyncSession = Depends(get_session),
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> CreateVisitUseCase:
+    return CreateVisitUseCase(session, patients)
+
+
+def get_get_visit_use_case(
+    patients: PatientRepository = Depends(get_patient_repository),
+) -> GetVisitUseCase:
+    return GetVisitUseCase(patients)
