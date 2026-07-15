@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,9 @@ from app.shared.db.enums import ClinicType, SubscriptionStatus
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.subscription import Subscription
+
+# (created_at, тип клиники, статус подписки) — строка снапшота для трендов.
+ClinicSnapshotRow = tuple[datetime, ClinicType, SubscriptionStatus | None]
 
 
 class DashboardRepository:
@@ -85,3 +89,19 @@ class DashboardRepository:
             )
         ).scalar_one()
         return total, converted
+
+    async def clinics_snapshot(self) -> list[ClinicSnapshotRow]:
+        """(created_at, type, статус подписки) по всем клиникам — для трендов."""
+        rows = (
+            await self._session.execute(
+                select(Clinic.created_at, Clinic.type, Subscription.status).outerjoin(
+                    Subscription, Subscription.clinic_id == Clinic.id
+                )
+            )
+        ).all()
+        return [(r[0], r[1], r[2]) for r in rows]
+
+    async def lead_dates(self) -> list[datetime]:
+        """Даты создания всех лидов — для помесячного тренда «Заявки»."""
+        rows = (await self._session.execute(select(Lead.created_at))).scalars().all()
+        return list(rows)

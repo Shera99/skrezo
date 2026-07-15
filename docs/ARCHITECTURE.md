@@ -57,7 +57,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `leads` | лид-форма «Больше одного» + Telegram-нотификация | `lead` | 3a ✅ |
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
-| `dashboard` | сводка метрик за период (active/trial/риски/конверсия/отмены) | читает clinic/subscription/lead | 7 ✅ |
+| `dashboard` | сводка за период + тренды по месяцам (active/trial/риски/конверсия/отмены; заявки→клиенты; MRR ждёт биллинг) | читает clinic/subscription/lead | 7 ✅ |
 | `subscriptions` | подписка, статусы, триал | `subscription`, `subscription_event` | 3a ✅ (триал) / 4 |
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
