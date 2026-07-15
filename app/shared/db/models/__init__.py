@@ -13,6 +13,7 @@ from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
+from app.shared.db.models.patient import Patient
 from app.shared.db.models.permission import Permission
 from app.shared.db.models.role import Role
 from app.shared.db.models.role_permission import RolePermission
@@ -22,6 +23,8 @@ from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
 from app.shared.db.models.tariff_package import TariffPackage
 from app.shared.db.models.tariff_version import TariffVersion
+from app.shared.db.models.tooth_record import ToothRecord
+from app.shared.db.models.visit import Visit
 
 __all__ = [
     "Account",
@@ -31,6 +34,7 @@ __all__ = [
     "Clinic",
     "Lead",
     "Membership",
+    "Patient",
     "Permission",
     "Role",
     "RolePermission",
@@ -40,4 +44,6 @@ __all__ = [
     "SubscriptionEvent",
     "TariffPackage",
     "TariffVersion",
+    "ToothRecord",
+    "Visit",
 ]

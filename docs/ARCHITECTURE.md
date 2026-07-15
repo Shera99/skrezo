@@ -62,6 +62,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
 | `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |
+| `patients` | клиническое ядро: пациенты, визиты, одонтограмма (FDI), история зуба (RBAC `patients.*`) | `patient`, `visit`, `tooth_record` | 9 ✅ |
 | `notifications` | каналы SMS/Telegram/WhatsApp | — | 2+ |
 
 ## 4. Модель данных
@@ -109,6 +110,15 @@ DDD. Документ фиксирует принципы, границы мод
 - **tariff_package** — `id, tariff_version_id→, name, up_to, price`. Пакеты
   клиники (фикс. цена до up_to мест). Расчёт — `compute_clinic_price`
   (ступенчато, монотонно). Валидация: непрерывность, первая от ≤2, последняя без границы.
+- **patient** — `id, clinic_id→clinic, full_name, phone?, birth_date?, gender?,
+  note?, timestamps`. Пациент клиники (тенант). Клиническое ядро — источник правды
+  здесь (1-я итерация).
+- **visit** — `id, clinic_id→, patient_id→, doctor_membership_id?→membership,
+  visited_at, complaint?, note?, created_at`. Приём/посещение.
+- **tooth_record** — `id, clinic_id→, patient_id→, visit_id→visit, tooth(FDI),
+  diagnosis?, treatment?, status?, note?, created_at`. Манипуляция по зубу.
+  Одонтограмма = последняя запись по каждому зубу; история зуба = все записи по
+  номеру FDI. Нотация FDI: 11–48 (постоянные), 51–85 (молочные).
 
 > Базовые `account`/`clinic`/`membership` **реконструированы из admin-спеки**
 > (исходный BACKEND_SPEC.md недоступен — относился к мобильному приложению
