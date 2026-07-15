@@ -58,3 +58,33 @@ class DashboardSummary(CamelModel):
     risks: RisksBlock
     conversion: ConversionBlock
     cancelled: CancelledBlock
+
+
+# ── Тренды (§4.2) — ряды по месяцам под графики ─────────────────────────────
+class MrrPoint(CamelModel):
+    month: str = Field(description="Месяц YYYY-MM")
+    value: int
+
+
+class ActivePoint(CamelModel):
+    month: str
+    solo: int
+    clinic: int
+
+
+class LeadsPoint(CamelModel):
+    month: str
+    leads: int
+    clients: int
+
+
+class RatioBlock(CamelModel):
+    solo: int
+    clinic: int
+
+
+class DashboardTrends(CamelModel):
+    mrr: list[MrrPoint] = Field(description="MRR по месяцам (0 — биллинг отложен)")
+    active_clients: list[ActivePoint] = Field(description="Активные клиенты (solo/clinic)")
+    leads_to_clients: list[LeadsPoint] = Field(description="Заявки → клиенты по месяцам")
+    solo_clinic_ratio: RatioBlock = Field(description="Текущий срез соло/клиника")

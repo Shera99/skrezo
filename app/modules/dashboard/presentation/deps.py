@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.modules.dashboard.application.use_cases.get_summary import GetSummaryUseCase
+from app.modules.dashboard.application.use_cases.get_trends import GetTrendsUseCase
 from app.modules.dashboard.infrastructure.repositories.dashboard_repository import (
     DashboardRepository,
 )
@@ -20,3 +21,9 @@ def get_summary_use_case(
     dashboard: DashboardRepository = Depends(get_dashboard_repository),
 ) -> GetSummaryUseCase:
     return GetSummaryUseCase(dashboard)
+
+
+def get_trends_use_case(
+    dashboard: DashboardRepository = Depends(get_dashboard_repository),
+) -> GetTrendsUseCase:
+    return GetTrendsUseCase(dashboard)
