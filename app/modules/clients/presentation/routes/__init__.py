@@ -13,6 +13,7 @@ from app.modules.clients.presentation.routes import (
     list_clients,
     phone_check,
     remove_doctor,
+    reset_admin_password,
     status_counts,
     update_client,
     update_doctor,
@@ -27,6 +28,7 @@ router.include_router(status_counts.router)
 router.include_router(get_client.router)
 router.include_router(update_client.router)
 router.include_router(change_admin_phone.router)
+router.include_router(reset_admin_password.router)
 router.include_router(archive_client.router)
 # Врачи со стороны админа.
 router.include_router(add_doctor.router)

@@ -61,3 +61,9 @@ class StaffCreatedResponse(CamelModel):
 class StaffRemovedResponse(CamelModel):
     ok: bool = True
     mode: str
+
+
+class StaffPasswordResetResponse(CamelModel):
+    temp_password: str = Field(
+        description="Новый временный пароль работника — показать один раз и передать"
+    )

@@ -6,12 +6,20 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app.core.config import settings
 from app.modules.identity.application.use_cases.change_password import ChangePasswordUseCase
 from app.modules.identity.presentation.deps import get_change_password_use_case
 from app.modules.identity.presentation.schemas import ChangePasswordRequest, OkResponse
+from app.shared.api.rate_limit import ip_rate_limit
 from app.shared.auth import ClientContext, get_client_context
 
 router = APIRouter()
+
+_rate_limit = ip_rate_limit(
+    scope="change-password",
+    limit=settings.change_password_rate_limit,
+    window=settings.change_password_rate_window_sec,
+)
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
     401: {
@@ -36,6 +44,7 @@ async def change_password(
     body: ChangePasswordRequest,
     context: ClientContext = Depends(get_client_context),
     use_case: ChangePasswordUseCase = Depends(get_change_password_use_case),
+    _rl: None = Depends(_rate_limit),
 ) -> OkResponse:
     """Сменить пароль (в т.ч. обязательную смену временного при первом входе)."""
     await use_case.execute(

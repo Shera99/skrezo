@@ -237,3 +237,9 @@ class DoctorCreatedResponse(CamelModel):
 class DoctorRemovedResponse(CamelModel):
     ok: bool = True
     mode: str = Field(description="deactivated (soft) — доступ закрыт")
+
+
+class PasswordResetResponse(CamelModel):
+    temp_password: str = Field(
+        description="Новый временный пароль — показать один раз и передать пользователю"
+    )

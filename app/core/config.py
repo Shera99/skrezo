@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 2_592_000
 
+    # ── Rate-limit (защита от перебора; окна фиксированные, счётчики в Redis) ──
+    login_rate_limit: int = 10  # попыток входа
+    login_rate_window_sec: int = 60  # …за окно, на пару IP+телефон
+    lead_rate_limit: int = 5  # заявок с одного IP
+    lead_rate_window_sec: int = 3600  # …за час
+    change_password_rate_limit: int = 10
+    change_password_rate_window_sec: int = 60
+
     # ── Уведомления команды Skrezo ──────────────────────────────────────────
     telegram_team_bot_token: str = ""
     telegram_team_chat_id: str = ""
