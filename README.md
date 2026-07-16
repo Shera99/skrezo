@@ -82,6 +82,9 @@ make run           # uvicorn с автоперезагрузкой
 - Swagger UI: `GET /docs`
 - ReDoc: `GET /redoc`
 - OpenAPI JSON: `GET /openapi.json`
+- Postman-коллекция: `make postman` → `docs/skrezo-platform.postman_collection.json`
+  (импортируйте в Postman; задайте `base_url`, `phone`, `password` и выполните
+  запрос «Вход» — `access_token` подставится во все запросы автоматически)
 
 ## Эндпоинты
 

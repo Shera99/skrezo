@@ -1,4 +1,4 @@
-.PHONY: install up down infra logs migrate revision seed run worker create-admin lint fmt typecheck test check
+.PHONY: install up down infra logs migrate revision seed run worker create-admin postman lint fmt typecheck test check
 
 install:            ## Установить зависимости (uv)
 	uv sync
@@ -29,6 +29,9 @@ worker:             ## Запустить arq-воркер локально
 
 create-admin:       ## Создать/обновить админа Skrezo: make create-admin phone=0700000001 password=secret
 	uv run python -m app.scripts.create_platform_user --phone $(phone) --password $(password)
+
+postman:            ## Сгенерировать Postman-коллекцию из OpenAPI → docs/
+	uv run python scripts/gen_postman_collection.py
 
 lint:
 	uv run ruff check app tests

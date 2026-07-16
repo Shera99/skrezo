@@ -1,0 +1,1894 @@
+{
+  "info": {
+    "name": "Skrezo Platform API",
+    "_postman_id": "skrezo-platform-0001",
+    "description": "API **платформенной зоны Skrezo** (админ-панель команды) и **рабочего приложения клиник**. Папки повторяют разделы ReDoc (`x-tagGroups`).\n\n**Авторизация — единый Bearer с авто-логином:**\n• задайте `base_url`, `phone`, `password`;\n• выполните «Вход → Вход по телефону и паролю (login)» — `access_token` сохранится и подставится во все запросы автоматически;\n• для мультиклиничных аккаунтов вызовите «Выбрать активную клинику (select-clinic)» — токен обновится в контексте клиники;\n• если `mustChangePassword = true`, смените временный пароль через `POST /auth/change-password`.\n\nПубличные ручки (вход, обновление токена, справочники городов и специализаций, лид-форма, `/health`) идут без авторизации.\n\nОтветы НЕ обёрнуты в конверт `data`; ключи — camelCase. Идентификаторы — UUID v4, суммы — целые сомы.\n\nДля запросов с `{...}` в пути задайте переменные коллекции (`clinic_id`, `patient_id`, `service_id` и т.д.).\n\nСгенерировано из OpenAPI (`scripts/gen_postman_collection.py`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Вход",
+      "item": [
+        {
+          "name": "auth",
+          "item": [
+            {
+              "name": "Вход по телефону и паролю",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "Проверить телефон + пароль и выдать клиентские токены.\n\nЕсли ``mustChangePassword = true`` — пароль временный, клиент обязан вызвать\n``POST /auth/change-password`` перед дальнейшей работой.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"password\": \"{{password}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const d = pm.response.json();",
+                      "if (d && d.accessToken) { pm.collectionVariables.set('access_token', d.accessToken); }",
+                      "if (d && d.refreshToken) { pm.collectionVariables.set('refresh_token', d.refreshToken); }",
+                      "if (d && d.activeClinicId) { pm.collectionVariables.set('clinic_id', d.activeClinicId); }",
+                      "pm.test('login ok', () => pm.response.code === 200);",
+                      "if (d && d.mustChangePassword) {",
+                      "  console.warn('Пароль временный — вызовите POST /auth/change-password.');",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Сменить пароль",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/change-password",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "change-password"
+                  ]
+                },
+                "description": "Сменить пароль (в т.ч. обязательную смену временного при первом входе).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"currentPassword\": \"string\",\n  \"newPassword\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Выбрать активную клинику",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/select-clinic",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "select-clinic"
+                  ]
+                },
+                "description": "Выдать токены, привязанные к выбранной клинике (для мультиклиничных аккаунтов).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"clinicId\": \"{{clinic_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const d = pm.response.json();",
+                      "if (d && d.accessToken) { pm.collectionVariables.set('access_token', d.accessToken); }",
+                      "if (d && d.refreshToken) { pm.collectionVariables.set('refresh_token', d.refreshToken); }",
+                      "pm.test('select ok', () => pm.response.code === 200);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Обновление access-токена клиента",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/refresh",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "refresh"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const d = pm.response.json();",
+                      "if (d && d.accessToken) { pm.collectionVariables.set('access_token', d.accessToken); }",
+                      "pm.test('refresh ok', () => pm.response.code === 200);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Выход клиента",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/logout",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "logout"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Текущий клиент (аккаунт, активная клиника, права)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/me",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Админ-панель Skrezo",
+      "item": [
+        {
+          "name": "clients",
+          "item": [
+            {
+              "name": "Список клиентов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients?type=&status=&query=string&cities=['00000000-0000-0000-0000-000000000000']&tariffs=['string']&page=1&lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients"
+                  ],
+                  "query": [
+                    {
+                      "key": "type",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "query",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск: клиника/имя/телефон"
+                    },
+                    {
+                      "key": "cities",
+                      "value": "['00000000-0000-0000-0000-000000000000']",
+                      "disabled": true,
+                      "description": "Мультивыбор городов"
+                    },
+                    {
+                      "key": "tariffs",
+                      "value": "['string']",
+                      "disabled": true,
+                      "description": "Мультивыбор тарифов (по tariffName)"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": "Страница (1-based)"
+                    },
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Создать аккаунт клиента",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients"
+                  ]
+                },
+                "description": "Атомарно создаёт клинику/соло + владельца + роли + подписку (триал 30 дней).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"solo\",\n  \"adminFullName\": \"string\",\n  \"adminPhone\": \"string\",\n  \"seats\": 0,\n  \"cityId\": \"00000000-0000-0000-0000-000000000000\",\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"businessPhone\": \"string\",\n  \"language\": \"kg\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Проверка телефона",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/phone-check?phone=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "phone-check"
+                  ],
+                  "query": [
+                    {
+                      "key": "phone",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Номер в любом формате"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Счётчики статусов клиентов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/status-counts",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "status-counts"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Карточка клиента",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Правка карточки клиента",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"cityId\": \"00000000-0000-0000-0000-000000000000\",\n  \"businessPhone\": \"string\",\n  \"language\": \"kg\",\n  \"notes\": \"string\",\n  \"adminFullName\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Сменить номер администратора (напрямую)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/admin-phone",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "admin-phone"
+                  ]
+                },
+                "description": "Команда Skrezo меняет номер владельца клиники одним шагом (без OTP).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"newPhone\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Сбросить пароль администратора клиента",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/reset-password",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "reset-password"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Архивация клиента",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/archive",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "archive"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Добавить врача (админ-сайд)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/doctors",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "doctors"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Правка врача (админ-сайд)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/doctors/{{doctor_id}}?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "doctors",
+                    "{{doctor_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить врача (админ-сайд)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/doctors/{{doctor_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "doctors",
+                    "{{doctor_id}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "tariffs",
+          "item": [
+            {
+              "name": "Текущие тарифы и история",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/tariffs",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "tariffs"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Обновить тариф соло",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/tariffs/solo",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "tariffs",
+                    "solo"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"price\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Обновить тариф клиники",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/tariffs/clinic",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "tariffs",
+                    "clinic"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"packages\": [\n    {\n      \"name\": \"string\",\n      \"upTo\": 0,\n      \"price\": 0\n    }\n  ],\n  \"overPrice\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "payments",
+          "item": [
+            {
+              "name": "Журнал платежей и сводка (v1 — заглушка)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/payments?from=2026-01-01&to=2026-01-01&query=string&status=string&page=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "payments"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "query",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск по клиенту"
+                    },
+                    {
+                      "key": "status",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "success | failed | refund"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Пометить возврат (v1 — заглушка)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/payments/{{payment_id}}/refund",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "payments",
+                    "{{payment_id}}",
+                    "refund"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "dashboard",
+          "item": [
+            {
+              "name": "Сводка дашборда за период",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/dashboard/summary?from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "dashboard",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Тренды дашборда по месяцам",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/dashboard/trends?months=6",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "dashboard",
+                    "trends"
+                  ],
+                  "query": [
+                    {
+                      "key": "months",
+                      "value": "6",
+                      "disabled": true,
+                      "description": "Сколько последних месяцев"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "audit",
+          "item": [
+            {
+              "name": "Журнал аудита платформенной зоны",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/audit?actor=00000000-0000-0000-0000-000000000000&clinicId=00000000-0000-0000-0000-000000000000&from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z&limit=20&cursor=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "audit"
+                  ],
+                  "query": [
+                    {
+                      "key": "actor",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "clinicId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "string",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Рабочее приложение клиники",
+      "item": [
+        {
+          "name": "staff",
+          "item": [
+            {
+              "name": "Сотрудники клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/staff",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "staff"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Добавить работника",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/staff",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "staff"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Правка работника (в т.ч. телефона)",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/staff/{{membership_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "staff",
+                    "{{membership_id}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить работника (деактивация)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/staff/{{membership_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "staff",
+                    "{{membership_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Сбросить пароль работника",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/staff/{{membership_id}}/reset-password",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "staff",
+                    "{{membership_id}}",
+                    "reset-password"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "patients",
+          "item": [
+            {
+              "name": "Пациенты клиники (у кого есть приём)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients?query=string&page=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients"
+                  ],
+                  "query": [
+                    {
+                      "key": "query",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск: имя/фамилия/телефон"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Создать пациента (глобального)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"string\",\n  \"firstName\": \"string\",\n  \"lastName\": \"string\",\n  \"middleName\": \"string\",\n  \"gender\": \"string\",\n  \"birthDate\": \"2026-01-01\",\n  \"email\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Поиск пациента по телефону (для привязки к приёму)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/lookup?phone=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "lookup"
+                  ],
+                  "query": [
+                    {
+                      "key": "phone",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Телефон в любом формате"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Карточка пациента (одонтограмма)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Правка пациента (глобальная запись)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"firstName\": \"string\",\n  \"lastName\": \"string\",\n  \"middleName\": \"string\",\n  \"gender\": \"string\",\n  \"birthDate\": \"2026-01-01\",\n  \"email\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Создать/обновить одонтограмму (карта зубов)",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/teeth",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "teeth"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"status\": \"healthy\",\n      \"note\": \"string\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "История зуба (сквозная по всем клиникам)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/teeth/{{tooth}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "teeth",
+                    "{{tooth}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "services",
+          "item": [
+            {
+              "name": "Прайс клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/services?activeOnly=False",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "services"
+                  ],
+                  "query": [
+                    {
+                      "key": "activeOnly",
+                      "value": "False",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Создать услугу",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/services",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "services"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"price\": 0,\n  \"duration\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Правка услуги (в т.ч. деактивация)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/services/{{service_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "services",
+                    "{{service_id}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"price\": 0,\n  \"duration\": 0,\n  \"active\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "appointments",
+          "item": [
+            {
+              "name": "Приёмы клиники (фильтры + пагинация)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments?patientId=00000000-0000-0000-0000-000000000000&status=&from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z&page=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments"
+                  ],
+                  "query": [
+                    {
+                      "key": "patientId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Создать приём с манипуляциями по зубам",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-01-01T00:00:00Z\",\n  \"comment\": \"string\",\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"price\": 0,\n      \"comment\": \"string\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Детали приёма (зубы, услуги)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments/{{appointment_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments",
+                    "{{appointment_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Обновить приём (статус/комментарий/врач/дата)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments/{{appointment_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments",
+                    "{{appointment_id}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"scheduled\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-01-01T00:00:00Z\",\n  \"comment\": \"string\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Публичное и служебное",
+      "item": [
+        {
+          "name": "catalog",
+          "item": [
+            {
+              "name": "Список городов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/cities?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "cities"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Список специализаций",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/specializations?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "specializations"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Города (админ-справочник)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/refs/cities?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "refs",
+                    "cities"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Специализации (админ-справочник)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/refs/specializations?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "refs",
+                    "specializations"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "leads",
+          "item": [
+            {
+              "name": "Оставить заявку «Больше одного»",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/leads",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "leads"
+                  ]
+                },
+                "description": "Принять заявку клиники (публично, без токена). Дедуп по телефону.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"clinicName\": \"string\",\n  \"doctorsCountRange\": \"string\",\n  \"comment\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "health",
+          "item": [
+            {
+              "name": "Проверка живости",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/health",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "health"
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "phone",
+      "value": "+996700000000",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "s3cret-pa55word",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "appointment_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "clinic_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "doctor_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "membership_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "patient_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "payment_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "service_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "tooth",
+      "value": "11",
+      "type": "string"
+    }
+  ]
+}
