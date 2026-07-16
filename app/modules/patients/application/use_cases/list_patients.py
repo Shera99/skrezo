@@ -1,4 +1,4 @@
-"""Use-case: список пациентов клиники (offset-пагинация + поиск)."""
+"""Use-case: список пациентов клиники (у кого есть приём в этой клинике)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class ListPatientsUseCase:
     async def execute(
         self, clinic_id: uuid.UUID, *, query: str | None, page: int, page_size: int
     ) -> ListPatientsResult:
-        items, total = await self._patients.list_patients(
+        items, total = await self._patients.list_clinic_patients(
             clinic_id, query=query, page=page, page_size=page_size
         )
         return ListPatientsResult(items, total, page, page_size)

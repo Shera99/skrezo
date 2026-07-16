@@ -62,7 +62,9 @@ DDD. Документ фиксирует принципы, границы мод
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
 | `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |
-| `patients` | клиническое ядро: пациенты, визиты, одонтограмма (FDI), история зуба (RBAC `patients.*`) | `patient`, `visit`, `tooth_record` | 9 ✅ |
+| `patients` | клиническое ядро: **глобальные** пациенты, одонтограмма (FDI), сквозная история зуба (RBAC `patients.*`) | `patient`, `patient_tooth` | 9 ✅ |
+| `services` | прайс клиники (услуги, цены) (RBAC `price.*`) | `service` | 9 ✅ |
+| `appointments` | приёмы (клиника+врач=membership+пациент) и история лечения по зубам (RBAC `appointments.*`) | `appointment`, `appointment_tooth` | 9 ✅ |
 | `notifications` | каналы SMS/Telegram/WhatsApp | — | 2+ |
 
 ## 4. Модель данных
@@ -110,15 +112,23 @@ DDD. Документ фиксирует принципы, границы мод
 - **tariff_package** — `id, tariff_version_id→, name, up_to, price`. Пакеты
   клиники (фикс. цена до up_to мест). Расчёт — `compute_clinic_price`
   (ступенчато, монотонно). Валидация: непрерывность, первая от ≤2, последняя без границы.
-- **patient** — `id, clinic_id→clinic, full_name, phone?, birth_date?, gender?,
-  note?, timestamps`. Пациент клиники (тенант). Клиническое ядро — источник правды
-  здесь (1-я итерация).
-- **visit** — `id, clinic_id→, patient_id→, doctor_membership_id?→membership,
-  visited_at, complaint?, note?, created_at`. Приём/посещение.
-- **tooth_record** — `id, clinic_id→, patient_id→, visit_id→visit, tooth(FDI),
-  diagnosis?, treatment?, status?, note?, created_at`. Манипуляция по зубу.
-  Одонтограмма = последняя запись по каждому зубу; история зуба = все записи по
-  номеру FDI. Нотация FDI: 11–48 (постоянные), 51–85 (молочные).
+Клиническое ядро v2 (миграция 0019, пациент ГЛОБАЛЬНЫЙ — общий на всю платформу):
+- **patient** — `id, phone(UNIQUE=дедуп платформы), first_name, last_name?,
+  middle_name?, gender?, birth_date?, email?, avatar?, timestamps`. НЕ принадлежит
+  клинике; клиника «видит» его при наличии приёма.
+- **patient_tooth** — `id, patient_id→patient, tooth_number(FDI), status(enum
+  tooth_status), note?, timestamps, UNIQUE(patient_id, tooth_number)`. Текущее
+  состояние зуба (одонтограмма), одна строка на зуб. FDI: 11–48, 51–85.
+- **service** — `id, clinic_id→clinic, name, description?, price(сомы),
+  duration?(мин), active, timestamps`. Прайс клиники.
+- **appointment** — `id, clinic_id→, patient_id→patient, doctor_membership_id?→
+  membership, appointment_type(enum), scheduled_at, status(enum), price_total,
+  comment?, timestamps`. Приём (врач = membership).
+- **appointment_tooth** — `id, appointment_id→, patient_tooth_id→patient_tooth,
+  service_id?→service, doctor_membership_id?→membership, status(enum), price,
+  comment?, created_at`. История лечения: запись = зуб в приёме. История зуба =
+  JOIN patient_tooth→appointment_tooth→appointment→clinic/doctor/service, сквозная
+  по всем клиникам и не теряется.
 
 > Базовые `account`/`clinic`/`membership` **реконструированы из admin-спеки**
 > (исходный BACKEND_SPEC.md недоступен — относился к мобильному приложению

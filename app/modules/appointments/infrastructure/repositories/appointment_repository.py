@@ -1,0 +1,258 @@
+"""Репозиторий приёмов и истории лечения (appointment + appointment_tooth).
+
+Врач = ``membership``. Зуб приёма ссылается на ``patient_tooth`` (создаётся, если
+для пациента такого зуба ещё не было). Итог приёма — сумма цен по зубам.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.appointments.domain.models import (
+    AppointmentRow,
+    AppointmentToothRow,
+    ToothInput,
+)
+from app.shared.db.enums import AppointmentStatus, AppointmentToothStatus, AppointmentType
+from app.shared.db.models.account import Account
+from app.shared.db.models.appointment import Appointment
+from app.shared.db.models.appointment_tooth import AppointmentTooth
+from app.shared.db.models.membership import Membership
+from app.shared.db.models.patient import Patient
+from app.shared.db.models.patient_tooth import PatientTooth
+from app.shared.db.models.service import Service
+
+
+class AppointmentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def patient_exists(self, patient_id: uuid.UUID) -> bool:
+        return (
+            await self._session.execute(select(Patient.id).where(Patient.id == patient_id))
+        ).scalar_one_or_none() is not None
+
+    async def service_in_clinic(self, clinic_id: uuid.UUID, service_id: uuid.UUID) -> bool:
+        return (
+            await self._session.execute(
+                select(Service.id).where(Service.id == service_id, Service.clinic_id == clinic_id)
+            )
+        ).scalar_one_or_none() is not None
+
+    async def membership_in_clinic(self, clinic_id: uuid.UUID, membership_id: uuid.UUID) -> bool:
+        return (
+            await self._session.execute(
+                select(Membership.id).where(
+                    Membership.id == membership_id, Membership.clinic_id == clinic_id
+                )
+            )
+        ).scalar_one_or_none() is not None
+
+    async def _get_or_create_patient_tooth(
+        self, patient_id: uuid.UUID, tooth_number: int
+    ) -> PatientTooth:
+        tooth = (
+            await self._session.execute(
+                select(PatientTooth).where(
+                    PatientTooth.patient_id == patient_id,
+                    PatientTooth.tooth_number == tooth_number,
+                )
+            )
+        ).scalar_one_or_none()
+        if tooth is None:
+            from app.shared.db.enums import ToothStatus
+
+            tooth = PatientTooth(
+                patient_id=patient_id, tooth_number=tooth_number, status=ToothStatus.HEALTHY
+            )
+            self._session.add(tooth)
+            await self._session.flush()
+        return tooth
+
+    async def create(
+        self,
+        clinic_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        *,
+        doctor_membership_id: uuid.UUID | None,
+        appointment_type: AppointmentType,
+        scheduled_at: datetime | None,
+        comment: str | None,
+        teeth: list[ToothInput],
+        service_prices: dict[uuid.UUID, int],
+    ) -> Appointment:
+        appointment = Appointment(
+            clinic_id=clinic_id,
+            patient_id=patient_id,
+            doctor_membership_id=doctor_membership_id,
+            appointment_type=appointment_type,
+            comment=comment,
+            status=AppointmentStatus.SCHEDULED,
+        )
+        if scheduled_at is not None:
+            appointment.scheduled_at = scheduled_at
+        self._session.add(appointment)
+        await self._session.flush()
+
+        total = 0
+        for item in teeth:
+            patient_tooth = await self._get_or_create_patient_tooth(patient_id, item.tooth)
+            price = item.price
+            if price is None and item.service_id is not None:
+                price = service_prices.get(item.service_id, 0)
+            price = price or 0
+            total += price
+            self._session.add(
+                AppointmentTooth(
+                    appointment_id=appointment.id,
+                    patient_tooth_id=patient_tooth.id,
+                    service_id=item.service_id,
+                    doctor_membership_id=doctor_membership_id,
+                    status=AppointmentToothStatus.PLANNED,
+                    price=price,
+                    comment=item.comment,
+                )
+            )
+        appointment.price_total = total
+        await self._session.flush()
+        return appointment
+
+    async def list_page(
+        self,
+        clinic_id: uuid.UUID,
+        *,
+        patient_id: uuid.UUID | None,
+        status: AppointmentStatus | None,
+        from_dt: datetime | None,
+        to_dt: datetime | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[AppointmentRow], int]:
+        stmt = (
+            select(
+                Appointment.id,
+                Appointment.patient_id,
+                func.concat_ws(" ", Patient.last_name, Patient.first_name).label("patient_name"),
+                Account.full_name.label("doctor_name"),
+                Appointment.appointment_type,
+                Appointment.scheduled_at,
+                Appointment.status,
+                Appointment.price_total,
+            )
+            .join(Patient, Patient.id == Appointment.patient_id)
+            .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
+            .outerjoin(Account, Account.id == Membership.account_id)
+            .where(Appointment.clinic_id == clinic_id)
+        )
+        if patient_id is not None:
+            stmt = stmt.where(Appointment.patient_id == patient_id)
+        if status is not None:
+            stmt = stmt.where(Appointment.status == status)
+        if from_dt is not None:
+            stmt = stmt.where(Appointment.scheduled_at >= from_dt)
+        if to_dt is not None:
+            stmt = stmt.where(Appointment.scheduled_at <= to_dt)
+
+        total = (
+            await self._session.execute(
+                select(func.count()).select_from(stmt.order_by(None).subquery())
+            )
+        ).scalar_one()
+        rows = (
+            await self._session.execute(
+                stmt.order_by(Appointment.scheduled_at.desc())
+                .limit(page_size)
+                .offset((page - 1) * page_size)
+            )
+        ).all()
+        items = [
+            AppointmentRow(
+                id=r[0],
+                patient_id=r[1],
+                patient_name=(r[2] or "").strip(),
+                doctor_name=r[3],
+                appointment_type=r[4],
+                scheduled_at=r[5],
+                status=r[6],
+                price_total=r[7],
+            )
+            for r in rows
+        ]
+        return items, total
+
+    async def get(self, clinic_id: uuid.UUID, appointment_id: uuid.UUID) -> Appointment | None:
+        appt = await self._session.get(Appointment, appointment_id)
+        return appt if appt is not None and appt.clinic_id == clinic_id else None
+
+    async def patient_name(self, patient_id: uuid.UUID) -> str:
+        row = (
+            await self._session.execute(
+                select(Patient.last_name, Patient.first_name).where(Patient.id == patient_id)
+            )
+        ).first()
+        if row is None:
+            return ""
+        return " ".join(part for part in (row[0], row[1]) if part)
+
+    async def doctor_name(self, membership_id: uuid.UUID | None) -> str | None:
+        if membership_id is None:
+            return None
+        return (
+            await self._session.execute(
+                select(Account.full_name)
+                .join(Membership, Membership.account_id == Account.id)
+                .where(Membership.id == membership_id)
+            )
+        ).scalar_one_or_none()
+
+    async def teeth(self, appointment_id: uuid.UUID) -> Sequence[AppointmentToothRow]:
+        rows = (
+            await self._session.execute(
+                select(
+                    AppointmentTooth.id,
+                    PatientTooth.tooth_number,
+                    Service.name,
+                    AppointmentTooth.status,
+                    AppointmentTooth.price,
+                    AppointmentTooth.comment,
+                )
+                .join(PatientTooth, PatientTooth.id == AppointmentTooth.patient_tooth_id)
+                .outerjoin(Service, Service.id == AppointmentTooth.service_id)
+                .where(AppointmentTooth.appointment_id == appointment_id)
+                .order_by(PatientTooth.tooth_number)
+            )
+        ).all()
+        return [
+            AppointmentToothRow(
+                id=r[0],
+                tooth_number=r[1],
+                service_name=r[2],
+                status=r[3],
+                price=r[4],
+                comment=r[5],
+            )
+            for r in rows
+        ]
+
+    async def service_prices(
+        self, service_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        if not service_ids:
+            return {}
+        rows = (
+            await self._session.execute(
+                select(Service.id, Service.price).where(Service.id.in_(service_ids))
+            )
+        ).all()
+        return {r[0]: r[1] for r in rows}
+
+    async def update(self, appointment: Appointment, fields: dict[str, Any]) -> None:
+        for key, value in fields.items():
+            setattr(appointment, key, value)
+        await self._session.flush()

@@ -38,6 +38,50 @@ class SubscriptionStatus(enum.StrEnum):
     CANCELLED = "cancelled"  # клиент ушёл, архив
 
 
+class ToothStatus(enum.StrEnum):
+    """Текущее состояние зуба в одонтограмме пациента."""
+
+    HEALTHY = "healthy"
+    CARIES = "caries"
+    FILLING = "filling"
+    CROWN = "crown"
+    IMPLANT = "implant"
+    MISSING = "missing"
+    BROKEN = "broken"
+    ROOT = "root"
+    UNDER_TREATMENT = "under_treatment"
+
+
+class AppointmentType(enum.StrEnum):
+    """Тип приёма."""
+
+    CONSULTATION = "consultation"
+    TREATMENT = "treatment"
+    OPERATION = "operation"
+    CLEANING = "cleaning"
+    XRAY = "xray"
+
+
+class AppointmentStatus(enum.StrEnum):
+    """Статус приёма."""
+
+    SCHEDULED = "scheduled"
+    CONFIRMED = "confirmed"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+
+
+class AppointmentToothStatus(enum.StrEnum):
+    """Статус манипуляции по зубу в рамках приёма."""
+
+    PLANNED = "planned"
+    STARTED = "started"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
@@ -47,4 +91,18 @@ ClinicTypeType = SAEnum(
 )
 SubscriptionStatusType = SAEnum(
     SubscriptionStatus, name="subscription_status", values_callable=lambda e: [m.value for m in e]
+)
+ToothStatusType = SAEnum(
+    ToothStatus, name="tooth_status", values_callable=lambda e: [m.value for m in e]
+)
+AppointmentTypeType = SAEnum(
+    AppointmentType, name="appointment_type", values_callable=lambda e: [m.value for m in e]
+)
+AppointmentStatusType = SAEnum(
+    AppointmentStatus, name="appointment_status", values_callable=lambda e: [m.value for m in e]
+)
+AppointmentToothStatusType = SAEnum(
+    AppointmentToothStatus,
+    name="appointment_tooth_status",
+    values_callable=lambda e: [m.value for m in e],
 )

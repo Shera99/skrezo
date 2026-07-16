@@ -19,6 +19,7 @@ from app.core.db import engine
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.redis import redis_client
+from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import router as audit_router
 from app.modules.catalog.presentation.routes import router as catalog_router
 from app.modules.clients.presentation.routes import router as clients_router
@@ -27,6 +28,7 @@ from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
+from app.modules.services.presentation.routes import router as services_router
 from app.modules.staff.presentation.routes import router as staff_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
 
@@ -87,7 +89,17 @@ OPENAPI_TAGS = [
     {
         "name": "patients",
         "x-displayName": "Пациенты",
-        "description": "Клиническое ядро: пациенты, одонтограмма (FDI), визиты, история зуба.",
+        "description": "Клиническое ядро: глобальные пациенты, одонтограмма (FDI), история зуба.",
+    },
+    {
+        "name": "services",
+        "x-displayName": "Услуги (прайс)",
+        "description": "Прайс клиники: услуги, цены, длительность.",
+    },
+    {
+        "name": "appointments",
+        "x-displayName": "Приёмы",
+        "description": "Приёмы (клиника+врач+пациент) и история лечения по зубам.",
     },
     {
         "name": "payments",
@@ -120,7 +132,7 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "Рабочее приложение клиники",
-        "tags": ["staff", "patients"],
+        "tags": ["staff", "patients", "services", "appointments"],
     },
     {
         "name": "Публичное и служебное",
@@ -173,6 +185,8 @@ def create_app() -> FastAPI:
     app.include_router(clients_router, prefix=settings.api_v1_prefix)
     app.include_router(staff_router, prefix=settings.api_v1_prefix)
     app.include_router(patients_router, prefix=settings.api_v1_prefix)
+    app.include_router(services_router, prefix=settings.api_v1_prefix)
+    app.include_router(appointments_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
