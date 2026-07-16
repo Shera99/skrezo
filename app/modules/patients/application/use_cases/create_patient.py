@@ -1,14 +1,15 @@
-"""Use-case: создать пациента клиники."""
+"""Use-case: создать глобального пациента (дедуп по телефону)."""
 
 from __future__ import annotations
 
-import uuid
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ConflictError
 from app.modules.patients.infrastructure.repositories.patient_repository import PatientRepository
 from app.shared.db.models.patient import Patient
+from app.shared.domain.value_objects import normalize_phone
 
 
 class CreatePatientUseCase:
@@ -18,21 +19,32 @@ class CreatePatientUseCase:
 
     async def execute(
         self,
-        clinic_id: uuid.UUID,
         *,
-        full_name: str,
-        phone: str | None,
-        birth_date: date | None,
+        phone: str,
+        first_name: str,
+        last_name: str | None,
+        middle_name: str | None,
         gender: str | None,
-        note: str | None,
+        birth_date: date | None,
+        email: str | None,
     ) -> Patient:
-        patient = await self._patients.create_patient(
-            clinic_id,
-            full_name=full_name,
-            phone=phone,
-            birth_date=birth_date,
+        normalized = normalize_phone(phone)
+        existing = await self._patients.find_by_phone(normalized)
+        if existing is not None:
+            # Пациент уже есть на платформе — привязывайтесь по нему (id в ошибке).
+            raise ConflictError(
+                "Пациент с таким телефоном уже есть",
+                code="phone_already_used",
+                extra={"patientId": str(existing.id)},
+            )
+        patient = await self._patients.create(
+            phone=normalized,
+            first_name=first_name,
+            last_name=last_name,
+            middle_name=middle_name,
             gender=gender,
-            note=note,
+            birth_date=birth_date,
+            email=email,
         )
         await self._session.commit()
         return patient

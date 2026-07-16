@@ -1,4 +1,4 @@
-"""Use-case: правка карточки пациента."""
+"""Use-case: правка глобального пациента (требует связи с клиникой)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError
-from app.modules.patients.domain.models import PatientDetail
+from app.core.errors import ForbiddenError, NotFoundError
 from app.modules.patients.infrastructure.repositories.patient_repository import PatientRepository
+from app.shared.db.models.patient import Patient
 
 
 class UpdatePatientUseCase:
@@ -19,13 +19,12 @@ class UpdatePatientUseCase:
 
     async def execute(
         self, clinic_id: uuid.UUID, patient_id: uuid.UUID, fields: dict[str, Any]
-    ) -> PatientDetail:
-        patient = await self._patients.get_patient(clinic_id, patient_id)
+    ) -> Patient:
+        patient = await self._patients.get(patient_id)
         if patient is None:
             raise NotFoundError("Пациент не найден", code="patient_not_found")
-        await self._patients.update_patient(patient, fields)
+        if not await self._patients.clinic_treats(clinic_id, patient_id):
+            raise ForbiddenError("Нет приёмов с этим пациентом", code="no_patient_relationship")
+        await self._patients.update(patient, fields)
         await self._session.commit()
-
-        odontogram = await self._patients.odontogram(patient_id)
-        visits_count = await self._patients.visits_count(patient_id)
-        return PatientDetail(patient=patient, odontogram=odontogram, visits_count=visits_count)
+        return patient

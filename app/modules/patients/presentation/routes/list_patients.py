@@ -1,4 +1,4 @@
-"""Роут: GET /clinic/patients — список пациентов клиники (право patients.view)."""
+"""Роут: GET /clinic/patients — пациенты клиники (patients.view)."""
 
 from __future__ import annotations
 
@@ -12,18 +12,16 @@ from app.modules.patients.presentation.schemas import PatientListItem, PatientsR
 from app.shared.auth import ClientContext
 
 router = APIRouter()
-
 _PAGE_SIZE = 25
 
 
 @router.get(
     "/clinic/patients",
     response_model=PatientsResponse,
-    summary="Список пациентов",
-    response_description="Страница пациентов клиники",
+    summary="Пациенты клиники (у кого есть приём)",
 )
 async def list_patients(
-    query: str | None = Query(default=None, description="Поиск: ФИО/телефон"),
+    query: str | None = Query(default=None, description="Поиск: имя/фамилия/телефон"),
     page: int = Query(default=1, ge=1),
     context: ClientContext = Depends(require_permission("patients.view")),
     use_case: ListPatientsUseCase = Depends(get_list_patients_use_case),

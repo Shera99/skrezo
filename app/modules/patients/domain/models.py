@@ -1,4 +1,4 @@
-"""Доменные структуры чтения модуля пациентов."""
+"""Доменные структуры чтения модуля пациентов (глобальный пациент)."""
 
 from __future__ import annotations
 
@@ -6,49 +6,44 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 
+from app.shared.db.enums import AppointmentToothStatus, ToothStatus
 from app.shared.db.models.patient import Patient
-from app.shared.db.models.tooth_record import ToothRecord
-from app.shared.db.models.visit import Visit
+from app.shared.db.models.patient_tooth import PatientTooth
 
 
 @dataclass(frozen=True, slots=True)
 class PatientListRow:
     id: uuid.UUID
-    full_name: str
-    phone: str | None
+    phone: str
+    first_name: str
+    last_name: str | None
     birth_date: date | None
     gender: str | None
-    created_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class OdontogramTooth:
-    """Текущее состояние зуба (последняя запись) + счётчик истории."""
-
-    tooth: int
-    status: str | None
-    history_count: int
-    last_at: datetime
 
 
 @dataclass(slots=True)
-class PatientDetail:
+class PatientCard:
     patient: Patient
-    odontogram: list[OdontogramTooth]
-    visits_count: int
+    odontogram: list[PatientTooth]
+    appointments_count: int
 
 
 @dataclass(frozen=True, slots=True)
-class VisitRow:
-    id: uuid.UUID
-    visited_at: datetime
+class ToothHistoryEntry:
+    """Одна запись истории зуба (сквозная по всем клиникам)."""
+
+    appointment_id: uuid.UUID
+    date: datetime
+    clinic_name: str
     doctor_name: str | None
-    complaint: str | None
-    records_count: int
+    service_name: str | None
+    status: AppointmentToothStatus
+    price: int
+    comment: str | None
 
 
-@dataclass(slots=True)
-class VisitDetail:
-    visit: Visit
-    doctor_name: str | None
-    records: list[ToothRecord]
+@dataclass(frozen=True, slots=True)
+class ToothStatePatch:
+    tooth_number: int
+    status: ToothStatus
+    note: str | None
