@@ -10,6 +10,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
 from app.shared.db.enums import DEFAULT_LANG, ClinicType, ClinicTypeType, Lang, LangType
 
+# Таймзона по умолчанию: почти все клиники — в Кыргызстане.
+DEFAULT_TIMEZONE = "Asia/Bishkek"
+
 
 class Clinic(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "clinic"
@@ -22,6 +25,8 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     business_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
     lang: Mapped[Lang] = mapped_column(LangType, nullable=False, server_default=DEFAULT_LANG.value)
+    # IANA-таймзона клиники: в ней считаются границы дня и рисуется расписание.
+    timezone: Mapped[str] = mapped_column(Text, nullable=False, server_default=DEFAULT_TIMEZONE)
     # Лимит оплаченных мест (врачей) по тарифу — только для type=clinic.
     seats_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Заметки саппорта — видны и правятся только в платформенной зоне.

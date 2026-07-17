@@ -13,6 +13,9 @@ from app.shared.db.models.audit_log import AuditLog
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
+from app.shared.db.models.doctor_schedule import DoctorSchedule
+from app.shared.db.models.doctor_time_off import DoctorTimeOff
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
@@ -36,6 +39,9 @@ __all__ = [
     "City",
     "CityTranslation",
     "Clinic",
+    "ClinicWorkingHours",
+    "DoctorSchedule",
+    "DoctorTimeOff",
     "Lead",
     "Membership",
     "Patient",

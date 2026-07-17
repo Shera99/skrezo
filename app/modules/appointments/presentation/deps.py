@@ -17,6 +17,10 @@ from app.modules.appointments.application.use_cases.update_appointment import (
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.schedule.application.services.availability_service import (
+    AvailabilityService,
+    build_availability_service,
+)
 
 
 def get_appointment_repository(
@@ -25,11 +29,19 @@ def get_appointment_repository(
     return AppointmentRepository(session)
 
 
+def get_availability_service(
+    session: AsyncSession = Depends(get_session),
+) -> AvailabilityService:
+    """Сервис доступности врача из модуля расписания (общее определение врача)."""
+    return build_availability_service(session)
+
+
 def get_create_appointment_use_case(
     session: AsyncSession = Depends(get_session),
     appointments: AppointmentRepository = Depends(get_appointment_repository),
+    availability: AvailabilityService = Depends(get_availability_service),
 ) -> CreateAppointmentUseCase:
-    return CreateAppointmentUseCase(session, appointments)
+    return CreateAppointmentUseCase(session, appointments, availability)
 
 
 def get_list_appointments_use_case(
@@ -47,5 +59,6 @@ def get_get_appointment_use_case(
 def get_update_appointment_use_case(
     session: AsyncSession = Depends(get_session),
     appointments: AppointmentRepository = Depends(get_appointment_repository),
+    availability: AvailabilityService = Depends(get_availability_service),
 ) -> UpdateAppointmentUseCase:
-    return UpdateAppointmentUseCase(session, appointments)
+    return UpdateAppointmentUseCase(session, appointments, availability)

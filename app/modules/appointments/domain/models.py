@@ -26,6 +26,7 @@ class AppointmentRow:
     doctor_name: str | None
     appointment_type: AppointmentType
     scheduled_at: datetime
+    duration_min: int
     status: AppointmentStatus
     price_total: int
 

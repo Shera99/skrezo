@@ -1161,6 +1161,209 @@
           ]
         },
         {
+          "name": "schedule",
+          "item": [
+            {
+              "name": "Календарь дня («лента дня»)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/day?date=2026-01-01&doctorId=00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "day"
+                  ],
+                  "query": [
+                    {
+                      "key": "date",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Дата дня в таймзоне клиники (YYYY-MM-DD)"
+                    },
+                    {
+                      "key": "doctorId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Фильтр по врачу; пусто — все врачи"
+                    }
+                  ]
+                },
+                "description": "Всё для отрисовки экрана «Сегодня» за один запрос.\n\nКолонки — активные врачи клиники (членство со специализацией) с рабочим окном\nи счётчиком приёмов за день. Карточка приёма несёт имя пациента, услугу и\nинтервал ``startAt``–``endAt``. Общая полоса обеда — в поле ``break``.\n\nГраницы дня считаются в таймзоне клиники (поле ``timezone``), а не в UTC."
+              },
+              "response": []
+            },
+            {
+              "name": "Свободные слоты врача на день",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/slots?doctorId=00000000-0000-0000-0000-000000000000&date=2026-01-01&serviceId=00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "slots"
+                  ],
+                  "query": [
+                    {
+                      "key": "doctorId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Членство врача в этой клинике"
+                    },
+                    {
+                      "key": "date",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Дата в таймзоне клиники (YYYY-MM-DD)"
+                    },
+                    {
+                      "key": "serviceId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Услуга: её длительность задаёт размер слота"
+                    }
+                  ]
+                },
+                "description": "Слоты, в которые врача реально можно записать.\n\nУчитываются часы работы клиники, общий обед, индивидуальный график врача,\nего отсутствия и уже занятые приёмы (отменённые слот не занимают).\n\nДлительность слота — из ``Service.duration`` при переданном ``serviceId``,\nиначе 30 минут. Слоты нарезаются с шагом 15 минут."
+              },
+              "response": []
+            },
+            {
+              "name": "Часы работы клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/working-hours",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "working-hours"
+                  ]
+                },
+                "description": "Часы работы и общий обед по дням недели.\n\nВсегда возвращаются все 7 дней: дни, которые клиника ещё не настраивала,\nотдаются значениями по умолчанию (пн–сб 09:00–18:00, обед 12:00–13:00,\nвоскресенье — выходной)."
+              },
+              "response": []
+            },
+            {
+              "name": "Задать часы работы клиники",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/working-hours",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "working-hours"
+                  ]
+                },
+                "description": "Заменить часы работы клиники: все 7 дней передаются разом.\n\nОбед (``breakStart``/``breakEnd``) задаётся обеими границами или не задаётся\nвовсе и должен помещаться внутрь рабочих часов. У нерабочего дня\n(``isWorking=false``) время не проверяется.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"days\": [\n    {\n      \"weekday\": 0,\n      \"opensAt\": \"09:00:00\",\n      \"closesAt\": \"18:00:00\",\n      \"breakStart\": \"12:00:00\",\n      \"breakEnd\": \"13:00:00\",\n      \"isWorking\": true\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "График врача",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/doctors/{{membership_id}}/hours",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "doctors",
+                    "{{membership_id}}",
+                    "hours"
+                  ]
+                },
+                "description": "Индивидуальный график врача по дням недели.\n\nВсегда возвращаются все 7 дней: дни без собственной настройки отдаются по\nчасам клиники — врач работает вместе с ней."
+              },
+              "response": []
+            },
+            {
+              "name": "Задать график врача",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/doctors/{{membership_id}}/hours",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "doctors",
+                    "{{membership_id}}",
+                    "hours"
+                  ]
+                },
+                "description": "Заменить индивидуальный график врача: все 7 дней передаются разом.\n\nГрафик **сужает** часы клиники: реальное окно приёма = пересечение часов\nклиники и этого графика. Уже созданные приёмы не пересчитываются.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"days\": [\n    {\n      \"weekday\": 0,\n      \"startsAt\": \"09:00:00\",\n      \"endsAt\": \"15:00:00\",\n      \"isWorking\": true\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "patients",
           "item": [
             {
@@ -1556,9 +1759,10 @@
                     "appointments"
                   ]
                 },
+                "description": "Записать пациента на приём.\n\nДлительность приёма — ``durationMin``, иначе длительность услуги ``serviceId``,\nиначе 30 минут. Если врач назначен, приём обязан попадать в его рабочее окно\n(часы клиники ∩ график врача, мимо обеда и отсутствий → 422) и не пересекаться\nс другими его приёмами (→ 409). Пересечение дополнительно запрещено\nEXCLUDE-констрейнтом в БД, что закрывает гонку параллельных записей.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-01-01T00:00:00Z\",\n  \"comment\": \"string\",\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"price\": 0,\n      \"comment\": \"string\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-07-20T09:00:00+06:00\",\n  \"durationMin\": 45,\n  \"comment\": \"string\",\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"price\": 0,\n      \"comment\": \"string\"\n    }\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1590,7 +1794,7 @@
               "response": []
             },
             {
-              "name": "Обновить приём (статус/комментарий/врач/дата)",
+              "name": "Обновить приём (статус/комментарий/врач/дата/услуга)",
               "request": {
                 "method": "PATCH",
                 "header": [
@@ -1612,9 +1816,10 @@
                     "{{appointment_id}}"
                   ]
                 },
+                "description": "Изменить приём (передаются только правимые поля).\n\nПеренос времени, смена врача, услуги или длительности перепроверяются на\nрабочее окно (→ 422) и пересечение с другими приёмами врача (→ 409); сам приём\nиз проверки исключается. Смена ``serviceId`` без явного ``durationMin``\nподтягивает длительность новой услуги. Отмена (``status=cancelled``) слот\nосвобождает и в проверках не участвует.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"status\": \"scheduled\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-01-01T00:00:00Z\",\n  \"comment\": \"string\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "raw": "{\n  \"status\": \"scheduled\",\n  \"appointmentType\": \"consultation\",\n  \"scheduledAt\": \"2026-07-20T09:00:00+06:00\",\n  \"durationMin\": 45,\n  \"comment\": \"string\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"serviceId\": \"00000000-0000-0000-0000-000000000000\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

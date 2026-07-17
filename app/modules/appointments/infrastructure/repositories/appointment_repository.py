@@ -27,6 +27,23 @@ from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.service import Service
+from app.shared.db.updates import apply_updates
+
+# Колонки приёма, которые разрешено править через PATCH. Здесь нет clinic_id:
+# иначе тело запроса уводит приём в чужую клинику.
+_UPDATABLE_FIELDS = frozenset(
+    {
+        "status",
+        "appointment_type",
+        "scheduled_at",
+        "duration_min",
+        "comment",
+        "doctor_membership_id",
+        "service_id",
+    }
+)
+# Из них — NOT NULL в БД: NULL сюда необратимо ломает выборки расписания.
+_NOT_NULL_FIELDS = frozenset({"status", "appointment_type", "scheduled_at", "duration_min"})
 
 
 class AppointmentRepository:
@@ -45,14 +62,8 @@ class AppointmentRepository:
             )
         ).scalar_one_or_none() is not None
 
-    async def membership_in_clinic(self, clinic_id: uuid.UUID, membership_id: uuid.UUID) -> bool:
-        return (
-            await self._session.execute(
-                select(Membership.id).where(
-                    Membership.id == membership_id, Membership.clinic_id == clinic_id
-                )
-            )
-        ).scalar_one_or_none() is not None
+    # Проверка «врач из этой клиники» живёт в AvailabilityService.is_doctor —
+    # одно определение врача на приёмы и на расписание.
 
     async def _get_or_create_patient_tooth(
         self, patient_id: uuid.UUID, tooth_number: int
@@ -81,8 +92,10 @@ class AppointmentRepository:
         patient_id: uuid.UUID,
         *,
         doctor_membership_id: uuid.UUID | None,
+        service_id: uuid.UUID | None,
         appointment_type: AppointmentType,
-        scheduled_at: datetime | None,
+        scheduled_at: datetime,
+        duration_min: int,
         comment: str | None,
         teeth: list[ToothInput],
         service_prices: dict[uuid.UUID, int],
@@ -91,12 +104,13 @@ class AppointmentRepository:
             clinic_id=clinic_id,
             patient_id=patient_id,
             doctor_membership_id=doctor_membership_id,
+            service_id=service_id,
             appointment_type=appointment_type,
+            scheduled_at=scheduled_at,
+            duration_min=duration_min,
             comment=comment,
             status=AppointmentStatus.SCHEDULED,
         )
-        if scheduled_at is not None:
-            appointment.scheduled_at = scheduled_at
         self._session.add(appointment)
         await self._session.flush()
 
@@ -142,6 +156,7 @@ class AppointmentRepository:
                 Account.full_name.label("doctor_name"),
                 Appointment.appointment_type,
                 Appointment.scheduled_at,
+                Appointment.duration_min,
                 Appointment.status,
                 Appointment.price_total,
             )
@@ -179,8 +194,9 @@ class AppointmentRepository:
                 doctor_name=r[3],
                 appointment_type=r[4],
                 scheduled_at=r[5],
-                status=r[6],
-                price_total=r[7],
+                duration_min=r[6],
+                status=r[7],
+                price_total=r[8],
             )
             for r in rows
         ]
@@ -253,6 +269,12 @@ class AppointmentRepository:
         return {r[0]: r[1] for r in rows}
 
     async def update(self, appointment: Appointment, fields: dict[str, Any]) -> None:
-        for key, value in fields.items():
-            setattr(appointment, key, value)
+        """Записать разрешённые поля приёма."""
+        apply_updates(
+            appointment,
+            fields,
+            updatable=_UPDATABLE_FIELDS,
+            not_null=_NOT_NULL_FIELDS,
+            entity_name="приёма",
+        )
         await self._session.flush()

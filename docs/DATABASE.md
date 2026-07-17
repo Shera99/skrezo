@@ -24,6 +24,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Продажи / биллинг | `lead`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
 | Аудит | `audit_log` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_tooth` |
+| **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 
 ---
 
@@ -57,10 +58,17 @@ erDiagram
     CLINIC ||--o{ APPOINTMENT : "приёмы"
     PATIENT ||--o{ APPOINTMENT : "пациент (глобальный)"
     MEMBERSHIP ||--o{ APPOINTMENT : "врач (опц.)"
+    SERVICE ||--o{ APPOINTMENT : "основная услуга (опц.)"
     APPOINTMENT ||--o{ APPOINTMENT_TOOTH : "манипуляции"
     PATIENT_TOOTH ||--o{ APPOINTMENT_TOOTH : "зуб"
     SERVICE ||--o{ APPOINTMENT_TOOTH : "услуга (опц.)"
     MEMBERSHIP ||--o{ APPOINTMENT_TOOTH : "врач (опц.)"
+
+    CLINIC ||--o{ CLINIC_WORKING_HOURS : "часы работы (7 дней)"
+    CLINIC ||--o{ DOCTOR_SCHEDULE : "графики врачей"
+    MEMBERSHIP ||--o{ DOCTOR_SCHEDULE : "врач"
+    CLINIC ||--o{ DOCTOR_TIME_OFF : "отсутствия"
+    MEMBERSHIP ||--o{ DOCTOR_TIME_OFF : "врач"
 
     ACCOUNT {
         uuid id PK
@@ -80,6 +88,7 @@ erDiagram
         text address "nullable"
         text business_phone "nullable"
         enum lang
+        text timezone "IANA, по умолч. Asia/Bishkek"
         int seats_limit "nullable"
         text support_notes "nullable"
     }
@@ -219,8 +228,10 @@ erDiagram
         uuid clinic_id FK
         uuid patient_id FK
         uuid doctor_membership_id FK "nullable"
+        uuid service_id FK "nullable, основная услуга"
         enum appointment_type
         timestamptz scheduled_at
+        int duration_min "длительность, мин"
         enum status
         int price_total
         text comment "nullable"
@@ -236,10 +247,57 @@ erDiagram
         text comment "nullable"
         timestamptz created_at
     }
+    CLINIC_WORKING_HOURS {
+        uuid id PK
+        uuid clinic_id FK
+        smallint weekday "0=пн … 6=вс"
+        time opens_at
+        time closes_at
+        time break_start "nullable, общий обед"
+        time break_end "nullable"
+        bool is_working
+    }
+    DOCTOR_SCHEDULE {
+        uuid id PK
+        uuid clinic_id FK
+        uuid membership_id FK "врач"
+        smallint weekday "0=пн … 6=вс"
+        time starts_at
+        time ends_at
+        bool is_working
+    }
+    DOCTOR_TIME_OFF {
+        uuid id PK
+        uuid clinic_id FK
+        uuid membership_id FK "врач"
+        timestamptz starts_at
+        timestamptz ends_at
+        text reason "nullable"
+    }
 ```
 
 > `UNIQUE(patient_id, tooth_number)` на `patient_tooth`; `UNIQUE(<entity>_id, lang)`
-> на таблицах переводов.
+> на таблицах переводов. Расписание: `UNIQUE(clinic_id, weekday)` на
+> `clinic_working_hours`, `UNIQUE(clinic_id, membership_id, weekday)` на
+> `doctor_schedule`.
+>
+> **Приёмы одного врача не пересекаются** — EXCLUDE-констрейнт
+> `ex_appointment_doctor_overlap` (`btree_gist`) на `appointment`:
+> `doctor_membership_id WITH =` + `appointment_tstzrange(scheduled_at, duration_min) WITH &&`,
+> только для `doctor_membership_id IS NOT NULL AND status <> 'cancelled'`. Проверки в
+> коде недостаточно: два одновременных запроса заняли бы один слот. Выражение индекса
+> обязано быть IMMUTABLE, а оператор `timestamptz + interval` — лишь STABLE, поэтому
+> сложение завёрнуто в IMMUTABLE-функцию `appointment_tstzrange` (чистые минуты через
+> `make_interval(mins => ...)` от таймзоны не зависят). Клиника хранит IANA-таймзону
+> (`clinic.timezone`) — в ней считаются границы дня.
+>
+> Миграция 0020 закрывает дрейф схемы 0019: `appointment.scheduled_at` и метки
+> `created_at`/`updated_at` клинических таблиц объявлены в ORM как NOT NULL, но
+> создавались без ограничения. Пока БД принимала NULL, `PATCH {scheduledAt: null}`
+> необратимо ломал врача: `tstzrange(NULL, NULL)` = `(,)` — неограниченный диапазон,
+> пересекающийся со всем, а `appointment_tstzrange(NULL, …) IS NULL` (функция STRICT)
+> выкидывал строку из GiST-индекса, снимая с неё защиту констрейнта. Существующие
+> NULL миграция заполняет из `created_at` (иначе `now()`).
 
 ---
 
@@ -289,7 +347,9 @@ patient ──1:N── patient_tooth ──1:N── appointment_tooth ──N:
 | `patient_tooth` | patient_id | CASCADE |
 | `service` | clinic_id | CASCADE |
 | `appointment` | clinic_id, patient_id | CASCADE |
-| `appointment` | doctor_membership_id | SET NULL |
+| `appointment` | doctor_membership_id, service_id | SET NULL |
+| `clinic_working_hours` | clinic_id | CASCADE |
+| `doctor_schedule` / `doctor_time_off` | clinic_id, membership_id | CASCADE |
 | `appointment_tooth` | appointment_id, patient_tooth_id | CASCADE |
 | `appointment_tooth` | service_id, doctor_membership_id | SET NULL |
 | `clinic` | city_id | (без каскада) |

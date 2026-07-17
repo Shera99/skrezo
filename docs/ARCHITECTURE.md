@@ -65,11 +65,12 @@ DDD. Документ фиксирует принципы, границы мод
 | `patients` | клиническое ядро: **глобальные** пациенты, одонтограмма (FDI), сквозная история зуба (RBAC `patients.*`) | `patient`, `patient_tooth` | 9 ✅ |
 | `services` | прайс клиники (услуги, цены) (RBAC `price.*`) | `service` | 9 ✅ |
 | `appointments` | приёмы (клиника+врач=membership+пациент) и история лечения по зубам (RBAC `appointments.*`) | `appointment`, `appointment_tooth` | 9 ✅ |
+| `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `notifications` | каналы SMS/Telegram/WhatsApp | — | 2+ |
 
 ## 4. Модель данных
 
-### 4.1. Реализовано (фазы 1–3a)
+### 4.1. Реализовано
 
 - **city / specialization** — `id, sort_order, active`. Название вынесено в
   таблицы переводов. Правятся только миграцией/сидом.
@@ -122,8 +123,21 @@ DDD. Документ фиксирует принципы, границы мод
 - **service** — `id, clinic_id→clinic, name, description?, price(сомы),
   duration?(мин), active, timestamps`. Прайс клиники.
 - **appointment** — `id, clinic_id→, patient_id→patient, doctor_membership_id?→
-  membership, appointment_type(enum), scheduled_at, status(enum), price_total,
-  comment?, timestamps`. Приём (врач = membership).
+  membership, service_id?→service, appointment_type(enum), scheduled_at,
+  duration_min, status(enum), price_total, comment?, timestamps`. Приём (врач =
+  membership) занимает `[scheduled_at, scheduled_at + duration_min)`. Пересечение
+  приёмов одного врача запрещено EXCLUDE-констрейнтом `ex_appointment_doctor_overlap`
+  (btree_gist, мимо отменённых) — подробности в [DATABASE.md](DATABASE.md).
+- **clinic_working_hours** — `id, clinic_id→clinic, weekday(0=пн…6=вс), opens_at,
+  closes_at, break_start?, break_end?, is_working, timestamps,
+  UNIQUE(clinic_id, weekday)`. Часы работы клиники и общий обед.
+- **doctor_schedule** — `id, clinic_id→, membership_id→membership, weekday,
+  starts_at, ends_at, is_working, timestamps, UNIQUE(clinic_id, membership_id,
+  weekday)`. Индивидуальный график врача; **сужает** часы клиники (окно приёма =
+  пересечение).
+- **doctor_time_off** — `id, clinic_id→, membership_id→membership, starts_at,
+  ends_at, reason?, timestamps`. Отсутствия врача (абсолютные интервалы). Пока
+  только читается: ручек ведения ещё нет.
 - **appointment_tooth** — `id, appointment_id→, patient_tooth_id→patient_tooth,
   service_id?→service, doctor_membership_id?→membership, status(enum), price,
   comment?, created_at`. История лечения: запись = зуб в приёме. История зуба =

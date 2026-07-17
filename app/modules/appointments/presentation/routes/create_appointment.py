@@ -24,7 +24,28 @@ router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
     404: {"description": "Пациент не найден"},
-    422: {"description": "Некорректный зуб/услуга/врач"},
+    409: {
+        "description": "Слот врача занят другим приёмом",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "slot_taken",
+                    "message": "У врача уже есть приём в это время",
+                }
+            }
+        },
+    },
+    422: {
+        "description": "Некорректный зуб/услуга/врач либо нерабочее время",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "outside_working_hours",
+                    "message": "Время вне рабочего окна врача",
+                }
+            }
+        },
+    },
 }
 
 
@@ -33,6 +54,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     status_code=status.HTTP_201_CREATED,
     response_model=AppointmentCreatedResponse,
     summary="Создать приём с манипуляциями по зубам",
+    response_description="Идентификатор приёма и его итоговая стоимость",
     responses=_ERRORS,
 )
 async def create_appointment(
@@ -40,13 +62,23 @@ async def create_appointment(
     context: ClientContext = Depends(require_permission("appointments.create")),
     use_case: CreateAppointmentUseCase = Depends(get_create_appointment_use_case),
 ) -> AppointmentCreatedResponse:
+    """Записать пациента на приём.
+
+    Длительность приёма — ``durationMin``, иначе длительность услуги ``serviceId``,
+    иначе 30 минут. Если врач назначен, приём обязан попадать в его рабочее окно
+    (часы клиники ∩ график врача, мимо обеда и отсутствий → 422) и не пересекаться
+    с другими его приёмами (→ 409). Пересечение дополнительно запрещено
+    EXCLUDE-констрейнтом в БД, что закрывает гонку параллельных записей.
+    """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     data = CreateAppointmentInput(
         patient_id=body.patient_id,
         doctor_membership_id=body.doctor_membership_id,
+        service_id=body.service_id,
         appointment_type=body.appointment_type,
         scheduled_at=body.scheduled_at,
+        duration_min=body.duration_min,
         comment=body.comment,
         teeth=[
             ToothInput(tooth=t.tooth, service_id=t.service_id, price=t.price, comment=t.comment)

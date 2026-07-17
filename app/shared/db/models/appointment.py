@@ -2,6 +2,11 @@
 
 Врач = наш ``membership`` (account+роль), а не отдельная сущность. Итоговая
 стоимость приёма — ``price_total``; манипуляции по зубам — в ``appointment_tooth``.
+
+Приём занимает интервал ``[scheduled_at, scheduled_at + duration_min)``. Пересечение
+интервалов у одного врача запрещено EXCLUDE-констрейнтом
+``ex_appointment_doctor_overlap`` (см. миграцию 0020) — он же страхует от гонки,
+когда два запроса одновременно занимают один слот.
 """
 
 from __future__ import annotations
@@ -9,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -23,6 +28,10 @@ from app.shared.db.enums import (
 
 class Appointment(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "appointment"
+    __table_args__ = (
+        # Под выборку «приёмы клиники за день» («лента дня»).
+        Index("ix_appointment_clinic_scheduled_at", "clinic_id", "scheduled_at"),
+    )
 
     clinic_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("clinic.id", ondelete="CASCADE"), nullable=False, index=True
@@ -34,11 +43,19 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     doctor_membership_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("membership.id", ondelete="SET NULL"), nullable=True
     )
+    # Основная услуга приёма: из неё берётся длительность по умолчанию.
+    service_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("service.id", ondelete="SET NULL"), nullable=True
+    )
     appointment_type: Mapped[AppointmentType] = mapped_column(
         AppointmentTypeType, nullable=False, default=AppointmentType.TREATMENT
     )
     scheduled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    # Длительность приёма в минутах — высота карточки в «ленте дня».
+    duration_min: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("30")
     )
     status: Mapped[AppointmentStatus] = mapped_column(
         AppointmentStatusType, nullable=False, default=AppointmentStatus.SCHEDULED
