@@ -28,6 +28,16 @@ from app.shared.db.models.role import Role
 from app.shared.db.models.specialization_translation import SpecializationTranslation
 from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
+from app.shared.db.updates import apply_updates
+
+# Колонки клиники, которые разрешено править из карточки клиента. Здесь нет
+# type/timezone/seats_limit: тип и число мест меняются вместе с подпиской, а не
+# правкой карточки.
+_UPDATABLE_FIELDS = frozenset(
+    {"name", "address", "city_id", "business_phone", "lang", "support_notes"}
+)
+# Из них — NOT NULL в БД.
+_NOT_NULL_FIELDS = frozenset({"name", "lang"})
 
 # Коарс-название тарифа (для фильтра `tariffs[]`) — по типу аккаунта.
 _TARIFF_NAME_BY_TYPE = {ClinicType.SOLO: "Соло", ClinicType.CLINIC: "Клиника"}
@@ -295,11 +305,17 @@ class ClientRepository:
         return result.scalar_one_or_none() is not None
 
     async def update_client(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> Clinic | None:
+        """Записать разрешённые поля клиники."""
         clinic = await self._session.get(Clinic, clinic_id)
         if clinic is None:
             return None
-        for key, value in fields.items():
-            setattr(clinic, key, value)
+        apply_updates(
+            clinic,
+            fields,
+            updatable=_UPDATABLE_FIELDS,
+            not_null=_NOT_NULL_FIELDS,
+            entity_name="клиента",
+        )
         await self._session.flush()
         return clinic
 

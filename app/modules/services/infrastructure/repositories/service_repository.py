@@ -10,6 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.models.service import Service
+from app.shared.db.updates import apply_updates
+
+# Колонки услуги, которые разрешено править через PATCH. Здесь нет clinic_id:
+# иначе тело запроса уводит услугу в чужую клинику.
+_UPDATABLE_FIELDS = frozenset({"name", "description", "price", "duration", "active"})
+# Из них — NOT NULL в БД.
+_NOT_NULL_FIELDS = frozenset({"name", "price", "active"})
 
 
 class ServiceRepository:
@@ -35,6 +42,12 @@ class ServiceRepository:
         return service
 
     async def update(self, service: Service, fields: dict[str, Any]) -> None:
-        for key, value in fields.items():
-            setattr(service, key, value)
+        """Записать разрешённые поля услуги."""
+        apply_updates(
+            service,
+            fields,
+            updatable=_UPDATABLE_FIELDS,
+            not_null=_NOT_NULL_FIELDS,
+            entity_name="услуги",
+        )
         await self._session.flush()

@@ -46,6 +46,13 @@ _CLEAN_SQL = [
     "DELETE FROM role_permission WHERE role_id IN "
     "(SELECT id FROM role WHERE clinic_id IS NOT NULL)",
     "DELETE FROM audit_log",
+    # Клиническое ядро v2: приём ссылается на membership/clinic/service, поэтому
+    # чистится до них. Пациент глобальный — чистится вместе с остальными.
+    "DELETE FROM appointment_tooth",
+    "DELETE FROM appointment",
+    "DELETE FROM patient_tooth",
+    "DELETE FROM service",
+    "DELETE FROM patient",
     "DELETE FROM tariff_package",
     "DELETE FROM tariff_version",
     "DELETE FROM subscription_event",

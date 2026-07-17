@@ -15,7 +15,7 @@ from pydantic import Field
 
 from app.modules.clients.domain.models import ClientDetail, ClientListRow, StaffRow
 from app.modules.clients.infrastructure.repositories.client_repository import tariff_name_for
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import ClinicType, Lang, SubscriptionStatus
 
 _TRIAL_DAYS = 30
@@ -191,7 +191,16 @@ class AccountCreatedResponse(CamelModel):
     )
 
 
-class UpdateClientRequest(CamelModel):
+class UpdateClientRequest(NotNullFieldsModel):
+    """Правка карточки клиента: передаются только изменяемые поля.
+
+    ``null`` осмыслен лишь для NULLABLE-колонок (снять адрес, город, заметки).
+    Для полей, которые в БД NOT NULL, ``null`` — ошибка валидации (422): имена
+    здесь ключей запроса (``name``, ``language`` → ``clinic.lang``).
+    """
+
+    NOT_NULL_FIELDS = ("name", "language")
+
     name: str | None = Field(default=None, min_length=2)
     address: str | None = None
     city_id: uuid.UUID | None = None

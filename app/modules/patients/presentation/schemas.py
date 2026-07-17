@@ -12,7 +12,7 @@ from app.modules.patients.domain.models import (
     PatientListRow,
     ToothHistoryEntry,
 )
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import AppointmentToothStatus, ToothStatus
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
@@ -129,7 +129,16 @@ class PatientCreatedResponse(CamelModel):
     id: uuid.UUID
 
 
-class UpdatePatientRequest(CamelModel):
+class UpdatePatientRequest(NotNullFieldsModel):
+    """Правка пациента: передаются только изменяемые поля.
+
+    ``null`` осмыслен лишь для NULLABLE-колонок (снять отчество, пол, email).
+    Для NOT NULL-поля ``firstName`` ``null`` — ошибка валидации (422). Телефон
+    здесь не правится: это ключ дедупликации пациента на всю платформу.
+    """
+
+    NOT_NULL_FIELDS = ("firstName",)
+
     first_name: str | None = Field(default=None, min_length=1)
     last_name: str | None = None
     middle_name: str | None = None

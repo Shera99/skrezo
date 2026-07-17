@@ -27,6 +27,16 @@ from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.service import Service
+from app.shared.db.updates import apply_updates
+
+# Колонки пациента, которые разрешено править через PATCH. Здесь нет phone:
+# это ключ дедупликации пациента на всю платформу, его правка увела бы карту
+# и сквозную историю лечения к чужому человеку.
+_UPDATABLE_FIELDS = frozenset(
+    {"first_name", "last_name", "middle_name", "gender", "birth_date", "email"}
+)
+# Из них — NOT NULL в БД.
+_NOT_NULL_FIELDS = frozenset({"first_name"})
 
 
 class PatientRepository:
@@ -48,8 +58,14 @@ class PatientRepository:
         return patient
 
     async def update(self, patient: Patient, fields: dict[str, Any]) -> None:
-        for key, value in fields.items():
-            setattr(patient, key, value)
+        """Записать разрешённые поля пациента."""
+        apply_updates(
+            patient,
+            fields,
+            updatable=_UPDATABLE_FIELDS,
+            not_null=_NOT_NULL_FIELDS,
+            entity_name="пациента",
+        )
         await self._session.flush()
 
     async def clinic_treats(self, clinic_id: uuid.UUID, patient_id: uuid.UUID) -> bool:

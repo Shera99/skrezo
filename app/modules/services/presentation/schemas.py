@@ -7,7 +7,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.models.service import Service
 
 
@@ -40,7 +40,15 @@ class CreateServiceRequest(CamelModel):
     duration: int | None = Field(default=None, ge=0, description="Минуты")
 
 
-class UpdateServiceRequest(CamelModel):
+class UpdateServiceRequest(NotNullFieldsModel):
+    """Правка услуги: передаются только изменяемые поля.
+
+    ``null`` осмыслен лишь для NULLABLE-колонок (снять описание, длительность).
+    Для NOT NULL-полей ``null`` — ошибка валидации (422).
+    """
+
+    NOT_NULL_FIELDS = ("name", "price", "active")
+
     name: str | None = Field(default=None, min_length=1)
     description: str | None = None
     price: int | None = Field(default=None, ge=0)
