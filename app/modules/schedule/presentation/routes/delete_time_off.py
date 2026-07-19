@@ -1,0 +1,68 @@
+"""Роут: DELETE /clinic/schedule/doctors/{id}/time-off/{id} — снять отсутствие (manage_all/own)."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Depends
+
+from app.modules.schedule.application.use_cases.delete_time_off import DeleteTimeOffUseCase
+from app.modules.schedule.presentation.access import (
+    ScheduleScope,
+    require_schedule_manage,
+    resolve_scope_doctor,
+)
+from app.modules.schedule.presentation.deps import get_delete_time_off_use_case
+from app.modules.schedule.presentation.schemas import TimeOffDeletedResponse
+
+router = APIRouter()
+
+_ERRORS: dict[int | str, dict[str, Any]] = {
+    403: {
+        "description": "Право manage_own: попытка снять отсутствие чужому врачу",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "not_own_schedule",
+                    "message": "Доступно только своё расписание",
+                }
+            }
+        },
+    },
+    404: {
+        "description": "Отсутствие не найдено (чужая клиника/врач или неверный id)",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "time_off_not_found",
+                    "message": "Отсутствие не найдено",
+                }
+            }
+        },
+    },
+}
+
+
+@router.delete(
+    "/clinic/schedule/doctors/{membership_id}/time-off/{time_off_id}",
+    response_model=TimeOffDeletedResponse,
+    response_description="Отсутствие удалено",
+    summary="Снять отсутствие врача",
+    responses=_ERRORS,
+)
+async def delete_time_off(
+    membership_id: uuid.UUID,
+    time_off_id: uuid.UUID,
+    scope: ScheduleScope = Depends(require_schedule_manage),
+    use_case: DeleteTimeOffUseCase = Depends(get_delete_time_off_use_case),
+) -> TimeOffDeletedResponse:
+    """Удалить отсутствие врача по id.
+
+    Удаление скоупится клиникой и врачом из пути — чужую запись не снять (404).
+    С правом ``schedule.manage_all`` можно снимать отсутствия любого врача, с
+    правом ``schedule.manage_own`` — только свои (чужой ``membershipId`` → 403).
+    """
+    membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
+    await use_case.execute(scope.clinic_id, membership_id, time_off_id)
+    return TimeOffDeletedResponse(id=time_off_id)

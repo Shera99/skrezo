@@ -1360,6 +1360,93 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Отсутствия врача",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/doctors/{{membership_id}}/time-off",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "doctors",
+                    "{{membership_id}}",
+                    "time-off"
+                  ]
+                },
+                "description": "Список отсутствий врача (отпуска, больничные) в таймзоне клиники.\n\nС правом ``schedule.view_all`` доступны отсутствия любого врача клиники, с\nправом ``schedule.view_own`` — только свои (чужой ``membershipId`` → 403)."
+              },
+              "response": []
+            },
+            {
+              "name": "Завести отсутствие врача",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/doctors/{{membership_id}}/time-off",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "doctors",
+                    "{{membership_id}}",
+                    "time-off"
+                  ]
+                },
+                "description": "Отпуск, больничный или разовая недоступность врача.\n\nИнтервал абсолютный (aware) и перекрывает и график врача, и часы клиники:\nпересечение делает слот недоступным (учитывается в ``/slots`` и «ленте дня»).\nУже созданные приёмы не пересчитываются.\n\nС правом ``schedule.manage_all`` можно завести отсутствие любому врачу клиники,\nс правом ``schedule.manage_own`` — только себе (чужой ``membershipId`` → 403).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"startsAt\": \"2026-07-20T00:00:00+06:00\",\n  \"endsAt\": \"2026-07-21T00:00:00+06:00\",\n  \"reason\": \"Отпуск\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Снять отсутствие врача",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/schedule/doctors/{{membership_id}}/time-off/{{time_off_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "schedule",
+                    "doctors",
+                    "{{membership_id}}",
+                    "time-off",
+                    "{{time_off_id}}"
+                  ]
+                },
+                "description": "Удалить отсутствие врача по id.\n\nУдаление скоупится клиникой и врачом из пути — чужую запись не снять (404).\nС правом ``schedule.manage_all`` можно снимать отсутствия любого врача, с\nправом ``schedule.manage_own`` — только свои (чужой ``membershipId`` → 403)."
+              },
+              "response": []
             }
           ]
         },
@@ -2087,6 +2174,11 @@
     },
     {
       "key": "service_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "time_off_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

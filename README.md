@@ -157,6 +157,8 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/clinic/schedule/slots?doctorId=&date=&serviceId=` | Свободные слоты врача с учётом часов, обеда, графика, отсутствий и занятости (`schedule.view_all` — любой врач; `schedule.view_own` — только `doctorId` = своё членство) |
 | `GET` · `PUT` | `/clinic/schedule/working-hours` | Часы работы клиники, все 7 дней разом (`settings.view` / `settings.edit`) |
 | `GET` · `PUT` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом (`schedule.view_all`/`manage_all` — любой врач; `schedule.view_own`/`manage_own` — только своё) |
+| `GET` · `POST` | `/clinic/schedule/doctors/{id}/time-off` | Отсутствия врача (отпуск/больничный): список и создание (`view_all`/`view_own`, `manage_all`/`manage_own`) |
+| `DELETE` | `/clinic/schedule/doctors/{id}/time-off/{timeOffId}` | Снять отсутствие врача (`manage_all` — любой; `manage_own` — своё) |
 
 > **Видимость «своё расписание».** Токен привязан к клинике, поэтому «свой» =
 > собственное членство аккаунта в клинике из токена. С правами `*_own` (роль

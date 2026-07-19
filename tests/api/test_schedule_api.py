@@ -1721,3 +1721,195 @@ async def test_doctor_hours_null_field_is_rejected(
         json=payload,
     )
     assert resp.status_code == 422, f"{field}: {resp.text}"
+
+
+# ── 13. Отсутствия врача: CRUD ──────────────────────────────────────────────
+
+
+def time_off_body(*, starts: str, ends: str, reason: str | None = "Отпуск") -> dict[str, Any]:
+    """Тело POST time-off: aware-ISO начала/конца в таймзоне клиники."""
+    body: dict[str, Any] = {"startsAt": starts, "endsAt": ends}
+    if reason is not None:
+        body["reason"] = reason
+    return body
+
+
+async def test_time_off_create_list_delete_roundtrip(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Владелец (manage_all): завёл отсутствие → оно в списке → снял → список пуст."""
+    base = f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off"
+
+    created = await client.post(
+        base,
+        headers=clinic_a.headers,
+        json=time_off_body(starts=at(MONDAY, "09:00"), ends=at(MONDAY, "13:00")),
+    )
+    assert created.status_code == 201, created.text
+    item = created.json()
+    assert item["membershipId"] == clinic_a.doctor_id
+    assert item["reason"] == "Отпуск"
+    time_off_id = item["id"]
+
+    listed = await client.get(base, headers=clinic_a.headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["timezone"] == "Asia/Bishkek"
+    assert [x["id"] for x in listed.json()["items"]] == [time_off_id]
+
+    deleted = await client.delete(f"{base}/{time_off_id}", headers=clinic_a.headers)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"id": time_off_id, "deleted": True}
+
+    assert (await client.get(base, headers=clinic_a.headers)).json()["items"] == []
+
+
+async def test_created_time_off_removes_slots(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Отсутствие, заведённое через API, сразу убирает слоты (интеграция с доступностью)."""
+    full_day = time_off_body(starts=at(MONDAY, "00:00"), ends=at(TUESDAY, "00:00"), reason=None)
+    created = await client.post(
+        f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off",
+        headers=clinic_a.headers,
+        json=full_day,
+    )
+    assert created.status_code == 201, created.text
+
+    slots = await client.get(
+        f"{API}/clinic/schedule/slots?date={MONDAY}&doctorId={clinic_a.doctor_id}",
+        headers=clinic_a.headers,
+    )
+    assert slots.status_code == 200, slots.text
+    assert slots.json()["slots"] == []
+
+
+async def test_time_off_end_before_start_is_422(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Конец не позже начала → 422, запись не создаётся."""
+    resp = await client.post(
+        f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off",
+        headers=clinic_a.headers,
+        json=time_off_body(starts=at(MONDAY, "13:00"), ends=at(MONDAY, "09:00")),
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_time_off_naive_datetime_is_422(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Начало/конец без таймзоны (naive) → 422, а не тихое сохранение в UTC."""
+    resp = await client.post(
+        f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off",
+        headers=clinic_a.headers,
+        json={"startsAt": "2026-07-20T09:00:00", "endsAt": "2026-07-20T13:00:00"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_time_off_for_doctor_of_other_clinic_denies(
+    client: AsyncClient, clinic_a: ClinicCtx, clinic_b: ClinicCtx
+) -> None:
+    """Отсутствие врачу ЧУЖОЙ клиники не заводится и не читается."""
+    created = await client.post(
+        f"{API}/clinic/schedule/doctors/{clinic_b.doctor_id}/time-off",
+        headers=clinic_a.headers,
+        json=time_off_body(starts=at(MONDAY, "09:00"), ends=at(MONDAY, "13:00")),
+    )
+    assert created.status_code == 404, created.text
+    assert created.json()["error"] == "doctor_not_found"
+
+    listed = await client.get(
+        f"{API}/clinic/schedule/doctors/{clinic_b.doctor_id}/time-off", headers=clinic_a.headers
+    )
+    assert listed.status_code == 404, listed.text
+
+
+async def test_time_off_delete_cross_clinic_is_404_and_keeps_record(
+    client: AsyncClient, clinic_a: ClinicCtx, clinic_b: ClinicCtx
+) -> None:
+    """Чужую запись отсутствия из другой клиники удалить нельзя (404), она остаётся."""
+    base_b = f"{API}/clinic/schedule/doctors/{clinic_b.doctor_id}/time-off"
+    created = await client.post(
+        base_b,
+        headers=clinic_b.headers,
+        json=time_off_body(starts=at(MONDAY, "09:00"), ends=at(MONDAY, "13:00")),
+    )
+    assert created.status_code == 201, created.text
+    time_off_id = created.json()["id"]
+
+    # Владелец A пытается снять отсутствие врача B по его же id — 404 (скоуп клиники).
+    attack = await client.delete(
+        f"{API}/clinic/schedule/doctors/{clinic_b.doctor_id}/time-off/{time_off_id}",
+        headers=clinic_a.headers,
+    )
+    assert attack.status_code == 404, attack.text
+
+    still_there = await client.get(base_b, headers=clinic_b.headers)
+    assert [x["id"] for x in still_there.json()["items"]] == [time_off_id]
+
+
+async def test_time_off_delete_unknown_id_is_404(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Удаление несуществующего отсутствия → 404 time_off_not_found."""
+    resp = await client.delete(
+        f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off/{uuid.uuid4()}",
+        headers=clinic_a.headers,
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["error"] == "time_off_not_found"
+
+
+async def test_worker_manages_own_time_off_not_others(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Работник (manage_own/view_own): CRUD своих отсутствий; чужие — 403."""
+    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник-отпускник")
+    worker = await _login(client, phone, password)
+    own_base = f"{API}/clinic/schedule/doctors/{own_id}/time-off"
+    other_base = f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off"
+
+    # Своё отсутствие — заводится, видно, снимается.
+    created = await client.post(
+        own_base,
+        headers=worker,
+        json=time_off_body(starts=at(MONDAY, "09:00"), ends=at(MONDAY, "13:00")),
+    )
+    assert created.status_code == 201, created.text
+    time_off_id = created.json()["id"]
+    assert [x["id"] for x in (await client.get(own_base, headers=worker)).json()["items"]] == [
+        time_off_id
+    ]
+
+    # Чужие отсутствия — 403 на создание, чтение и удаление.
+    other_create = await client.post(
+        other_base,
+        headers=worker,
+        json=time_off_body(starts=at(MONDAY, "09:00"), ends=at(MONDAY, "13:00")),
+    )
+    assert other_create.status_code == 403, other_create.text
+    assert other_create.json()["error"] == "not_own_schedule"
+    assert (await client.get(other_base, headers=worker)).status_code == 403
+    assert (
+        await client.delete(f"{other_base}/{uuid.uuid4()}", headers=worker)
+    ).status_code == 403
+
+    deleted = await client.delete(f"{own_base}/{time_off_id}", headers=worker)
+    assert deleted.status_code == 200, deleted.text
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", f"/clinic/schedule/doctors/{uuid.uuid4()}/time-off"),
+        ("POST", f"/clinic/schedule/doctors/{uuid.uuid4()}/time-off"),
+        ("DELETE", f"/clinic/schedule/doctors/{uuid.uuid4()}/time-off/{uuid.uuid4()}"),
+    ],
+)
+async def test_time_off_endpoints_without_token_return_401(
+    client: AsyncClient, method: str, path: str
+) -> None:
+    """Ручки отсутствий закрыты авторизацией."""
+    resp = await client.request(method, f"{API}{path}", json={})
+    assert resp.status_code == 401, resp.text

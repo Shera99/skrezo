@@ -113,3 +113,27 @@ class DaySlots:
     doctor_membership_id: uuid.UUID
     duration_min: int
     slots: list[TimeSpan]
+
+
+@dataclass(frozen=True, slots=True)
+class TimeOffRecord:
+    """Отсутствие врача как отдельная запись — для списка и точечного удаления.
+
+    В отличие от :class:`TimeSpan` (безымянный интервал для расчёта доступности)
+    несёт ``id`` и причину, поэтому пригодна как элемент CRUD-выдачи.
+    """
+
+    id: uuid.UUID
+    membership_id: uuid.UUID
+    starts_at: datetime
+    ends_at: datetime
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TimeOffList:
+    """Отсутствия врача с таймзоной клиники для отрисовки без пересчётов на фронте."""
+
+    timezone: str
+    doctor_membership_id: uuid.UUID
+    records: list[TimeOffRecord]

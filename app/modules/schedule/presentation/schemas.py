@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, time
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from app.modules.schedule.domain.models import (
     AppointmentBlock,
@@ -17,6 +17,8 @@ from app.modules.schedule.domain.models import (
     DaySlots,
     DoctorColumn,
     DoctorHours,
+    TimeOffList,
+    TimeOffRecord,
     TimeSpan,
     WorkingHours,
 )
@@ -221,3 +223,70 @@ class SetDoctorHoursRequest(CamelModel):
     """Замена графика врача: передаются все 7 дней разом."""
 
     days: list[DoctorHoursItem] = Field(min_length=7, max_length=7)
+
+
+class CreateTimeOffRequest(CamelModel):
+    """Новое отсутствие врача (отпуск, больничный, разовая недоступность).
+
+    Интервал абсолютный и aware: с явным смещением таймзоны, как ``scheduledAt``
+    у приёма. Полуоткрытый ``[startsAt, endsAt)``, конец строго позже начала.
+    """
+
+    starts_at: AwareDatetime = Field(
+        description="Начало отсутствия (с таймзоной)", examples=["2026-07-20T00:00:00+06:00"]
+    )
+    ends_at: AwareDatetime = Field(
+        description="Конец отсутствия (с таймзоной)", examples=["2026-07-21T00:00:00+06:00"]
+    )
+    reason: str | None = Field(
+        default=None, max_length=500, description="Причина", examples=["Отпуск"]
+    )
+
+    @model_validator(mode="after")
+    def _check_range(self) -> CreateTimeOffRequest:
+        if self.ends_at <= self.starts_at:
+            raise ValueError("Конец отсутствия должен быть позже начала")
+        return self
+
+
+class TimeOffItem(CamelModel):
+    """Отсутствие врача как элемент списка."""
+
+    id: uuid.UUID
+    membership_id: uuid.UUID = Field(description="Врач = членство в клинике")
+    starts_at: datetime = Field(examples=["2026-07-20T00:00:00+06:00"])
+    ends_at: datetime = Field(examples=["2026-07-21T00:00:00+06:00"])
+    reason: str | None = Field(default=None, examples=["Отпуск"])
+
+    @classmethod
+    def from_record(cls, r: TimeOffRecord) -> TimeOffItem:
+        return cls(
+            id=r.id,
+            membership_id=r.membership_id,
+            starts_at=r.starts_at,
+            ends_at=r.ends_at,
+            reason=r.reason,
+        )
+
+
+class TimeOffListResponse(CamelModel):
+    """Отсутствия врача в таймзоне клиники."""
+
+    timezone: str = Field(description="IANA-таймзона клиники", examples=["Asia/Bishkek"])
+    doctor_id: uuid.UUID = Field(description="Членство врача")
+    items: list[TimeOffItem]
+
+    @classmethod
+    def from_list(cls, result: TimeOffList) -> TimeOffListResponse:
+        return cls(
+            timezone=result.timezone,
+            doctor_id=result.doctor_membership_id,
+            items=[TimeOffItem.from_record(r) for r in result.records],
+        )
+
+
+class TimeOffDeletedResponse(CamelModel):
+    """Подтверждение удаления отсутствия."""
+
+    id: uuid.UUID = Field(description="Id удалённого отсутствия")
+    deleted: bool = True

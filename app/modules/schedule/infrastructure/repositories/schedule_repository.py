@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import ColumnElement, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.modules.schedule.domain.models import (
     AppointmentBlock,
     DoctorHours,
     DoctorRow,
+    TimeOffRecord,
     TimeSpan,
     WorkingHours,
 )
@@ -267,6 +268,76 @@ class ScheduleRepository:
         for membership_id, starts_at, ends_at in rows:
             result.setdefault(membership_id, []).append(TimeSpan(starts_at, ends_at))
         return result
+
+    async def list_time_off_records(
+        self, clinic_id: uuid.UUID, membership_id: uuid.UUID
+    ) -> list[TimeOffRecord]:
+        """Все отсутствия врача как записи (с id и причиной), по возрастанию начала."""
+        stmt = (
+            select(DoctorTimeOff)
+            .where(
+                DoctorTimeOff.clinic_id == clinic_id,
+                DoctorTimeOff.membership_id == membership_id,
+            )
+            .order_by(DoctorTimeOff.starts_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars()
+        return [
+            TimeOffRecord(
+                id=r.id,
+                membership_id=r.membership_id,
+                starts_at=r.starts_at,
+                ends_at=r.ends_at,
+                reason=r.reason,
+            )
+            for r in rows
+        ]
+
+    async def create_time_off(
+        self,
+        clinic_id: uuid.UUID,
+        membership_id: uuid.UUID,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str | None,
+    ) -> TimeOffRecord:
+        """Создать отсутствие врача; коммит — на прикладном слое."""
+        row = DoctorTimeOff(
+            clinic_id=clinic_id,
+            membership_id=membership_id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            reason=reason,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return TimeOffRecord(
+            id=row.id,
+            membership_id=row.membership_id,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            reason=row.reason,
+        )
+
+    async def delete_time_off(
+        self, clinic_id: uuid.UUID, membership_id: uuid.UUID, time_off_id: uuid.UUID
+    ) -> bool:
+        """Удалить отсутствие по id в рамках (клиника, врач). Вернуть, было ли что удалять.
+
+        Скоуп по ``clinic_id`` и ``membership_id`` закрывает IDOR: чужую запись
+        (другая клиника/врач) удалить нельзя — она просто не попадёт под условие.
+        """
+        result = await self._session.execute(
+            delete(DoctorTimeOff)
+            .where(
+                DoctorTimeOff.id == time_off_id,
+                DoctorTimeOff.clinic_id == clinic_id,
+                DoctorTimeOff.membership_id == membership_id,
+            )
+            .returning(DoctorTimeOff.id)
+        )
+        await self._session.flush()
+        return result.first() is not None
 
     # ── Приёмы ─────────────────────────────────────────────────────────────
     async def appointments_of_day(
