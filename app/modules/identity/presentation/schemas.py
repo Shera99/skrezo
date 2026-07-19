@@ -33,6 +33,9 @@ class AccountOut(CamelModel):
 
 
 class ClinicMembershipOut(CamelModel):
+    membership_id: uuid.UUID = Field(
+        description="Членство аккаунта в этой клинике — «свой» id для расписания и записей"
+    )
     clinic_id: uuid.UUID
     clinic_name: str
     role_id: uuid.UUID
@@ -42,6 +45,7 @@ class ClinicMembershipOut(CamelModel):
     @classmethod
     def from_context(cls, membership: MembershipContext) -> ClinicMembershipOut:
         return cls(
+            membership_id=membership.membership_id,
             clinic_id=membership.clinic_id,
             clinic_name=membership.clinic_name,
             role_id=membership.role_id,

@@ -346,39 +346,97 @@ async def test_schedule_endpoints_without_token_return_401(
     assert resp.status_code == 401, resp.text
 
 
-async def test_worker_without_schedule_view_all_gets_403(
+async def test_worker_sees_own_schedule_but_not_others(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Роль «работник» не имеет schedule.view_all — календарь и слоты закрыты."""
-    _, phone, password = await _add_doctor(client, clinic_a.headers, "Работник")
+    """Роль «работник» (schedule.view_own): видит СВОЁ расписание, чужое — 403.
+
+    Регрессия против прежней дыры: раньше здесь фиксировался 403 на day/slots/hours,
+    и врач с ``appointments.create`` записывал вслепую — не мог посмотреть свободные
+    слоты. Теперь own-контур открыт, но строго сведён к собственному членству, а
+    чужие врачи по-прежнему недоступны.
+    """
+    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник")
     worker = await _login(client, phone, password)
 
+    # /auth/me отдаёт собственный membershipId — фронт узнаёт свой id для doctorId.
+    me = await client.get(f"{API}/auth/me", headers=worker)
+    assert me.status_code == 200, me.text
+    assert me.json()["activeClinic"]["membershipId"] == own_id
+
+    # «Лента дня» сведена к своей колонке — чужих врачей в выдаче нет.
     day = await client.get(f"{API}/clinic/schedule/day?date={MONDAY}", headers=worker)
-    assert day.status_code == 403, day.text
-    slots = await client.get(
+    assert day.status_code == 200, day.text
+    assert {d["membershipId"] for d in day.json()["doctors"]} == {own_id}
+
+    # Явный запрос своей колонки — тоже 200; чужой doctorId в day — 403.
+    own_day = await client.get(
+        f"{API}/clinic/schedule/day?date={MONDAY}&doctorId={own_id}", headers=worker
+    )
+    assert own_day.status_code == 200, own_day.text
+    other_day = await client.get(
+        f"{API}/clinic/schedule/day?date={MONDAY}&doctorId={clinic_a.doctor_id}", headers=worker
+    )
+    assert other_day.status_code == 403, other_day.text
+    assert other_day.json()["error"] == "not_own_schedule"
+    assert clinic_a.doctor_id not in other_day.text
+
+    # Свои слоты видны (главное — врач больше не записывает вслепую).
+    own_slots = await client.get(
+        f"{API}/clinic/schedule/slots?date={MONDAY}&doctorId={own_id}", headers=worker
+    )
+    assert own_slots.status_code == 200, own_slots.text
+    assert "slots" in own_slots.json()
+
+    # Чужие слоты — 403.
+    other_slots = await client.get(
         f"{API}/clinic/schedule/slots?date={MONDAY}&doctorId={clinic_a.doctor_id}", headers=worker
     )
-    assert slots.status_code == 403, slots.text
-    hours = await client.get(
+    assert other_slots.status_code == 403, other_slots.text
+    assert other_slots.json()["error"] == "not_own_schedule"
+
+    # Свой график читается; чужой — 403.
+    own_hours = await client.get(
+        f"{API}/clinic/schedule/doctors/{own_id}/hours", headers=worker
+    )
+    assert own_hours.status_code == 200, own_hours.text
+    other_hours = await client.get(
         f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/hours", headers=worker
     )
-    assert hours.status_code == 403, hours.text
+    assert other_hours.status_code == 403, other_hours.text
+    assert other_hours.json()["error"] == "not_own_schedule"
 
 
-async def test_worker_cannot_manage_schedule_or_settings(
+async def test_worker_manages_own_schedule_not_others_or_clinic_settings(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Работник не правит ни график врача (schedule.manage_all), ни часы клиники (settings.edit)."""
-    _, phone, password = await _add_doctor(client, clinic_a.headers, "Работник 2")
+    """Работник (schedule.manage_own) правит СВОЙ график, но не чужой и не часы клиники.
+
+    manage_own покрывает только собственное членство; график других врачей остаётся
+    за manage_all, а часы клиники — за settings.edit/settings.view, которых у роли нет.
+    """
+    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник 2")
     worker = await _login(client, phone, password)
 
-    doctor_hours = await client.put(
+    # Свой график — правится и сохраняется.
+    own = await client.put(
+        f"{API}/clinic/schedule/doctors/{own_id}/hours",
+        headers=worker,
+        json=doctor_hours_payload(starts="09:00:00", ends="12:00:00"),
+    )
+    assert own.status_code == 200, own.text
+    assert own.json()["days"][0]["startsAt"] == "09:00:00"
+
+    # Чужой график — 403 (manage_own не покрывает других врачей).
+    other = await client.put(
         f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/hours",
         headers=worker,
         json=doctor_hours_payload(starts="09:00:00", ends="12:00:00"),
     )
-    assert doctor_hours.status_code == 403, doctor_hours.text
+    assert other.status_code == 403, other.text
+    assert other.json()["error"] == "not_own_schedule"
 
+    # Часы клиники — settings.edit/settings.view, которых у работника нет.
     working = await client.put(
         f"{API}/clinic/schedule/working-hours", headers=worker, json=hours_payload()
     )

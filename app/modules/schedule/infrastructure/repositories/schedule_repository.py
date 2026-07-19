@@ -210,6 +210,25 @@ class ScheduleRepository:
             for r in rows
         ]
 
+    async def own_membership(
+        self, account_id: uuid.UUID, clinic_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """Собственное активное членство аккаунта в этой клинике — «свой» для RBAC.
+
+        Пара ``(account_id, clinic_id)`` уникальна среди активных членств, поэтому
+        это ровно один id. Специализация здесь **не** проверяется: «свой» — это «я»,
+        а практикующий я врач или нет, решают уже проверки ниже (колонки/слоты).
+        """
+        return (
+            await self._session.execute(
+                select(Membership.id).where(
+                    Membership.account_id == account_id,
+                    Membership.clinic_id == clinic_id,
+                    Membership.active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
     async def is_doctor_in_clinic(self, clinic_id: uuid.UUID, membership_id: uuid.UUID) -> bool:
         """Проверка принадлежности врача этой клинике — защита от IDOR."""
         return (

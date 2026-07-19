@@ -1,4 +1,4 @@
-"""Роут: GET /clinic/schedule/doctors/{id}/hours — график врача (schedule.view_all)."""
+"""Роут: GET /clinic/schedule/doctors/{id}/hours — график врача (view_all/own)."""
 
 from __future__ import annotations
 
@@ -7,16 +7,29 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from app.core.errors import ForbiddenError
-from app.modules.access.presentation.deps import require_permission
 from app.modules.schedule.application.use_cases.get_doctor_hours import GetDoctorHoursUseCase
+from app.modules.schedule.presentation.access import (
+    ScheduleScope,
+    require_schedule_read,
+    resolve_scope_doctor,
+)
 from app.modules.schedule.presentation.deps import get_get_doctor_hours_use_case
 from app.modules.schedule.presentation.schemas import DoctorHoursItem, DoctorHoursResponse
-from app.shared.auth import ClientContext
 
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
+    403: {
+        "description": "Право view_own: запрошен чужой врач",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "not_own_schedule",
+                    "message": "Доступно только своё расписание",
+                }
+            }
+        },
+    },
     404: {
         "description": "Врач не найден в этой клинике",
         "content": {
@@ -40,15 +53,17 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 )
 async def get_doctor_hours(
     membership_id: uuid.UUID,
-    context: ClientContext = Depends(require_permission("schedule.view_all")),
+    scope: ScheduleScope = Depends(require_schedule_read),
     use_case: GetDoctorHoursUseCase = Depends(get_get_doctor_hours_use_case),
 ) -> DoctorHoursResponse:
     """Индивидуальный график врача по дням недели.
 
     Всегда возвращаются все 7 дней: дни без собственной настройки отдаются по
     часам клиники — врач работает вместе с ней.
+
+    С правом ``schedule.view_all`` доступен график любого врача клиники, с правом
+    ``schedule.view_own`` — только собственный (чужой ``membershipId`` → 403).
     """
-    if context.clinic_id is None:
-        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    days = await use_case.execute(context.clinic_id, membership_id)
+    membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
+    days = await use_case.execute(scope.clinic_id, membership_id)
     return DoctorHoursResponse(days=[DoctorHoursItem.from_hours(d) for d in days])

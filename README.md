@@ -153,10 +153,17 @@ make run           # uvicorn с автоперезагрузкой
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/schedule/day?date=&doctorId=` | Лента дня: сетка, обед, колонки врачей, карточки приёмов (`schedule.view_all`) |
-| `GET` | `/clinic/schedule/slots?doctorId=&date=&serviceId=` | Свободные слоты врача с учётом часов, обеда, графика, отсутствий и занятости (`schedule.view_all`) |
+| `GET` | `/clinic/schedule/day?date=&doctorId=` | Лента дня: сетка, обед, колонки врачей, карточки приёмов (`schedule.view_all` — все врачи; `schedule.view_own` — только своя колонка) |
+| `GET` | `/clinic/schedule/slots?doctorId=&date=&serviceId=` | Свободные слоты врача с учётом часов, обеда, графика, отсутствий и занятости (`schedule.view_all` — любой врач; `schedule.view_own` — только `doctorId` = своё членство) |
 | `GET` · `PUT` | `/clinic/schedule/working-hours` | Часы работы клиники, все 7 дней разом (`settings.view` / `settings.edit`) |
-| `GET` · `PUT` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом (`schedule.view_all` / `schedule.manage_all`) |
+| `GET` · `PUT` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом (`schedule.view_all`/`manage_all` — любой врач; `schedule.view_own`/`manage_own` — только своё) |
+
+> **Видимость «своё расписание».** Токен привязан к клинике, поэтому «свой» =
+> собственное членство аккаунта в клинике из токена. С правами `*_own` (роль
+> «работник») врач видит и правит только себя; чужой `doctorId` → `403`
+> `not_own_schedule`. Собственный `membershipId` фронт берёт из `GET /auth/me`
+> (`activeClinic.membershipId`). Не-практикующим (регистратор без специализации)
+> для полной ленты выдают `schedule.view_all` на уровне роли.
 
 > Приём занимает `[scheduledAt, scheduledAt + durationMin)`; длительность — из
 > `durationMin`, иначе из `Service.duration`, иначе 30 мин. Пересечение приёмов у

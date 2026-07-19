@@ -1,4 +1,4 @@
-"""Роут: GET /clinic/schedule/slots — свободные слоты врача (schedule.view_all)."""
+"""Роут: GET /clinic/schedule/slots — свободные слоты врача (view_all → любой, view_own → свой)."""
 
 from __future__ import annotations
 
@@ -8,16 +8,29 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.errors import ForbiddenError
-from app.modules.access.presentation.deps import require_permission
 from app.modules.schedule.application.use_cases.get_slots import GetSlotsUseCase
+from app.modules.schedule.presentation.access import (
+    ScheduleScope,
+    require_schedule_read,
+    resolve_scope_doctor,
+)
 from app.modules.schedule.presentation.deps import get_get_slots_use_case
 from app.modules.schedule.presentation.schemas import ScheduleSlotsResponse
-from app.shared.auth import ClientContext
 
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
+    403: {
+        "description": "Право view_own: запрошен чужой врач",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "not_own_schedule",
+                    "message": "Доступно только своё расписание",
+                }
+            }
+        },
+    },
     422: {
         "description": "Врач или услуга не из этой клиники",
         "content": {
@@ -44,7 +57,7 @@ async def get_slots(
         alias="serviceId",
         description="Услуга: её длительность задаёт размер слота",
     ),
-    context: ClientContext = Depends(require_permission("schedule.view_all")),
+    scope: ScheduleScope = Depends(require_schedule_read),
     use_case: GetSlotsUseCase = Depends(get_get_slots_use_case),
 ) -> ScheduleSlotsResponse:
     """Слоты, в которые врача реально можно записать.
@@ -52,10 +65,13 @@ async def get_slots(
     Учитываются часы работы клиники, общий обед, индивидуальный график врача,
     его отсутствия и уже занятые приёмы (отменённые слот не занимают).
 
+    С правом ``schedule.view_all`` доступны слоты любого врача клиники. С правом
+    ``schedule.view_own`` — только собственные: ``doctorId`` обязан совпадать со
+    своим членством, иначе 403 (чтобы врач видел свободное время перед записью).
+
     Длительность слота — из ``Service.duration`` при переданном ``serviceId``,
     иначе 30 минут. Слоты нарезаются с шагом 15 минут.
     """
-    if context.clinic_id is None:
-        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    slots = await use_case.execute(context.clinic_id, doctor_id, day, service_id)
+    doctor_id = resolve_scope_doctor(scope, doctor_id) or doctor_id
+    slots = await use_case.execute(scope.clinic_id, doctor_id, day, service_id)
     return ScheduleSlotsResponse.from_day_slots(slots)
