@@ -13,7 +13,12 @@ from app.modules.appointments.domain.models import (
     AppointmentToothRow,
 )
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import AppointmentStatus, AppointmentToothStatus, AppointmentType
+from app.shared.db.enums import (
+    AppointmentStatus,
+    AppointmentToothStatus,
+    AppointmentType,
+    PaymentMethod,
+)
 
 # Верхняя граница длительности приёма — сутки. Без неё durationMin: 999999999
 # проходит (у приёма без врача проверок занятости нет) и растягивает карточку
@@ -179,3 +184,21 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
     service_id: uuid.UUID | None = Field(
         default=None, description="Основная услуга приёма; null — снять услугу"
     )
+
+
+class CompletePaymentInput(CamelModel):
+    """Оплата, проводимая при завершении приёма (касса)."""
+
+    amount: int = Field(gt=0, description="Сумма платежа в сомах (> 0)", examples=[1500])
+    method: PaymentMethod = Field(description="Способ оплаты", examples=["cash"])
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class CompleteAppointmentRequest(CamelModel):
+    """Завершение приёма с опциональной оплатой.
+
+    Без ``payment`` приём просто закрывается (остаток становится долгом). С
+    ``payment`` оплата проводится в кассу в той же транзакции; переплата → 422.
+    """
+
+    payment: CompletePaymentInput | None = None

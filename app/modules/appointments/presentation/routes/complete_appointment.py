@@ -1,0 +1,80 @@
+"""Роут: POST /clinic/appointments/{id}/complete — завершить и оплатить (complete_pay)."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Depends
+
+from app.core.errors import ForbiddenError
+from app.modules.access.presentation.deps import require_permission
+from app.modules.appointments.application.use_cases.complete_appointment import (
+    CompleteAppointmentUseCase,
+    CompletePayment,
+)
+from app.modules.appointments.presentation.deps import get_complete_appointment_use_case
+from app.modules.appointments.presentation.schemas import (
+    AppointmentDetailResponse,
+    CompleteAppointmentRequest,
+)
+from app.shared.auth import ClientContext
+
+router = APIRouter()
+
+_ERRORS: dict[int | str, dict[str, Any]] = {
+    404: {"description": "Приём не найден"},
+    409: {
+        "description": "Приём уже завершён",
+        "content": {
+            "application/json": {
+                "example": {"error": "already_completed", "message": "Приём уже завершён"}
+            }
+        },
+    },
+    422: {
+        "description": "Отменённый приём нельзя завершить, либо переплата по оплате",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "cannot_complete_cancelled",
+                    "message": "Отменённый приём нельзя завершить",
+                }
+            }
+        },
+    },
+}
+
+
+@router.post(
+    "/clinic/appointments/{appointment_id}/complete",
+    response_model=AppointmentDetailResponse,
+    response_description="Завершённый приём с манипуляциями по зубам",
+    summary="Завершить приём (и опционально оплатить)",
+    responses=_ERRORS,
+)
+async def complete_appointment(
+    appointment_id: uuid.UUID,
+    body: CompleteAppointmentRequest | None = None,
+    context: ClientContext = Depends(require_permission("appointments.complete_pay")),
+    use_case: CompleteAppointmentUseCase = Depends(get_complete_appointment_use_case),
+) -> AppointmentDetailResponse:
+    """Перевести приём в ``completed`` и, если передана оплата, провести её в кассу.
+
+    Смена статуса и платёж атомарны: не прошла оплата (переплата/нет остатка) —
+    завершение откатывается. Без блока ``payment`` приём закрывается, а остаток
+    становится долгом (виден в ``GET /clinic/cash/debts``).
+    """
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    payment = None
+    if body is not None and body.payment is not None:
+        payment = CompletePayment(
+            amount=body.payment.amount,
+            method=body.payment.method,
+            comment=body.payment.comment,
+        )
+    detail = await use_case.execute(
+        context.clinic_id, context.account_id, appointment_id, payment
+    )
+    return AppointmentDetailResponse.from_detail(detail)

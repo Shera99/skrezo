@@ -21,6 +21,7 @@ from app.core.logging import configure_logging
 from app.core.redis import redis_client
 from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import router as audit_router
+from app.modules.cash.presentation.routes import router as cash_router
 from app.modules.catalog.presentation.routes import router as catalog_router
 from app.modules.clients.presentation.routes import router as clients_router
 from app.modules.dashboard.presentation.routes import router as dashboard_router
@@ -109,6 +110,11 @@ OPENAPI_TAGS = [
         "description": "Приёмы (клиника+врач+пациент) и история лечения по зубам.",
     },
     {
+        "name": "cash",
+        "x-displayName": "Касса клиники",
+        "description": "Касса клиники: платежи и возвраты по приёмам, долги, сводка.",
+    },
+    {
         "name": "payments",
         "x-displayName": "Платежи",
         "description": "Платежи Skrezo: журнал и сводка (v1 — заглушка).",
@@ -139,7 +145,7 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "Рабочее приложение клиники",
-        "tags": ["staff", "schedule", "patients", "services", "appointments"],
+        "tags": ["staff", "schedule", "patients", "services", "appointments", "cash"],
     },
     {
         "name": "Публичное и служебное",
@@ -195,6 +201,7 @@ def create_app() -> FastAPI:
     app.include_router(patients_router, prefix=settings.api_v1_prefix)
     app.include_router(services_router, prefix=settings.api_v1_prefix)
     app.include_router(appointments_router, prefix=settings.api_v1_prefix)
+    app.include_router(cash_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)

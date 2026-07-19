@@ -10,6 +10,7 @@ from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_tooth import AppointmentTooth
 from app.shared.db.models.audit_log import AuditLog
+from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
@@ -36,6 +37,7 @@ __all__ = [
     "Appointment",
     "AppointmentTooth",
     "AuditLog",
+    "CashPayment",
     "City",
     "CityTranslation",
     "Clinic",

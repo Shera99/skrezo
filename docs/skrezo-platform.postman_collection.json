@@ -1915,6 +1915,234 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Завершить приём (и опционально оплатить)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments/{{appointment_id}}/complete",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments",
+                    "{{appointment_id}}",
+                    "complete"
+                  ]
+                },
+                "description": "Перевести приём в ``completed`` и, если передана оплата, провести её в кассу.\n\nСмена статуса и платёж атомарны: не прошла оплата (переплата/нет остатка) —\nзавершение откатывается. Без блока ``payment`` приём закрывается, а остаток\nстановится долгом (виден в ``GET /clinic/cash/debts``).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"payment\": {\n    \"amount\": 1500,\n    \"method\": \"cash\",\n    \"comment\": \"string\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "cash",
+          "item": [
+            {
+              "name": "Журнал кассы",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/cash/payments?from=2026-01-01&to=2026-01-01&patientId=00000000-0000-0000-0000-000000000000&method=&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "cash",
+                    "payments"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "С даты (tz клиники)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "По дату включительно"
+                    },
+                    {
+                      "key": "patientId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "method",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Фильтр по способу оплаты"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Операции кассы за период с фильтрами.\n\nС правом ``cash.view_all`` виден журнал всей клиники, с правом\n``cash.view_own`` — только операции, проведённые вызывающим (``recorded_by``)."
+              },
+              "response": []
+            },
+            {
+              "name": "Провести платёж по приёму",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/cash/payments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "cash",
+                    "payments"
+                  ]
+                },
+                "description": "Приход денег в кассу за конкретный приём.\n\nСумма не может превышать остаток по приёму (``price_total − оплачено``);\nпереплата → 422 ``overpayment`` с полем ``outstanding``. Кассир проставляется\nпо членству вызывающего в этой клинике.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"appointmentId\": \"00000000-0000-0000-0000-000000000000\",\n  \"amount\": 1500,\n  \"method\": \"cash\",\n  \"comment\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Возврат по платежу",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/cash/payments/{{payment_id}}/refund",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "cash",
+                    "payments",
+                    "{{payment_id}}",
+                    "refund"
+                  ]
+                },
+                "description": "Полный возврат по конкретному платежу.\n\nВозврат возможен только по платежу и только один раз (повторный → 409).\nУвеличивает остаток по приёму обратно. Скоуп по клинике из токена закрывает\nвозврат чужого платежа (404)."
+              },
+              "response": []
+            },
+            {
+              "name": "Сводка кассы",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/cash/summary?from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "cash",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "С даты (tz клиники)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "По дату включительно"
+                    }
+                  ]
+                },
+                "description": "Итоги кассы за период.\n\nС правом ``cash.view_all`` — по всей клинике, с правом ``cash.view_own`` —\nтолько по своим платежам (``recorded_by``)."
+              },
+              "response": []
+            },
+            {
+              "name": "Долги по приёмам",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/cash/debts?patientId=00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "cash",
+                    "debts"
+                  ],
+                  "query": [
+                    {
+                      "key": "patientId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Завершённые приёмы, по которым остался долг (``price_total > оплачено``).\n\nС правом ``cash.view_all`` — по всей клинике, с правом ``cash.view_own`` —\nтолько по приёмам, где вызывающий лечащий врач (``doctor_membership``)."
+              },
+              "response": []
             }
           ]
         }

@@ -25,6 +25,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Аудит | `audit_log` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
+| **Касса клиники** | `cash_payment` |
 
 ---
 
@@ -69,6 +70,12 @@ erDiagram
     MEMBERSHIP ||--o{ DOCTOR_SCHEDULE : "врач"
     CLINIC ||--o{ DOCTOR_TIME_OFF : "отсутствия"
     MEMBERSHIP ||--o{ DOCTOR_TIME_OFF : "врач"
+
+    CLINIC ||--o{ CASH_PAYMENT : "касса"
+    APPOINTMENT ||--o{ CASH_PAYMENT : "оплата приёма"
+    PATIENT ||--o{ CASH_PAYMENT : "плательщик"
+    MEMBERSHIP ||--o{ CASH_PAYMENT : "кассир (опц.)"
+    CASH_PAYMENT ||--o| CASH_PAYMENT : "возврат→платёж"
 
     ACCOUNT {
         uuid id PK
@@ -274,6 +281,19 @@ erDiagram
         timestamptz ends_at
         text reason "nullable"
     }
+    CASH_PAYMENT {
+        uuid id PK
+        uuid clinic_id FK
+        uuid appointment_id FK "приём"
+        uuid patient_id FK "плательщик"
+        int amount "сомы, > 0"
+        enum method "cash|card|transfer"
+        enum kind "payment|refund"
+        uuid recorded_by_membership_id FK "кассир, nullable"
+        uuid refunds_payment_id FK "исходный платёж (для возврата), nullable"
+        text comment "nullable"
+        timestamptz created_at
+    }
 ```
 
 > `UNIQUE(patient_id, tooth_number)` на `patient_tooth`; `UNIQUE(<entity>_id, lang)`
@@ -312,6 +332,8 @@ erDiagram
 | `appointment_type` | `consultation`, `treatment`, `operation`, `cleaning`, `xray` | appointment |
 | `appointment_status` | `scheduled`, `confirmed`, `in_progress`, `completed`, `cancelled`, `no_show` | appointment |
 | `appointment_tooth_status` | `planned`, `started`, `completed`, `cancelled` | appointment_tooth |
+| `payment_method` | `cash`, `card`, `transfer` | cash_payment |
+| `payment_kind` | `payment`, `refund` | cash_payment |
 
 ---
 
@@ -352,6 +374,8 @@ patient ──1:N── patient_tooth ──1:N── appointment_tooth ──N:
 | `doctor_schedule` / `doctor_time_off` | clinic_id, membership_id | CASCADE |
 | `appointment_tooth` | appointment_id, patient_tooth_id | CASCADE |
 | `appointment_tooth` | service_id, doctor_membership_id | SET NULL |
+| `cash_payment` | clinic_id, appointment_id, patient_id | CASCADE |
+| `cash_payment` | recorded_by_membership_id, refunds_payment_id | SET NULL |
 | `clinic` | city_id | (без каскада) |
 | `tariff_version` / `audit_log` | created_by / actor_id → account | (без каскада) |
 | `lead` | converted_clinic_id | (без каскада, nullable) |

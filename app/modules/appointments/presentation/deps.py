@@ -6,6 +6,9 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.appointments.application.use_cases.complete_appointment import (
+    CompleteAppointmentUseCase,
+)
 from app.modules.appointments.application.use_cases.create_appointment import (
     CreateAppointmentUseCase,
 )
@@ -17,6 +20,7 @@ from app.modules.appointments.application.use_cases.update_appointment import (
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.cash.application.services.cash_service import CashService, build_cash_service
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     build_availability_service,
@@ -62,3 +66,16 @@ def get_update_appointment_use_case(
     availability: AvailabilityService = Depends(get_availability_service),
 ) -> UpdateAppointmentUseCase:
     return UpdateAppointmentUseCase(session, appointments, availability)
+
+
+def get_cash_service(session: AsyncSession = Depends(get_session)) -> CashService:
+    """Кассовый сервис из модуля кассы (общие правила проведения оплаты)."""
+    return build_cash_service(session)
+
+
+def get_complete_appointment_use_case(
+    session: AsyncSession = Depends(get_session),
+    appointments: AppointmentRepository = Depends(get_appointment_repository),
+    cash: CashService = Depends(get_cash_service),
+) -> CompleteAppointmentUseCase:
+    return CompleteAppointmentUseCase(session, appointments, cash)

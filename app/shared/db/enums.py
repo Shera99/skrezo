@@ -82,6 +82,21 @@ class AppointmentToothStatus(enum.StrEnum):
     CANCELLED = "cancelled"
 
 
+class PaymentMethod(enum.StrEnum):
+    """Способ оплаты в кассе клиники."""
+
+    CASH = "cash"  # наличные
+    CARD = "card"  # карта
+    TRANSFER = "transfer"  # перевод/безнал
+
+
+class PaymentKind(enum.StrEnum):
+    """Направление кассовой операции: приход денег или возврат."""
+
+    PAYMENT = "payment"  # платёж (приход)
+    REFUND = "refund"  # возврат (расход)
+
+
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
@@ -105,4 +120,10 @@ AppointmentToothStatusType = SAEnum(
     AppointmentToothStatus,
     name="appointment_tooth_status",
     values_callable=lambda e: [m.value for m in e],
+)
+PaymentMethodType = SAEnum(
+    PaymentMethod, name="payment_method", values_callable=lambda e: [m.value for m in e]
+)
+PaymentKindType = SAEnum(
+    PaymentKind, name="payment_kind", values_callable=lambda e: [m.value for m in e]
 )
