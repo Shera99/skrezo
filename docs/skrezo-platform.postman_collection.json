@@ -956,6 +956,235 @@
           ]
         },
         {
+          "name": "reports-admin",
+          "item": [
+            {
+              "name": "Свод по клиникам (выбор клиники)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "reports",
+                    "clinics"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Ключевые метрики по каждой клинике платформы — экран выбора клиники.\n\nОтсюда фронт переходит в отчёты конкретной клиники\n(``/admin/reports/clinics/{clinicId}/...``). Период здесь считается в таймзоне\nплатформы: у клиник она может различаться, а свод — один общий срез."
+              },
+              "response": []
+            },
+            {
+              "name": "Сводка отчётов выбранной клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/summary?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "reports",
+                    "clinics",
+                    "{{clinic_id}}",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Та же сводка, что видит клиника, но по любой клинике платформы.\n\nОграничений по врачу нет: Skrezo видит полный срез. Период считается в\nтаймзоне выбранной клиники."
+              },
+              "response": []
+            },
+            {
+              "name": "Динамика выручки выбранной клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/revenue?groupBy=&period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "reports",
+                    "clinics",
+                    "{{clinic_id}}",
+                    "revenue"
+                  ],
+                  "query": [
+                    {
+                      "key": "groupBy",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Шаг ряда: day | month"
+                    },
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Выручка выбранной клиники по дням или месяцам (по дате платежа)."
+              },
+              "response": []
+            },
+            {
+              "name": "Отчёт по врачам выбранной клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/doctors?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "reports",
+                    "clinics",
+                    "{{clinic_id}}",
+                    "doctors"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Все врачи выбранной клиники за период, по убыванию начисленного."
+              },
+              "response": []
+            },
+            {
+              "name": "Топ услуг выбранной клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/services?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "reports",
+                    "clinics",
+                    "{{clinic_id}}",
+                    "services"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Услуги выбранной клиники за период по убыванию выручки."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "audit",
           "item": [
             {
@@ -2141,6 +2370,185 @@
                   ]
                 },
                 "description": "Завершённые приёмы, по которым остался долг (``price_total > оплачено``).\n\nС правом ``cash.view_all`` — по всей клинике, с правом ``cash.view_own`` —\nтолько по приёмам, где вызывающий лечащий врач (``doctor_membership``)."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "reports",
+          "item": [
+            {
+              "name": "Сводка отчётов клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reports/summary?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reports",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Всё для экрана отчётов одним запросом.\n\nДеньги считаются по дате платежа, приёмы и производное от них — по дате\nприёма. С правом ``reports.view_all`` — по всей клинике, с ``reports.view_own``\nвсе разрезы сужены до приёмов, где вызывающий лечащий врач."
+              },
+              "response": []
+            },
+            {
+              "name": "Динамика выручки",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reports/revenue?groupBy=&period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reports",
+                    "revenue"
+                  ],
+                  "query": [
+                    {
+                      "key": "groupBy",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Шаг ряда: day | month"
+                    },
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Выручка по дням или месяцам — по дате платежа, в таймзоне клиники.\n\nС правом ``reports.view_own`` учитываются только платежи по приёмам, где\nвызывающий лечащий врач."
+              },
+              "response": []
+            },
+            {
+              "name": "Отчёт по врачам",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reports/doctors?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reports",
+                    "doctors"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Показатели врачей за период, по убыванию начисленного.\n\nС правом ``reports.view_all`` — все врачи клиники; с ``reports.view_own`` в\nвыдаче останется одна строка — сам вызывающий."
+              },
+              "response": []
+            },
+            {
+              "name": "Топ услуг",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reports/services?period=1m&from=2026-01-01&to=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reports",
+                    "services"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "1m",
+                      "disabled": true,
+                      "description": "Пресет периода: 7d | 1m | 3m | all (по умолчанию 1m)"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Начало произвольного периода (перекрывает пресет)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Конец периода включительно"
+                    }
+                  ]
+                },
+                "description": "Услуги за период по убыванию выручки.\n\nСчитается по фактическим манипуляциям (``appointment_tooth``), а не по\nосновной услуге приёма; манипуляции без услуги сводятся в «Без услуги».\nС правом ``reports.view_own`` — только по своим приёмам."
               },
               "response": []
             }

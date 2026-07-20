@@ -67,6 +67,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `appointments` | приёмы (клиника+врач=membership+пациент) и история лечения по зубам (RBAC `appointments.*`) | `appointment`, `appointment_tooth` | 9 ✅ |
 | `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |
+| `reports` | операционная аналитика: выручка, врачи, услуги, пациенты, долг. Два контура: клиентский (RBAC `reports.view_own`/`view_all`) и платформенный (`is_platform_admin`, свод по всем клиникам + любая клиника). Своих таблиц нет — агрегирует приёмы и кассу | читает appointment(_tooth)/cash_payment/membership | 12 ✅ |
 | `notifications` | каналы SMS/Telegram/WhatsApp | — | 2+ |
 
 ## 4. Модель данных

@@ -29,6 +29,8 @@ from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
+from app.modules.reports.presentation.routes import admin_router as reports_admin_router
+from app.modules.reports.presentation.routes import router as reports_router
 from app.modules.schedule.presentation.routes import router as schedule_router
 from app.modules.services.presentation.routes import router as services_router
 from app.modules.staff.presentation.routes import router as staff_router
@@ -115,6 +117,22 @@ OPENAPI_TAGS = [
         "description": "Касса клиники: платежи и возвраты по приёмам, долги, сводка.",
     },
     {
+        "name": "reports",
+        "x-displayName": "Отчёты клиники",
+        "description": (
+            "Операционные отчёты клиники: выручка, врачи, услуги, пациенты. "
+            "Право `reports.view_all` — вся клиника, `reports.view_own` — только свои приёмы."
+        ),
+    },
+    {
+        "name": "reports-admin",
+        "x-displayName": "Отчёты по клиникам",
+        "description": (
+            "Отчёты Skrezo: свод по всем клиникам (выбор клиники) и полный набор "
+            "отчётов по выбранной клинике без ограничений по врачу."
+        ),
+    },
+    {
         "name": "payments",
         "x-displayName": "Платежи",
         "description": "Платежи Skrezo: журнал и сводка (v1 — заглушка).",
@@ -141,11 +159,13 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "Админ-панель Skrezo",
-        "tags": ["clients", "tariffs", "payments", "dashboard", "audit"],
+        "tags": ["clients", "tariffs", "payments", "dashboard", "reports-admin", "audit"],
     },
     {
         "name": "Рабочее приложение клиники",
-        "tags": ["staff", "schedule", "patients", "services", "appointments", "cash"],
+        "tags": [
+            "staff", "schedule", "patients", "services", "appointments", "cash", "reports",
+        ],
     },
     {
         "name": "Публичное и служебное",
@@ -202,6 +222,8 @@ def create_app() -> FastAPI:
     app.include_router(services_router, prefix=settings.api_v1_prefix)
     app.include_router(appointments_router, prefix=settings.api_v1_prefix)
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
+    app.include_router(reports_router, prefix=settings.api_v1_prefix)
+    app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
