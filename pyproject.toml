@@ -3,7 +3,7 @@ name = "skrezo-platform"
 version = "0.1.0"
 description = "Skrezo — бэкенд платформенной зоны (админка) и клиентского OTP-входа"
 readme = "README.md"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
@@ -38,7 +38,7 @@ dev = [
 package = false
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 src = ["app", "tests"]
 
@@ -55,7 +55,7 @@ ignore = [
 known-first-party = ["app"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 plugins = ["pydantic.mypy"]
 strict = true
 warn_unused_ignores = true

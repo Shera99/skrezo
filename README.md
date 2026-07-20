@@ -37,7 +37,7 @@
 
 ## Требования
 
-- Python **3.12+** (проект запинен на 3.12 через `.python-version`)
+- Python **3.14** (проект запинен на 3.14 через `.python-version`; образ — `python:3.14-slim`)
 - [uv](https://docs.astral.sh/uv/) — менеджер зависимостей
 - Docker + Docker Compose (для Postgres/Redis и полного стека)
 

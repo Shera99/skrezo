@@ -34,7 +34,7 @@ session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
 )
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession]:
     """FastAPI-зависимость: сессия БД с автозакрытием.
 
     Коммит/роллбак — ответственность прикладного слоя (Unit of Work),
