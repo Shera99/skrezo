@@ -53,7 +53,8 @@ DDD. Документ фиксирует принципы, границы мод
 | `clinics` | провижининг (ручное, командой Skrezo; владельцу — временный пароль); роутов не публикует — создание аккаунта под `/admin/clients` | `account`, `membership`, `clinic` (в shared) | 3 ✅ |
 | `clients` | админ: список (offset-пагинация)/карточка/создание/правка, врачи (админ-сайд), phone-check, счётчики статусов, смена номера, архивация | clinic/account/membership/subscription (в shared) | 6 ✅ |
 | `staff` | клиент-сайд: сотрудники клиники (RBAC; работнику — временный пароль) | membership/account/role (в shared) | 6b ✅ |
-| `identity` | **единый вход** всех (телефон + пароль), смена пароля, выбор клиники | `account` (в shared) | 2b ✅ |
+| `identity` | вход: сотрудники клиник — телефон + пароль, соло-врачи — OTP (passwordless) + self-service регистрация с триалом; смена пароля, выбор клиники | `account` (в shared) | 2b ✅ / 12 |
+| `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 |
 | `leads` | лид-форма «Больше одного» + Telegram-нотификация | `lead` | 3a ✅ |
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
@@ -169,8 +170,20 @@ DDD. Документ фиксирует принципы, границы мод
   работнику выдаётся **временным** (`must_change_password=true`): `login` вернёт
   `mustChangePassword=true`, нужно вызвать `change-password`. Мультиклиничный
   аккаунт выбирает клинику через `select-clinic`. Refresh-токены — в Redis
-  (allowlist/revoke). Регистрацию клиник ведёт только команда Skrezo; self-service
-  соло-регистрации нет. Вход пациентов по OTP — в приложении glo, вне сервиса.
+  (allowlist/revoke). Клиники заводит только команда Skrezo.
+- **Соло-врачи — OTP** (`identity`) ✅: passwordless-вход и self-service
+  регистрация. `POST /auth/otp/request` → `otp/verify` (нет аккаунта →
+  `registrationToken`) → `solo/register` (имя + профессия + город) создаёт
+  passwordless-аккаунт, клинику `solo`, членство-владельца со специализацией и
+  30-дневный триал. Повторный вход — тем же OTP. Номер с паролем (сотрудник
+  клиники) по OTP не логинится. Код хранится в Redis (TTL, счётчик попыток);
+  **канал доставки (SMS/WhatsApp) не выбран** — код логируется/`devCode` в dev.
+  Вход пациентов по OTP — в приложении glo, вне сервиса.
+- **Триал-функции** (`access`) ✅: клиника на триале использует только права с
+  `permission.in_trial=true` (по умолчанию все); набор настраивается из
+  `/admin/trial-features`. Ограничение (`403 trial_restricted`) применяют все
+  guard'ы — общий `require_permission` и скоуп-guard'ы расписания/кассы/отчётов,
+  включая владельца. Кеш триал-прав и статуса подписки — в Redis.
 - **Доступ к `/admin/*`** (`platform_auth` — только гвард) ✅: зависимость
   `get_authenticated_user_id` поверх общего контекста требует `platform_admin`
   (иначе 403 `not_platform_admin`) и возвращает `account_id` (actor аудита).

@@ -46,6 +46,10 @@ class ProvisionCommand:
     seats_limit: int | None = None
     lang: Lang = Lang.RU
     lead_id: uuid.UUID | None = None
+    # Специализация владельца (соло-врач = practitioner); NULL для клиники.
+    specialization_id: uuid.UUID | None = None
+    # true — passwordless-аккаунт (соло-врач входит по OTP, пароль не выдаётся).
+    passwordless: bool = False
 
 
 @dataclass(slots=True)
@@ -54,7 +58,7 @@ class ProvisionResult:
     account: Account
     owner_role_id: uuid.UUID
     subscription_id: uuid.UUID
-    temp_password: str  # временный пароль владельца (показать один раз)
+    temp_password: str | None  # временный пароль владельца (None для passwordless)
 
 
 class ProvisioningService:
@@ -82,6 +86,10 @@ class ProvisioningService:
             raise ConflictError("Этот номер уже используется", code="phone_already_used")
         if command.city_id is not None and not await self._clinics.city_exists(command.city_id):
             raise ValidationAppError("Город не найден", code="city_not_found")
+        if command.specialization_id is not None and not await self._clinics.specialization_exists(
+            command.specialization_id
+        ):
+            raise ValidationAppError("Специализация не найдена", code="specialization_not_found")
 
         # Для соло название клиники = имя врача (отдельного названия нет).
         clinic_name = command.clinic_name or command.admin_full_name
@@ -95,16 +103,21 @@ class ProvisioningService:
             lang=command.lang,
         )
         owner_role_id = await self._roles.clone_templates_for_clinic(clinic.id)
-        temp_password = generate_temp_password()
+        # Passwordless (соло-врач по OTP) — без пароля и без принуждения к смене.
+        temp_password = None if command.passwordless else generate_temp_password()
         account = await self._accounts.create(
             phone=phone,
             full_name=command.admin_full_name,
             lang=command.lang,
             onboarded=False,
-            password_hash=hash_password(temp_password),
+            password_hash=hash_password(temp_password) if temp_password is not None else None,
+            must_change_password=not command.passwordless,
         )
         await self._memberships.create(
-            clinic_id=clinic.id, account_id=account.id, role_id=owner_role_id
+            clinic_id=clinic.id,
+            account_id=account.id,
+            role_id=owner_role_id,
+            specialization_id=command.specialization_id,
         )
         subscription = await self._subscriptions.create_trial(clinic.id)
         if command.lead_id is not None:
@@ -112,3 +125,33 @@ class ProvisioningService:
 
         await self._session.commit()
         return ProvisionResult(clinic, account, owner_role_id, subscription.id, temp_password)
+
+
+def build_provisioning_service(session: AsyncSession) -> ProvisioningService:
+    """Собрать провижининг поверх сессии (все репозитории — одна транзакция).
+
+    Провайдер в application-слое, чтобы соседний модуль ``identity`` (соло-
+    регистрация) брал сервис отсюда, а не тянул ``clinics.presentation.deps``.
+    """
+    from app.modules.access.infrastructure.repositories.role_provisioning_repository import (
+        RoleProvisioningRepository,
+    )
+    from app.modules.clinics.infrastructure.repositories.account_repository import AccountRepository
+    from app.modules.clinics.infrastructure.repositories.clinic_repository import ClinicRepository
+    from app.modules.clinics.infrastructure.repositories.membership_repository import (
+        MembershipRepository,
+    )
+    from app.modules.leads.infrastructure.repositories.lead_repository import LeadRepository
+    from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
+        SubscriptionRepository,
+    )
+
+    return ProvisioningService(
+        session=session,
+        clinics=ClinicRepository(session),
+        accounts=AccountRepository(session),
+        memberships=MembershipRepository(session),
+        roles=RoleProvisioningService(RoleProvisioningRepository(session)),
+        subscriptions=SubscriptionService(SubscriptionRepository(session)),
+        leads=LeadRepository(session),
+    )

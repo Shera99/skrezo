@@ -61,6 +61,8 @@ async def create_account(
         entity_id=result.clinic.id,
         payload={"type": result.clinic.type.value},
     )
+    # Админский провижининг всегда с паролем (passwordless — только соло по OTP).
+    assert result.temp_password is not None
     return AccountCreatedResponse(
         id=result.clinic.id,
         type=result.clinic.type,

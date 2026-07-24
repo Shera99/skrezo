@@ -1,7 +1,9 @@
-"""Зависимости RBAC: резолвер прав и guard ``require_permission``.
+"""Зависимости RBAC: резолвер прав, триал-политика и guard ``require_permission``.
 
 ``require_permission("key")`` — фабрика FastAPI-зависимости для защиты ручек
-клиентского контура. Владелец (``is_owner``) проходит любую проверку.
+клиентского контура. Владелец (``is_owner``) проходит проверку прав роли, но на
+триале и он ограничен набором триал-функций: эффективный доступ =
+(право у роли ИЛИ владелец) И (клиника не на триале ИЛИ право входит в триал).
 """
 
 from __future__ import annotations
@@ -16,7 +18,15 @@ from app.core.db import get_session
 from app.core.errors import ForbiddenError
 from app.core.redis import get_redis
 from app.modules.access.application.services.permission_resolver import PermissionResolver
+from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.application.use_cases.get_trial_features import GetTrialFeaturesUseCase
+from app.modules.access.application.use_cases.update_trial_features import (
+    UpdateTrialFeaturesUseCase,
+)
 from app.modules.access.infrastructure.repositories.role_repository import RoleRepository
+from app.modules.access.infrastructure.repositories.trial_policy_repository import (
+    TrialPolicyRepository,
+)
 from app.shared.auth import ClientContext, get_client_context
 
 
@@ -31,6 +41,33 @@ def get_permission_resolver(
     return PermissionResolver(role_repository, redis)
 
 
+def get_trial_policy_repository(
+    session: AsyncSession = Depends(get_session),
+) -> TrialPolicyRepository:
+    return TrialPolicyRepository(session)
+
+
+def get_trial_policy(
+    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
+    redis: Redis = Depends(get_redis),
+) -> TrialPolicy:
+    return TrialPolicy(repository, redis)
+
+
+def get_get_trial_features_use_case(
+    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
+) -> GetTrialFeaturesUseCase:
+    return GetTrialFeaturesUseCase(repository)
+
+
+def get_update_trial_features_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
+    trial: TrialPolicy = Depends(get_trial_policy),
+) -> UpdateTrialFeaturesUseCase:
+    return UpdateTrialFeaturesUseCase(session, repository, trial)
+
+
 def require_permission(
     permission_key: str,
 ) -> Callable[..., Awaitable[ClientContext]]:
@@ -39,14 +76,18 @@ def require_permission(
     async def _guard(
         context: ClientContext = Depends(get_client_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
+        trial: TrialPolicy = Depends(get_trial_policy),
     ) -> ClientContext:
         if context.role_id is None:
             raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
         resolved = await resolver.resolve(context.role_id)
         if resolved is None:
             raise ForbiddenError("Роль не найдена")
-        if resolved.is_owner or permission_key in resolved.permissions:
-            return context
-        raise ForbiddenError("Недостаточно прав")
+        if not (resolved.is_owner or permission_key in resolved.permissions):
+            raise ForbiddenError("Недостаточно прав")
+        # На триале доступны только функции из настраиваемого админкой списка.
+        if not await trial.permits(context.clinic_id, permission_key):
+            raise ForbiddenError("Функция недоступна на триале", code="trial_restricted")
+        return context
 
     return _guard

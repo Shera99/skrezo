@@ -6,6 +6,7 @@ import uuid
 
 from pydantic import Field
 
+from app.modules.identity.application.use_cases.login import LoginResult
 from app.modules.identity.domain.models import MembershipContext
 from app.shared.api.schemas import CamelModel
 
@@ -72,6 +73,63 @@ class ClientTokenResponse(ClientTokensOut):
     is_platform_admin: bool = Field(
         default=False, description="Сотрудник команды Skrezo (доступ к админ-панели /admin/*)"
     )
+
+    @classmethod
+    def from_login_result(cls, result: LoginResult) -> ClientTokenResponse:
+        return cls(
+            access_token=result.tokens.access_token,
+            refresh_token=result.tokens.refresh_token,
+            expires_in=result.tokens.expires_in,
+            account=AccountOut.model_validate(result.account),
+            clinics=[ClinicMembershipOut.from_context(m) for m in result.memberships],
+            active_clinic_id=result.active_clinic_id,
+            must_change_password=result.must_change_password,
+            is_platform_admin=result.is_platform_admin,
+        )
+
+
+class OtpRequestRequest(CamelModel):
+    """Шаг 1: запрос кода на телефон."""
+
+    phone: str = Field(description="Телефон, любой формат — нормализуется в E.164")
+
+
+class OtpRequestResponse(CamelModel):
+    """Код выпущен и отправлен (для одинакового ответа независимо от наличия аккаунта)."""
+
+    sent: bool = True
+    dev_code: str | None = Field(
+        default=None,
+        description="Код в dev-режиме (канал доставки не выбран); в проде всегда null",
+    )
+
+
+class OtpVerifyRequest(CamelModel):
+    """Шаг 2: подтверждение кода."""
+
+    phone: str = Field(description="Тот же телефон, что в запросе кода")
+    code: str = Field(min_length=4, max_length=8, description="Код из сообщения")
+
+
+class OtpVerifyResponse(CamelModel):
+    """Итог проверки кода: вход (``auth``) либо переход к анкете (``registrationToken``)."""
+
+    status: str = Field(description="authenticated — вошёл; registration_required — нужна анкета")
+    registration_token: str | None = Field(
+        default=None, description="Билет для POST /auth/solo/register (одноразовый)"
+    )
+    auth: ClientTokenResponse | None = Field(
+        default=None, description="Токены и профиль при status=authenticated"
+    )
+
+
+class SoloRegisterRequest(CamelModel):
+    """Шаг 3: анкета соло-врача после подтверждённого OTP."""
+
+    registration_token: str = Field(description="Билет из ответа /auth/otp/verify")
+    full_name: str = Field(min_length=2, description="Имя врача")
+    specialization_id: uuid.UUID = Field(description="Профессия из GET /specializations")
+    city_id: uuid.UUID = Field(description="Город из GET /cities")
 
 
 class RefreshRequest(CamelModel):

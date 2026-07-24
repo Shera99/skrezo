@@ -24,7 +24,7 @@ class AccountRepository:
         full_name: str,
         lang: Lang,
         onboarded: bool,
-        password_hash: str,
+        password_hash: str | None,  # None — passwordless-аккаунт (соло-врач, вход по OTP)
         must_change_password: bool = True,
     ) -> Account:
         account = Account(

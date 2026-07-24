@@ -19,6 +19,7 @@ from app.core.db import engine
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.redis import redis_client
+from app.modules.access.presentation.routes import admin_router as access_admin_router
 from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import router as audit_router
 from app.modules.cash.presentation.routes import router as cash_router
@@ -143,6 +144,11 @@ OPENAPI_TAGS = [
         "description": "Дашборд: метрики за период (active/trial/риски).",
     },
     {
+        "name": "trial-features",
+        "x-displayName": "Триал-функции",
+        "description": "Настройка набора прав, доступных клиникам на 30-дневном триале.",
+    },
+    {
         "name": "audit",
         "x-displayName": "Аудит",
         "description": "Журнал аудита мутаций платформенной зоны.",
@@ -159,7 +165,10 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "Админ-панель Skrezo",
-        "tags": ["clients", "tariffs", "payments", "dashboard", "reports-admin", "audit"],
+        "tags": [
+            "clients", "tariffs", "payments", "dashboard", "reports-admin",
+            "trial-features", "audit",
+        ],
     },
     {
         "name": "Рабочее приложение клиники",
@@ -224,6 +233,7 @@ def create_app() -> FastAPI:
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
+    app.include_router(access_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)

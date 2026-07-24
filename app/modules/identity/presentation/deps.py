@@ -9,14 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.redis import get_redis
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.presentation.deps import get_permission_resolver
+from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.presentation.deps import get_permission_resolver, get_trial_policy
+from app.modules.clinics.application.services.provisioning_service import build_provisioning_service
 from app.modules.identity.application.services.client_token_service import ClientTokenService
+from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
+from app.modules.identity.application.services.otp_service import OtpService
 from app.modules.identity.application.use_cases.change_password import ChangePasswordUseCase
 from app.modules.identity.application.use_cases.get_me import GetMeUseCase
 from app.modules.identity.application.use_cases.login import LoginUseCase
 from app.modules.identity.application.use_cases.logout import LogoutUseCase
 from app.modules.identity.application.use_cases.refresh_token import RefreshTokenUseCase
+from app.modules.identity.application.use_cases.register_solo import RegisterSoloUseCase
+from app.modules.identity.application.use_cases.request_otp import RequestOtpUseCase
 from app.modules.identity.application.use_cases.select_clinic import SelectClinicUseCase
+from app.modules.identity.application.use_cases.verify_otp import VerifyOtpUseCase
 from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
 from app.modules.identity.infrastructure.repositories.membership_repository import (
     MembershipRepository,
@@ -41,6 +48,36 @@ def get_login_use_case(
     tokens: ClientTokenService = Depends(get_client_token_service),
 ) -> LoginUseCase:
     return LoginUseCase(accounts, memberships, tokens)
+
+
+def get_otp_service(redis: Redis = Depends(get_redis)) -> OtpService:
+    return OtpService(redis, OtpDeliveryService())
+
+
+def get_request_otp_use_case(otp: OtpService = Depends(get_otp_service)) -> RequestOtpUseCase:
+    return RequestOtpUseCase(otp)
+
+
+def get_verify_otp_use_case(
+    otp: OtpService = Depends(get_otp_service),
+    accounts: AccountRepository = Depends(get_account_repository),
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> VerifyOtpUseCase:
+    return VerifyOtpUseCase(otp, accounts, memberships, tokens)
+
+
+def get_register_solo_use_case(
+    session: AsyncSession = Depends(get_session),
+    otp: OtpService = Depends(get_otp_service),
+    accounts: AccountRepository = Depends(get_account_repository),
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> RegisterSoloUseCase:
+    # Провижининг делит ту же сессию → создание соло атомарно.
+    return RegisterSoloUseCase(
+        otp, build_provisioning_service(session), accounts, memberships, tokens
+    )
 
 
 def get_change_password_use_case(
@@ -73,5 +110,6 @@ def get_get_me_use_case(
     accounts: AccountRepository = Depends(get_account_repository),
     memberships: MembershipRepository = Depends(get_membership_repository),
     resolver: PermissionResolver = Depends(get_permission_resolver),
+    trial: TrialPolicy = Depends(get_trial_policy),
 ) -> GetMeUseCase:
-    return GetMeUseCase(accounts, memberships, resolver)
+    return GetMeUseCase(accounts, memberships, resolver, trial)

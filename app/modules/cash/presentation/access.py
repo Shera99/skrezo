@@ -19,7 +19,8 @@ from fastapi import Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.presentation.deps import get_permission_resolver
+from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.presentation.deps import get_permission_resolver, get_trial_policy
 from app.modules.cash.infrastructure.repositories.cash_repository import CashRepository
 from app.modules.cash.presentation.deps import get_cash_repository
 from app.shared.auth import ClientContext, get_client_context
@@ -48,6 +49,7 @@ async def require_cash_read(
     context: ClientContext = Depends(get_client_context),
     resolver: PermissionResolver = Depends(get_permission_resolver),
     cash: CashRepository = Depends(get_cash_repository),
+    trial: TrialPolicy = Depends(get_trial_policy),
 ) -> CashReadScope:
     """Гвард чтения кассы: view_all → вся клиника, иначе view_own → только своё."""
     if context.role_id is None or context.clinic_id is None:
@@ -60,6 +62,9 @@ async def require_cash_read(
     allowed = unrestricted or "cash.view_own" in resolved.permissions
     if not allowed:
         raise ForbiddenError("Недостаточно прав")
+    effective_key = "cash.view_all" if unrestricted else "cash.view_own"
+    if not await trial.permits(context.clinic_id, effective_key):
+        raise ForbiddenError("Функция недоступна на триале", code="trial_restricted")
 
     own_membership_id = (
         None if unrestricted else await cash.own_membership(context.account_id, context.clinic_id)

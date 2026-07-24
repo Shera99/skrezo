@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.db.enums import ClinicType, Lang
 from app.shared.db.models.city import City
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.specialization import Specialization
 
 
 class ClinicRepository:
@@ -18,6 +19,12 @@ class ClinicRepository:
 
     async def city_exists(self, city_id: uuid.UUID) -> bool:
         result = await self._session.execute(select(City.id).where(City.id == city_id))
+        return result.scalar_one_or_none() is not None
+
+    async def specialization_exists(self, specialization_id: uuid.UUID) -> bool:
+        result = await self._session.execute(
+            select(Specialization.id).where(Specialization.id == specialization_id)
+        )
         return result.scalar_one_or_none() is not None
 
     async def create(

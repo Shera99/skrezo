@@ -20,7 +20,8 @@ from fastapi import Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.presentation.deps import get_permission_resolver
+from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.presentation.deps import get_permission_resolver, get_trial_policy
 from app.modules.reports.infrastructure.repositories.reports_repository import ReportsRepository
 from app.modules.reports.presentation.deps import get_reports_repository
 from app.shared.auth import ClientContext, get_client_context
@@ -45,6 +46,7 @@ async def require_reports_read(
     context: ClientContext = Depends(get_client_context),
     resolver: PermissionResolver = Depends(get_permission_resolver),
     reports: ReportsRepository = Depends(get_reports_repository),
+    trial: TrialPolicy = Depends(get_trial_policy),
 ) -> ReportsScope:
     """Гвард отчётов: view_all → вся клиника, иначе view_own → только свои приёмы."""
     if context.role_id is None or context.clinic_id is None:
@@ -57,6 +59,9 @@ async def require_reports_read(
     allowed = unrestricted or "reports.view_own" in resolved.permissions
     if not allowed:
         raise ForbiddenError("Недостаточно прав")
+    effective_key = "reports.view_all" if unrestricted else "reports.view_own"
+    if not await trial.permits(context.clinic_id, effective_key):
+        raise ForbiddenError("Функция недоступна на триале", code="trial_restricted")
 
     own_membership_id = (
         None

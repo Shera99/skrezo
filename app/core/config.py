@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     lead_rate_window_sec: int = 3600  # …за час
     change_password_rate_limit: int = 10
     change_password_rate_window_sec: int = 60
+    otp_request_rate_limit: int = 5  # запросов кода на пару IP+телефон
+    otp_request_rate_window_sec: int = 300  # …за 5 минут
+
+    # ── OTP-вход соло-врачей ────────────────────────────────────────────────
+    otp_length: int = 6
+    otp_ttl_seconds: int = 300  # срок жизни кода
+    otp_max_attempts: int = 5  # неверных попыток на код до блокировки
+    otp_registration_ttl_seconds: int = 900  # срок жизни registrationToken после verify
+    # true — вернуть код в ответе /auth/otp/request (dev/тесты, канал доставки не выбран).
+    otp_expose_code: bool = False
 
     # ── Уведомления команды Skrezo ──────────────────────────────────────────
     telegram_team_bot_token: str = ""

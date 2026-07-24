@@ -79,6 +79,114 @@
               ]
             },
             {
+              "name": "Запросить OTP-код",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/otp/request",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "otp",
+                    "request"
+                  ]
+                },
+                "description": "Шаг 1: выпустить 6-значный код и отправить на телефон.\n\nОтвет не раскрывает, зарегистрирован ли номер. Канал доставки (SMS/WhatsApp)\nпока не подключён: код уходит в лог, а при ``OTP_EXPOSE_CODE`` (dev) —\nвозвращается в поле ``devCode``.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Подтвердить OTP-код",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/otp/verify",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "otp",
+                    "verify"
+                  ]
+                },
+                "description": "Шаг 2: проверить код и развести три случая.\n\n* аккаунта нет → ``registration_required`` + ``registrationToken`` (клиент\n  показывает анкету и вызывает ``POST /auth/solo/register``);\n* соло-аккаунт (без пароля) → ``authenticated`` + токены в ``auth``;\n* номер сотрудника клиники (с паролем) → 409 ``use_password_login``.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"string\",\n  \"code\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Регистрация соло-врача",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/solo/register",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "solo",
+                    "register"
+                  ]
+                },
+                "description": "Шаг 3: имя + профессия + город. Телефон берётся из билета OTP, не из тела.\n\nСоздаёт соло-аккаунт (passwordless — дальше вход по OTP), клинику типа\n``solo``, членство владельца со специализацией и 30-дневный триал, затем сразу\nвыдаёт токены. Набор функций на триале ограничен списком из админки.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"registrationToken\": \"string\",\n  \"fullName\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\",\n  \"cityId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
               "name": "Сменить пароль",
               "request": {
                 "method": "POST",
@@ -1179,6 +1287,67 @@
                   ]
                 },
                 "description": "Услуги выбранной клиники за период по убыванию выручки."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "trial-features",
+          "item": [
+            {
+              "name": "Набор функций, доступных на триале",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/trial-features",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "trial-features"
+                  ]
+                },
+                "description": "Каталог прав с флагом ``inTrial`` — экран настройки триала в админке.\n\nКлиника на 30-дневном триале видит и использует только права с ``inTrial=true``;\nостальное открывается после перехода на платный тариф. Группировать по\n``groupKey`` на фронте."
+              },
+              "response": []
+            },
+            {
+              "name": "Настроить набор триал-функций",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/trial-features",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "trial-features"
+                  ]
+                },
+                "description": "Пакетно включить/выключить права на триале.\n\nПрименяется сразу (кеш триал-прав сбрасывается). Неизвестный ключ → 422, ни\nодно право не меняется. Действие пишется в аудит платформы.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"items\": [\n    {\n      \"key\": \"reports.view_all\",\n      \"inTrial\": true\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "response": []
             }

@@ -121,6 +121,7 @@ erDiagram
         text group_key
         text description
         int sort_order
+        bool in_trial "доступно ли на триале (настройка админки)"
     }
     ROLE_PERMISSION {
         uuid role_id FK "составной PK"
