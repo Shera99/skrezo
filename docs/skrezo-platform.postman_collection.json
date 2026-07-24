@@ -807,6 +807,111 @@
           ]
         },
         {
+          "name": "clinic-applications-admin",
+          "item": [
+            {
+              "name": "Заявки клиник",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clinic-applications?status=&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clinic-applications"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Фильтр: pending | reviewed | rejected"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Заявки на подключение клиник: название, город, размер, телефон, статус.\n\n``statusCounts`` отдаёт число заявок по каждому статусу — для бейджей в меню."
+              },
+              "response": []
+            },
+            {
+              "name": "Карточка заявки",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clinic-applications/{{application_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clinic-applications",
+                    "{{application_id}}"
+                  ]
+                },
+                "description": "Данные заявки: компания, город, размер, подтверждённый телефон, статус."
+              },
+              "response": []
+            },
+            {
+              "name": "Сменить статус заявки",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clinic-applications/{{application_id}}/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clinic-applications",
+                    "{{application_id}}",
+                    "status"
+                  ]
+                },
+                "description": "Поставить заявке статус: ``pending`` | ``reviewed`` | ``rejected``.\n\nЗапоминается, кто из команды Skrezo и когда сменил статус; переходы свободные\n(решение можно пересмотреть). Действие пишется в аудит платформы.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"pending\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "tariffs",
           "item": [
             {
@@ -2894,6 +2999,45 @@
           ]
         },
         {
+          "name": "clinic-applications",
+          "item": [
+            {
+              "name": "Подать заявку клиники",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic-applications",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic-applications"
+                  ]
+                },
+                "description": "Второй путь регистрации: «клиника с сотрудниками».\n\nВызывается после подтверждения кода (шаг 2): телефон берётся из\n``registrationToken``, а не из тела — заявку нельзя подать на чужой номер.\nКлиника **не создаётся автоматически**: команда Skrezo рассматривает заявку в\nадминке и заводит клиента вручную.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"registrationToken\": \"string\",\n  \"companyName\": \"Дента+\",\n  \"cityId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorsCount\": \"2-5\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "health",
           "item": [
             {
@@ -2945,6 +3089,11 @@
     {
       "key": "refresh_token",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "application_id",
+      "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },
     {

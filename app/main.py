@@ -25,6 +25,12 @@ from app.modules.audit.presentation.routes import router as audit_router
 from app.modules.cash.presentation.routes import router as cash_router
 from app.modules.catalog.presentation.routes import router as catalog_router
 from app.modules.clients.presentation.routes import router as clients_router
+from app.modules.clinic_applications.presentation.routes import (
+    admin_router as clinic_applications_admin_router,
+)
+from app.modules.clinic_applications.presentation.routes import (
+    router as clinic_applications_router,
+)
 from app.modules.dashboard.presentation.routes import router as dashboard_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.leads.presentation.routes import router as leads_router
@@ -149,6 +155,19 @@ OPENAPI_TAGS = [
         "description": "Настройка набора прав, доступных клиникам на 30-дневном триале.",
     },
     {
+        "name": "clinic-applications",
+        "x-displayName": "Заявки клиник",
+        "description": (
+            "Второй путь регистрации: заявка «клиника с сотрудниками» после "
+            "подтверждения телефона по OTP."
+        ),
+    },
+    {
+        "name": "clinic-applications-admin",
+        "x-displayName": "Заявки клиник (Skrezo)",
+        "description": "Рассмотрение заявок: список, карточка, статусы.",
+    },
+    {
         "name": "audit",
         "x-displayName": "Аудит",
         "description": "Журнал аудита мутаций платформенной зоны.",
@@ -166,8 +185,8 @@ OPENAPI_TAG_GROUPS = [
     {
         "name": "Админ-панель Skrezo",
         "tags": [
-            "clients", "tariffs", "payments", "dashboard", "reports-admin",
-            "trial-features", "audit",
+            "clients", "clinic-applications-admin", "tariffs", "payments", "dashboard",
+            "reports-admin", "trial-features", "audit",
         ],
     },
     {
@@ -178,7 +197,7 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "Публичное и служебное",
-        "tags": ["catalog", "leads", "health"],
+        "tags": ["catalog", "leads", "clinic-applications", "health"],
     },
 ]
 
@@ -223,6 +242,8 @@ def create_app() -> FastAPI:
     app.include_router(catalog_router, prefix=settings.api_v1_prefix)
     app.include_router(identity_router, prefix=settings.api_v1_prefix)
     app.include_router(leads_router, prefix=settings.api_v1_prefix)
+    app.include_router(clinic_applications_router, prefix=settings.api_v1_prefix)
+    app.include_router(clinic_applications_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(tariffs_router, prefix=settings.api_v1_prefix)
     app.include_router(clients_router, prefix=settings.api_v1_prefix)
     app.include_router(staff_router, prefix=settings.api_v1_prefix)

@@ -21,7 +21,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Справочники (i18n) | `city`, `city_translation`, `specialization`, `specialization_translation` |
 | Аккаунты и клиники | `account`, `clinic`, `membership` |
 | RBAC (права/роли) | `permission`, `role`, `role_permission` |
-| Продажи / биллинг | `lead`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
+| Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
 | Аудит | `audit_log` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
@@ -49,6 +49,8 @@ erDiagram
     CLINIC ||--o| SUBSCRIPTION : "подписка (1:1)"
     SUBSCRIPTION ||--o{ SUBSCRIPTION_EVENT : "история статусов"
     CLINIC ||--o{ LEAD : "конвертация (опц.)"
+    CITY ||--o{ CLINIC_APPLICATION : "город заявки"
+    ACCOUNT ||--o{ CLINIC_APPLICATION : "кто рассмотрел (опц.)"
 
     ACCOUNT ||--o{ TARIFF_VERSION : "created_by"
     TARIFF_VERSION ||--o{ TARIFF_PACKAGE : "пакеты (clinic)"
@@ -157,6 +159,17 @@ erDiagram
         text doctors_count_range "nullable"
         text comment "nullable"
         uuid converted_clinic_id FK "nullable"
+        timestamptz created_at
+    }
+    CLINIC_APPLICATION {
+        uuid id PK
+        text company_name
+        uuid city_id FK
+        enum doctors_count "2-5|6-10|10+"
+        text phone "подтверждён OTP"
+        enum status "pending|reviewed|rejected"
+        uuid reviewed_by_account_id FK "nullable"
+        timestamptz reviewed_at "nullable"
         timestamptz created_at
     }
     SUBSCRIPTION {
@@ -335,6 +348,8 @@ erDiagram
 | `appointment_tooth_status` | `planned`, `started`, `completed`, `cancelled` | appointment_tooth |
 | `payment_method` | `cash`, `card`, `transfer` | cash_payment |
 | `payment_kind` | `payment`, `refund` | cash_payment |
+| `doctors_count_range` | `2-5`, `6-10`, `10+` | clinic_application |
+| `clinic_application_status` | `pending`, `reviewed`, `rejected` | clinic_application |
 
 ---
 
@@ -380,3 +395,5 @@ patient ──1:N── patient_tooth ──1:N── appointment_tooth ──N:
 | `clinic` | city_id | (без каскада) |
 | `tariff_version` / `audit_log` | created_by / actor_id → account | (без каскада) |
 | `lead` | converted_clinic_id | (без каскада, nullable) |
+| `clinic_application` | city_id | (без каскада) |
+| `clinic_application` | reviewed_by_account_id | SET NULL |

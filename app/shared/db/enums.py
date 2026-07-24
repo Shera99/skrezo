@@ -97,6 +97,22 @@ class PaymentKind(enum.StrEnum):
     REFUND = "refund"  # возврат (расход)
 
 
+class DoctorsCountRange(enum.StrEnum):
+    """Размер клиники в заявке — диапазон числа врачей."""
+
+    FROM_2_TO_5 = "2-5"
+    FROM_6_TO_10 = "6-10"
+    OVER_10 = "10+"
+
+
+class ClinicApplicationStatus(enum.StrEnum):
+    """Статус обработки заявки клиники в админке Skrezo."""
+
+    PENDING = "pending"  # на рассмотрении (стартовый)
+    REVIEWED = "reviewed"  # рассмотрен
+    REJECTED = "rejected"  # отклонён
+
+
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
@@ -126,4 +142,12 @@ PaymentMethodType = SAEnum(
 )
 PaymentKindType = SAEnum(
     PaymentKind, name="payment_kind", values_callable=lambda e: [m.value for m in e]
+)
+DoctorsCountRangeType = SAEnum(
+    DoctorsCountRange, name="doctors_count_range", values_callable=lambda e: [m.value for m in e]
+)
+ClinicApplicationStatusType = SAEnum(
+    ClinicApplicationStatus,
+    name="clinic_application_status",
+    values_callable=lambda e: [m.value for m in e],
 )

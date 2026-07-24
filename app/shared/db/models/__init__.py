@@ -14,6 +14,7 @@ from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
 from app.shared.db.models.doctor_schedule import DoctorSchedule
 from app.shared.db.models.doctor_time_off import DoctorTimeOff
@@ -41,6 +42,7 @@ __all__ = [
     "City",
     "CityTranslation",
     "Clinic",
+    "ClinicApplication",
     "ClinicWorkingHours",
     "DoctorSchedule",
     "DoctorTimeOff",
