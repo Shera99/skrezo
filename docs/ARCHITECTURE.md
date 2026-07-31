@@ -54,7 +54,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `clients` | админ: список (offset-пагинация)/карточка/создание/правка, врачи (админ-сайд), phone-check, счётчики статусов, смена номера, архивация | clinic/account/membership/subscription (в shared) | 6 ✅ |
 | `staff` | клиент-сайд: сотрудники клиники (RBAC; работнику — временный пароль) | membership/account/role (в shared) | 6b ✅ |
 | `identity` | вход: сотрудники клиник — телефон + пароль, соло-врачи — OTP (passwordless) + self-service регистрация с триалом; смена пароля, выбор клиники | `account` (в shared) | 2b ✅ / 12 |
-| `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 |
+| `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **управление ролями клиники** (`/clinic/roles`, право `roles.manage`); **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 ✅ / 13 ✅ |
 | `leads` | лид-форма «Больше одного» + Telegram-нотификация | `lead` | 3a ✅ |
 | `clinic_applications` | заявки клиник (2-й путь регистрации после OTP): подача с подтверждённым телефоном + рассмотрение в админке (статусы pending/reviewed/rejected). Клиника заводится вручную | `clinic_application` | 12 ✅ |
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |

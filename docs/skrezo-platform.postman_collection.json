@@ -1664,6 +1664,146 @@
           ]
         },
         {
+          "name": "roles",
+          "item": [
+            {
+              "name": "Роли клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/roles",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "roles"
+                  ]
+                },
+                "description": "Роли клиники: владелец и системные — первыми, затем кастомные.\n\nФлаги ``editablePermissions`` и ``deletable`` подсказывают UI, что можно\nделать с ролью: у владельца доступ всегда полный, системные роли не\nпереименовываются и не удаляются, роль с сотрудниками удалить нельзя."
+              },
+              "response": []
+            },
+            {
+              "name": "Создать роль",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/roles",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "roles"
+                  ]
+                },
+                "description": "Своя роль клиники с произвольным набором прав из каталога.\n\nНазвание уникально в пределах клиники (без учёта регистра). Неизвестный ключ\nправа отвергает запрос целиком — роль не создаётся.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Администратор ресепшена\",\n  \"permissions\": [\n    \"string\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Каталог прав",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/permissions",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "permissions"
+                  ]
+                },
+                "description": "Права, из которых собирается роль — чекбоксы в UI.\n\nГруппировать по ``groupKey`` (schedule, patients, cash, reports и т.д.)."
+              },
+              "response": []
+            },
+            {
+              "name": "Изменить роль (название и/или права)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/roles/{{role_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "roles",
+                    "{{role_id}}"
+                  ]
+                },
+                "description": "Переименовать роль и/или заменить её набор прав.\n\n``permissions`` заменяет набор **целиком** (не добавляет). Права системных\nролей настраиваются пер-клиника — это штатный сценарий; переименовать их\nнельзя (название приходит из каталога по ``key``). Роль владельца не\nредактируется вовсе. Изменение применяется сразу — кеш прав сбрасывается.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"string\",\n  \"permissions\": [\n    \"string\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить роль",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/roles/{{role_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "roles",
+                    "{{role_id}}"
+                  ]
+                },
+                "description": "Удалить кастомную роль клиники.\n\nСистемные роли и роль владельца не удаляются. Роль с активными сотрудниками\nтоже — сначала переведите их на другую роль (иначе членства осиротеют)."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "schedule",
           "item": [
             {
@@ -3123,6 +3263,11 @@
     },
     {
       "key": "payment_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "role_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

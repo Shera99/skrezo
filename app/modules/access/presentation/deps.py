@@ -20,8 +20,18 @@ from app.core.redis import get_redis
 from app.modules.access.application.services.permission_resolver import PermissionResolver
 from app.modules.access.application.services.trial_policy import TrialPolicy
 from app.modules.access.application.use_cases.get_trial_features import GetTrialFeaturesUseCase
+from app.modules.access.application.use_cases.manage_roles import (
+    CreateRoleUseCase,
+    DeleteRoleUseCase,
+    ListPermissionsUseCase,
+    ListRolesUseCase,
+    UpdateRoleUseCase,
+)
 from app.modules.access.application.use_cases.update_trial_features import (
     UpdateTrialFeaturesUseCase,
+)
+from app.modules.access.infrastructure.repositories.role_admin_repository import (
+    RoleAdminRepository,
 )
 from app.modules.access.infrastructure.repositories.role_repository import RoleRepository
 from app.modules.access.infrastructure.repositories.trial_policy_repository import (
@@ -91,3 +101,45 @@ def require_permission(
         return context
 
     return _guard
+
+
+def get_role_admin_repository(
+    session: AsyncSession = Depends(get_session),
+) -> RoleAdminRepository:
+    return RoleAdminRepository(session)
+
+
+def get_list_roles_use_case(
+    roles: RoleAdminRepository = Depends(get_role_admin_repository),
+) -> ListRolesUseCase:
+    return ListRolesUseCase(roles)
+
+
+def get_list_permissions_use_case(
+    roles: RoleAdminRepository = Depends(get_role_admin_repository),
+) -> ListPermissionsUseCase:
+    return ListPermissionsUseCase(roles)
+
+
+def get_create_role_use_case(
+    session: AsyncSession = Depends(get_session),
+    roles: RoleAdminRepository = Depends(get_role_admin_repository),
+    resolver: PermissionResolver = Depends(get_permission_resolver),
+) -> CreateRoleUseCase:
+    return CreateRoleUseCase(session, roles, resolver)
+
+
+def get_update_role_use_case(
+    session: AsyncSession = Depends(get_session),
+    roles: RoleAdminRepository = Depends(get_role_admin_repository),
+    resolver: PermissionResolver = Depends(get_permission_resolver),
+) -> UpdateRoleUseCase:
+    return UpdateRoleUseCase(session, roles, resolver)
+
+
+def get_delete_role_use_case(
+    session: AsyncSession = Depends(get_session),
+    roles: RoleAdminRepository = Depends(get_role_admin_repository),
+    resolver: PermissionResolver = Depends(get_permission_resolver),
+) -> DeleteRoleUseCase:
+    return DeleteRoleUseCase(session, roles, resolver)

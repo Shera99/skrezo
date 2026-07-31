@@ -20,6 +20,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.redis import redis_client
 from app.modules.access.presentation.routes import admin_router as access_admin_router
+from app.modules.access.presentation.routes import router as roles_router
 from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import router as audit_router
 from app.modules.cash.presentation.routes import router as cash_router
@@ -150,6 +151,14 @@ OPENAPI_TAGS = [
         "description": "Дашборд: метрики за период (active/trial/риски).",
     },
     {
+        "name": "roles",
+        "x-displayName": "Роли и права",
+        "description": (
+            "Настройка ролей клиники: свои роли, наборы прав, каталог прав "
+            "(право `roles.manage`)."
+        ),
+    },
+    {
         "name": "trial-features",
         "x-displayName": "Триал-функции",
         "description": "Настройка набора прав, доступных клиникам на 30-дневном триале.",
@@ -192,7 +201,8 @@ OPENAPI_TAG_GROUPS = [
     {
         "name": "Рабочее приложение клиники",
         "tags": [
-            "staff", "schedule", "patients", "services", "appointments", "cash", "reports",
+            "staff", "roles", "schedule", "patients", "services", "appointments", "cash",
+            "reports",
         ],
     },
     {
@@ -253,6 +263,7 @@ def create_app() -> FastAPI:
     app.include_router(appointments_router, prefix=settings.api_v1_prefix)
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
+    app.include_router(roles_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
