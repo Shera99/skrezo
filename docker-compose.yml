@@ -1,3 +1,9 @@
+# Имя проекта закреплено явно: иначе compose берёт его из имени каталога и может
+# «усыновить» контейнеры чужого стека с тем же именем (и снести их по
+# --remove-orphans). Хостовые порты — «нестандартные», чтобы соседние проекты на
+# этой машине (auth_service и др.) не конфликтовали за 5432/6379/8000.
+name: skrezo
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -6,8 +12,8 @@ services:
       POSTGRES_PASSWORD: skrezo
       POSTGRES_DB: skrezo
     ports:
-      # Хостовый порт 5433, чтобы не конфликтовать с локальным Postgres на 5432
-      - "5433:5432"
+      # 5434 на хосте: 5432 — локальный Postgres, 5433 занят соседним проектом
+      - "5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +26,8 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      # 6380 на хосте: 6379 занят Redis соседнего проекта
+      - "6380:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,7 +49,8 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      # 8010 на хосте: 8000 занят API соседнего проекта
+      - "8010:8000"
     # Прогоняем миграции и поднимаем API
     command: >
       sh -c "alembic upgrade head &&

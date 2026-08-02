@@ -48,10 +48,16 @@
 ```bash
 cp .env.example .env
 make up            # соберёт образ, поднимет postgres+redis+api+worker, прогонит миграции
-# API:     http://localhost:8000
-# Swagger: http://localhost:8000/docs
-# ReDoc:   http://localhost:8000/redoc
+# API:     http://localhost:8010
+# Swagger: http://localhost:8010/docs
+# ReDoc:   http://localhost:8010/redoc
 ```
+
+> **Порты намеренно нестандартные** (API `8010`, Postgres `5434`, Redis `6380`), а
+> имя compose-проекта закреплено как `skrezo`. На одной машине обычно крутятся
+> соседние сервисы, занимающие `8000`/`5432`/`5433`/`6379`; без этого `compose up`
+> падает с `port is already allocated`, а совпадение имени проекта позволяет
+> compose «усыновить» и снести чужие контейнеры по `--remove-orphans`.
 
 ### Нативно (для разработки)
 
@@ -71,8 +77,8 @@ make run           # uvicorn с автоперезагрузкой
 | `APP_DEBUG` | подробные логи, echo SQL | `true` |
 | `API_V1_PREFIX` | префикс версии API | `/api/v1` |
 | `CORS_ORIGINS` | разрешённые домены (через запятую) | — |
-| `DATABASE_URL` | DSN PostgreSQL (asyncpg) | `postgresql+asyncpg://skrezo:skrezo@localhost:5432/skrezo` |
-| `REDIS_URL` | DSN Redis | `redis://localhost:6379/0` |
+| `DATABASE_URL` | DSN PostgreSQL (asyncpg) | `postgresql+asyncpg://skrezo:skrezo@localhost:5434/skrezo` |
+| `REDIS_URL` | DSN Redis | `redis://localhost:6380/0` |
 | `JWT_SECRET` | секрет единого контура токенов | — |
 | `ACCESS_TOKEN_TTL_SECONDS` | срок жизни access-токена | `900` |
 | `REFRESH_TOKEN_TTL_SECONDS` | срок жизни refresh-токена | `2592000` |

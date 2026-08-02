@@ -307,7 +307,8 @@ def main() -> None:
         }
     )
     variables = [
-        {"key": "base_url", "value": "http://localhost:8000", "type": "string"},
+        # Порт как в docker-compose (8010): 8000 на dev-машинах обычно занят соседним сервисом.
+        {"key": "base_url", "value": "http://localhost:8010", "type": "string"},
         # Единый вход: телефон/пароль для авто-логина; токены заполняются скриптами.
         {"key": "phone", "value": "+996700000000", "type": "string"},
         {"key": "password", "value": "s3cret-pa55word", "type": "string"},
