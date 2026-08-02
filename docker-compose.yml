@@ -49,12 +49,18 @@ services:
     env_file:
       - .env
     ports:
-      # 8010 на хосте: 8000 занят API соседнего проекта
-      - "8010:8000"
-    # Прогоняем миграции и поднимаем API
+      # Только localhost: наружу сервис публикует обратный прокси (TLS + лимиты),
+      # иначе в API можно постучаться напрямую по <ip>:8010 мимо nginx.
+      # 8010, т.к. 8000 занят API соседнего проекта.
+      - "127.0.0.1:8010:8000"
+    # Прогоняем миграции и поднимаем API.
+    # --forwarded-allow-ips: за прокси клиентский IP приходит в X-Forwarded-For, а
+    # peer'ом выступает docker-шлюз (172.x). Без доверия заголовку request.client.host
+    # у всех запросов одинаков, и IP-лимиты (OTP, лиды) схлопываются в общий счётчик.
     command: >
       sh -c "alembic upgrade head &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+             uvicorn app.main:app --host 0.0.0.0 --port 8000
+             --proxy-headers --forwarded-allow-ips='*'"
 
   worker:
     build: .

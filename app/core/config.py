@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "production"] = "local"
     app_debug: bool = True
     api_v1_prefix: str = "/api/v1"
+    # Префикс, под которым сервис висит за обратным прокси (например ``/skrz``).
+    # Маршрутизацию НЕ меняет — прокси срезает префикс сам; влияет на ссылки,
+    # которые генерирует FastAPI: без него Swagger/ReDoc просят /openapi.json по
+    # абсолютному пути и попадают в соседний сервис за тем же доменом.
+    root_path: str = ""
     # NoDecode — отключаем встроенный JSON-парсинг источника; строку
     # «домен1,домен2» разбираем сами в валидаторе ниже.
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)

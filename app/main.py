@@ -231,6 +231,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         contact={"name": "Skrezo", "email": "dev@skrezo.local"},
         license_info={"name": "Proprietary"},
+        # Сервис может стоять за прокси под префиксом (ROOT_PATH=/skrz): тогда
+        # Swagger/ReDoc запрашивают /skrz/openapi.json, а не /openapi.json —
+        # иначе спека уедет в соседний сервис, живущий на том же домене.
+        root_path=settings.root_path,
     )
 
     if settings.cors_origins:

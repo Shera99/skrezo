@@ -57,7 +57,35 @@ make up            # соберёт образ, поднимет postgres+redis+
 > имя compose-проекта закреплено как `skrezo`. На одной машине обычно крутятся
 > соседние сервисы, занимающие `8000`/`5432`/`5433`/`6379`; без этого `compose up`
 > падает с `port is already allocated`, а совпадение имени проекта позволяет
-> compose «усыновить» и снести чужие контейнеры по `--remove-orphans`.
+> compose «усыновить» и снести чужие контейнеры по `--remove-orphans`. Порты
+> публикуются только на `127.0.0.1` — наружу сервис выставляет обратный прокси.
+
+### За обратным прокси (поддиректория домена)
+
+Если сервис живёт не на своём домене, а под префиксом (например
+`https://host/skrz/`), нужны две вещи:
+
+1. **`ROOT_PATH=/skrz`** в окружении — иначе Swagger/ReDoc запросят
+   `/openapi.json` по абсолютному пути и получат спеку соседнего сервиса с того
+   же домена. С переменной ссылки станут `/skrz/openapi.json`.
+2. **Прокси срезает префикс** — слэш в конце `proxy_pass`:
+
+```nginx
+location = /skrz { return 301 /skrz/; }          # без слэша иначе уйдёт в location /
+
+location /skrz/ {
+    proxy_pass http://127.0.0.1:8010/;           # слэш в конце срезает /skrz/
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+}
+```
+
+> Uvicorn запускается с `--proxy-headers --forwarded-allow-ips='*'`: за прокси
+> реальный IP приходит в `X-Forwarded-For`, а peer'ом выступает docker-шлюз. Без
+> этого `request.client.host` одинаков у всех, и IP-лимиты (OTP-верификация,
+> лид-форма) схлопываются в **один счётчик на всех пользователей**.
 
 ### Нативно (для разработки)
 
@@ -76,6 +104,7 @@ make run           # uvicorn с автоперезагрузкой
 | `APP_ENV` | `local` / `staging` / `production` | `local` |
 | `APP_DEBUG` | подробные логи, echo SQL | `true` |
 | `API_V1_PREFIX` | префикс версии API | `/api/v1` |
+| `ROOT_PATH` | префикс за обратным прокси (например `/skrz`) | — (пусто) |
 | `CORS_ORIGINS` | разрешённые домены (через запятую) | — |
 | `DATABASE_URL` | DSN PostgreSQL (asyncpg) | `postgresql+asyncpg://skrezo:skrezo@localhost:5434/skrezo` |
 | `REDIS_URL` | DSN Redis | `redis://localhost:6380/0` |
