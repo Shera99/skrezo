@@ -25,7 +25,7 @@ class AppointmentRow:
     patient_name: str
     doctor_name: str | None
     appointment_type: AppointmentType
-    scheduled_at: datetime
+    scheduled_at: datetime | None  # None у черновика (status=draft)
     duration_min: int
     status: AppointmentStatus
     price_total: int

@@ -84,6 +84,7 @@ async def create_appointment(
             ToothInput(tooth=t.tooth, service_id=t.service_id, price=t.price, comment=t.comment)
             for t in body.teeth
         ],
+        status=body.status,
     )
     appt = await use_case.execute(context.clinic_id, data)
     return AppointmentCreatedResponse(id=appt.id, price_total=appt.price_total)

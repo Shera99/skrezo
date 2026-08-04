@@ -32,14 +32,31 @@ def _affects_booking(appointment: Appointment, fields: dict[str, Any]) -> bool:
     проходить и **снятие отмены**: пока приём был отменён, слот был свободен и мог
     достаться другому. Без этого случая единственной защитой остаётся констрейнт,
     а он отдаёт 500 вместо человекочитаемого 409.
+
+    То же и с **доведением черновика** до записи: слот он не занимал, а после
+    превращения в обычный приём обязан пройти все проверки.
     """
     if _BOOKING_FIELDS & fields.keys():
         return True
     new_status = fields.get("status", appointment.status)
-    return (
-        appointment.status == AppointmentStatus.CANCELLED
-        and new_status != AppointmentStatus.CANCELLED
-    )
+    was_free = appointment.status in (AppointmentStatus.CANCELLED, AppointmentStatus.DRAFT)
+    return was_free and new_status != appointment.status
+
+
+def _ensure_date_for_status(appointment: Appointment, fields: dict[str, Any]) -> None:
+    """Дата обязательна для любого статуса, кроме черновика.
+
+    Так «доведение» черновика до записи (``status`` из ``draft`` в рабочий) без
+    ``scheduledAt`` отвергается понятной ошибкой, а не нарушением CHECK в БД.
+    """
+    new_status = fields.get("status", appointment.status)
+    if new_status is AppointmentStatus.DRAFT:
+        return
+    if fields.get("scheduled_at", appointment.scheduled_at) is None:
+        raise ValidationAppError(
+            "Укажите дату приёма: без неё запись возможна только как черновик",
+            code="scheduled_at_required",
+        )
 
 
 class UpdateAppointmentUseCase:
@@ -63,6 +80,7 @@ class UpdateAppointmentUseCase:
         fields = dict(fields)
         await self._validate_refs(clinic_id, fields)
         await self._resolve_duration(clinic_id, fields)
+        _ensure_date_for_status(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields)
 
         # Гвард накрывает и update() (внутри флашит UPDATE — там и срабатывает

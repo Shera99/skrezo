@@ -404,6 +404,10 @@ class ScheduleRepository:
             Appointment.clinic_id == clinic_id,
             Appointment.doctor_membership_id == membership_id,
             Appointment.status != AppointmentStatus.CANCELLED,
+            # Черновик (дата пуста) слот не занимает: tstzrange(NULL, …) —
+            # безграничный диапазон, он пересёкся бы с любым запросом занятости
+            # и обнулил бы все свободные слоты врача.
+            Appointment.scheduled_at.is_not(None),
             _appointment_range().op("&&")(func.tstzrange(span.start, span.end)),
         )
         if exclude_appointment_id is not None:

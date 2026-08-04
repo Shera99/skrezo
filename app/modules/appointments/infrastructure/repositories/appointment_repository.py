@@ -94,11 +94,12 @@ class AppointmentRepository:
         doctor_membership_id: uuid.UUID | None,
         service_id: uuid.UUID | None,
         appointment_type: AppointmentType,
-        scheduled_at: datetime,
+        scheduled_at: datetime | None,  # None только у черновика (status=draft)
         duration_min: int,
         comment: str | None,
         teeth: list[ToothInput],
         service_prices: dict[uuid.UUID, int],
+        status: AppointmentStatus = AppointmentStatus.SCHEDULED,
     ) -> Appointment:
         appointment = Appointment(
             clinic_id=clinic_id,
@@ -109,7 +110,7 @@ class AppointmentRepository:
             scheduled_at=scheduled_at,
             duration_min=duration_min,
             comment=comment,
-            status=AppointmentStatus.SCHEDULED,
+            status=status,
         )
         self._session.add(appointment)
         await self._session.flush()
@@ -181,7 +182,9 @@ class AppointmentRepository:
         ).scalar_one()
         rows = (
             await self._session.execute(
-                stmt.order_by(Appointment.scheduled_at.desc())
+                # nullslast: у черновиков даты нет, и в DESC Postgres поднял бы их
+                # наверх — реальное расписание важнее, они ищутся фильтром status.
+                stmt.order_by(Appointment.scheduled_at.desc().nullslast())
                 .limit(page_size)
                 .offset((page - 1) * page_size)
             )

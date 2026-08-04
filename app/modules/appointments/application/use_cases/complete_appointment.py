@@ -55,6 +55,11 @@ class CompleteAppointmentUseCase:
             raise ValidationAppError(
                 "Отменённый приём нельзя завершить", code="cannot_complete_cancelled"
             )
+        if appointment.status is AppointmentStatus.DRAFT:
+            raise ValidationAppError(
+                "Черновик нельзя завершить: сначала назначьте дату приёма",
+                code="cannot_complete_draft",
+            )
 
         await self._appointments.update(appointment, {"status": AppointmentStatus.COMPLETED})
         if payment is not None:

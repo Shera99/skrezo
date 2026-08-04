@@ -65,6 +65,10 @@ class AppointmentType(enum.StrEnum):
 class AppointmentStatus(enum.StrEnum):
     """Статус приёма."""
 
+    # Пациент заведён в клинику, но дату и услугу ещё не выбрал. Единственный
+    # статус, при котором ``scheduled_at`` пуст (гарантирует CHECK в БД): такой
+    # приём не занимает слот врача и не попадает в ленту дня и отчёты периода.
+    DRAFT = "draft"
     SCHEDULED = "scheduled"
     CONFIRMED = "confirmed"
     IN_PROGRESS = "in_progress"

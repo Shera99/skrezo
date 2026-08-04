@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -50,8 +50,15 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     appointment_type: Mapped[AppointmentType] = mapped_column(
         AppointmentTypeType, nullable=False, default=AppointmentType.TREATMENT
     )
-    scheduled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    # NULL допустим ТОЛЬКО у черновика (``status = draft``) — это стережёт
+    # CHECK ``ck_appointment_scheduled_at_required``. Для остальных статусов дата
+    # обязательна: без неё приём выпадает из ленты дня, а tstzrange(NULL, …) даёт
+    # безграничный диапазон, пересекающийся со всеми приёмами врача.
+    # Без server_default: SQLAlchemy трактует None как «значение не задано» и
+    # подставил бы now(), из-за чего черновик получал бы дату «сейчас». Дату для
+    # обычной записи проставляет прикладной слой.
+    scheduled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
     # Длительность приёма в минутах — высота карточки в «ленте дня».
     duration_min: Mapped[int] = mapped_column(

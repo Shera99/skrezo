@@ -19,7 +19,7 @@ from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     span_of,
 )
-from app.shared.db.enums import AppointmentType
+from app.shared.db.enums import AppointmentStatus, AppointmentType
 from app.shared.db.models.appointment import Appointment
 
 
@@ -33,6 +33,7 @@ class CreateAppointmentInput:
     duration_min: int | None
     comment: str | None
     teeth: list[ToothInput]
+    status: AppointmentStatus = AppointmentStatus.SCHEDULED
 
 
 class CreateAppointmentUseCase:
@@ -72,9 +73,12 @@ class CreateAppointmentUseCase:
         duration_min = await self._availability.resolve_duration(
             clinic_id, data.service_id, data.duration_min
         )
-        scheduled_at = data.scheduled_at or datetime.now(UTC)
+        # Черновик — пациент заведён, но дата ещё не выбрана: слот не занимается,
+        # проверять нечего. У обычной записи пустая дата означает «сейчас».
+        is_draft = data.status is AppointmentStatus.DRAFT
+        scheduled_at = None if is_draft else (data.scheduled_at or datetime.now(UTC))
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
-        if doctor_id is not None:
+        if doctor_id is not None and scheduled_at is not None:
             await self._availability.ensure_bookable(
                 clinic_id, doctor_id, span_of(scheduled_at, duration_min)
             )
@@ -96,6 +100,7 @@ class CreateAppointmentUseCase:
                 comment=data.comment,
                 teeth=data.teeth,
                 service_prices=prices,
+                status=data.status,
             )
             await self._session.commit()
         return appointment

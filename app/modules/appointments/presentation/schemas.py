@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from app.modules.appointments.domain.models import (
     AppointmentDetail,
@@ -32,7 +33,9 @@ class AppointmentListItem(CamelModel):
     patient_name: str
     doctor_name: str | None = None
     appointment_type: AppointmentType
-    scheduled_at: datetime
+    scheduled_at: datetime | None = Field(
+        default=None, description="null у черновика (status=draft) — дата ещё не выбрана"
+    )
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     status: AppointmentStatus
     price_total: int
@@ -73,6 +76,15 @@ class CreateAppointmentRequest(CamelModel):
         default=None, description="Основная услуга приёма — источник длительности"
     )
     appointment_type: AppointmentType = AppointmentType.TREATMENT
+    status: Literal[AppointmentStatus.SCHEDULED, AppointmentStatus.DRAFT] = Field(
+        default=AppointmentStatus.SCHEDULED,
+        description=(
+            "`scheduled` — обычная запись; `draft` — пациент заведён в клинику, но "
+            "дата и услуга ещё не выбраны (`scheduledAt` передавать нельзя). "
+            "Остальные статусы выставляются через PATCH или «завершить и оплатить»"
+        ),
+        examples=["draft"],
+    )
     scheduled_at: AwareDatetime | None = Field(
         default=None,
         description=(
@@ -95,6 +107,13 @@ class CreateAppointmentRequest(CamelModel):
     )
     comment: str | None = None
     teeth: list[ToothInputSchema] = Field(default_factory=list, description="Манипуляции по зубам")
+
+    @model_validator(mode="after")
+    def _check_draft(self) -> CreateAppointmentRequest:
+        """У черновика даты быть не может — иначе это обычная запись."""
+        if self.status is AppointmentStatus.DRAFT and self.scheduled_at is not None:
+            raise ValueError("У черновика не может быть даты приёма: уберите scheduledAt")
+        return self
 
 
 class AppointmentCreatedResponse(CamelModel):
@@ -128,7 +147,9 @@ class AppointmentDetailResponse(CamelModel):
     patient_name: str
     doctor_name: str | None = None
     appointment_type: AppointmentType
-    scheduled_at: datetime
+    scheduled_at: datetime | None = Field(
+        default=None, description="null у черновика (status=draft) — дата ещё не выбрана"
+    )
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     service_id: uuid.UUID | None = None
     status: AppointmentStatus

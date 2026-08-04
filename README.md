@@ -253,9 +253,22 @@ make run           # uvicorn с автоперезагрузкой
 | `PUT` | `/clinic/patients/{id}/teeth` | Создать/обновить одонтограмму (карта зубов, FDI) |
 | `GET` | `/clinic/patients/{id}/teeth/{fdi}` | Сквозная история зуба (`patients.view_medical`) |
 | `GET` · `POST` · `PATCH` | `/clinic/services[/{id}]` | Прайс клиники: список/создать/правка (`price.view`/`price.edit`) |
-| `GET` · `POST` | `/clinic/appointments` | Приёмы клиники / создать с манипуляциями по зубам, `serviceId`+`durationMin` (`patients.view_medical`/`appointments.create`) |
+| `GET` · `POST` | `/clinic/appointments` | Приёмы клиники (фильтр `status`) / создать с манипуляциями по зубам, `serviceId`+`durationMin`; `status=draft` — черновик без даты (`patients.view_medical`/`appointments.create`) |
 | `GET` · `PATCH` | `/clinic/appointments/{id}` | Детали / обновить статус (`patients.view_medical`/`appointments.edit`) |
 | `POST` | `/clinic/appointments/{id}/complete` | Завершить приём и опционально оплатить (одна транзакция; переплата откатывает) (`appointments.complete_pay`) |
+
+> **Черновик приёма (`status=draft`).** Пациент заведён в клинику, но дату и
+> услугу ещё не выбрал. Нужен потому, что клиника видит пациента только через
+> наличие приёма — черновик добавляет человека в список пациентов, не занимая
+> слот врача и не попадая в ленту дня и отчёты периода. Создаётся без
+> `scheduledAt` (с датой → 422), достаётся фильтром `?status=draft` как список
+> «кому перезвонить». Доводится до записи обычным `PATCH` (`scheduledAt` +
+> `status`): без даты → 422 `scheduled_at_required`, занятый слот → 409, как при
+> снятии отмены. Завершить черновик нельзя (422 `cannot_complete_draft`).
+>
+> Пустая дата легальна **только** у черновика — это стережёт CHECK
+> `ck_appointment_scheduled_at_required` в БД, поэтому гарантия миграции 0020
+> (у рабочего приёма дата есть всегда) сохраняется.
 
 **Касса клиники (клиент-сайд + RBAC).** Оплата приёмов пациентами. Долг считается
 по приёму: `остаток = priceTotal − Σплатежей + Σвозвратов`. Все суммы — целые сомы.
