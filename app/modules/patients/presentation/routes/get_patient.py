@@ -17,8 +17,17 @@ from app.shared.auth import ClientContext
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
-    403: {"description": "Нет приёмов с пациентом (no_patient_relationship)"},
-    404: {"description": "Пациент не найден"},
+    404: {
+        "description": (
+            "Пациент не найден ЛИБО у клиники нет с ним приёмов — ответ один и тот "
+            "же: существование чужих пациентов не подтверждаем"
+        ),
+        "content": {
+            "application/json": {
+                "example": {"error": "patient_not_found", "message": "Пациент не найден"}
+            }
+        },
+    },
 }
 
 

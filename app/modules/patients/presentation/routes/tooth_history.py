@@ -17,8 +17,7 @@ from app.shared.auth import ClientContext
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
-    403: {"description": "Нет приёмов с пациентом"},
-    404: {"description": "Пациент не найден"},
+    404: {"description": "Пациент не найден либо у клиники нет с ним приёмов"},
     422: {"description": "Некорректный номер зуба (FDI)"},
 }
 

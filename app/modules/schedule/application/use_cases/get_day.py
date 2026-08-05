@@ -6,7 +6,7 @@ import uuid
 from dataclasses import replace
 from datetime import date
 
-from app.core.errors import NotFoundError, ValidationAppError
+from app.core.errors import NotFoundError
 from app.modules.schedule.application.services.availability_service import AvailabilityService
 from app.modules.schedule.domain.availability import (
     break_span,
@@ -33,10 +33,11 @@ class GetDayUseCase:
         tz = await self._availability.clinic_timezone(clinic_id)
 
         # Фильтр по врачу — только по членству ИЗ ЭТОЙ клиники (иначе IDOR).
+        # Чужой и несуществующий врач неразличимы: 404 в обоих случаях.
         if doctor_membership_id is not None and not await self._schedule.is_doctor_in_clinic(
             clinic_id, doctor_membership_id
         ):
-            raise ValidationAppError("Врач не из этой клиники", code="invalid_doctor")
+            raise NotFoundError("Врач не найден в этой клинике", code="doctor_not_found")
 
         weekday = day.weekday()
         hours = await self._availability.clinic_hours(clinic_id, weekday)

@@ -261,24 +261,37 @@ async def _add_time_off(
 async def test_day_with_doctor_id_from_other_clinic_denies_and_leaks_nothing(
     client: AsyncClient, clinic_a: ClinicCtx, clinic_b: ClinicCtx
 ) -> None:
-    """Фильтр day по врачу ЧУЖОЙ клиники — отказ, никаких данных чужого врача."""
+    """Фильтр day по врачу ЧУЖОЙ клиники — 404, неотличимый от несуществующего.
+
+    Иначе перебором id подтверждается, что такой врач где-то есть.
+    """
     resp = await client.get(
         f"{API}/clinic/schedule/day?date={MONDAY}&doctorId={clinic_b.doctor_id}",
         headers=clinic_a.headers,
     )
-    assert resp.status_code in {403, 404, 422}, resp.text
+    missing = await client.get(
+        f"{API}/clinic/schedule/day?date={MONDAY}&doctorId={uuid.uuid4()}",
+        headers=clinic_a.headers,
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json() == missing.json()
     assert clinic_b.doctor_id not in resp.text
 
 
 async def test_slots_with_doctor_id_from_other_clinic_denies(
     client: AsyncClient, clinic_a: ClinicCtx, clinic_b: ClinicCtx
 ) -> None:
-    """Слоты врача ЧУЖОЙ клиники не отдаются."""
+    """Слоты врача ЧУЖОЙ клиники не отдаются — тот же 404, что и на несуществующего."""
     resp = await client.get(
         f"{API}/clinic/schedule/slots?date={MONDAY}&doctorId={clinic_b.doctor_id}",
         headers=clinic_a.headers,
     )
-    assert resp.status_code in {403, 404, 422}, resp.text
+    missing = await client.get(
+        f"{API}/clinic/schedule/slots?date={MONDAY}&doctorId={uuid.uuid4()}",
+        headers=clinic_a.headers,
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json() == missing.json()
     assert "slots" not in resp.json()
 
 

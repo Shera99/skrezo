@@ -7,7 +7,8 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ForbiddenError, NotFoundError, ValidationAppError
+from app.core.errors import ValidationAppError
+from app.modules.patients.application.services.access import ensure_clinic_patient
 from app.modules.patients.domain.models import ToothStatePatch
 from app.modules.patients.domain.teeth import is_valid_tooth
 from app.modules.patients.infrastructure.repositories.patient_repository import PatientRepository
@@ -22,11 +23,7 @@ class UpsertTeethUseCase:
     async def execute(
         self, clinic_id: uuid.UUID, patient_id: uuid.UUID, teeth: list[ToothStatePatch]
     ) -> Sequence[PatientTooth]:
-        patient = await self._patients.get(patient_id)
-        if patient is None:
-            raise NotFoundError("Пациент не найден", code="patient_not_found")
-        if not await self._patients.clinic_treats(clinic_id, patient_id):
-            raise ForbiddenError("Нет приёмов с этим пациентом", code="no_patient_relationship")
+        await ensure_clinic_patient(clinic_id, patient_id, self._patients)
         for patch in teeth:
             if not is_valid_tooth(patch.tooth_number):
                 raise ValidationAppError(

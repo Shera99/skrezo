@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 
-from app.core.errors import ValidationAppError
+from app.core.errors import NotFoundError, ValidationAppError
 from app.modules.schedule.application.services.availability_service import AvailabilityService
 from app.modules.schedule.domain.availability import SLOT_STEP_MIN, slice_slots
 from app.modules.schedule.domain.models import DaySlots
@@ -24,9 +24,11 @@ class GetSlotsUseCase:
         day: date,
         service_id: uuid.UUID | None,
     ) -> DaySlots:
-        # Врач обязан быть из этой клиники — иначе чужое расписание (IDOR).
+        # Врач обязан быть из этой клиники — иначе чужое расписание (IDOR). Ответ
+        # тот же, что и на несуществующего врача: существование чужих не
+        # подтверждаем, и такой же 404 отдают остальные ручки по врачу.
         if not await self._schedule.is_doctor_in_clinic(clinic_id, doctor_membership_id):
-            raise ValidationAppError("Врач не из этой клиники", code="invalid_doctor")
+            raise NotFoundError("Врач не найден в этой клинике", code="doctor_not_found")
         if service_id is not None:
             exists, _ = await self._schedule.service_duration(clinic_id, service_id)
             if not exists:

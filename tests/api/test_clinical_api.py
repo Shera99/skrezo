@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -91,8 +93,8 @@ async def test_patient_appointment_and_odontogram(
     found = await client.get(f"{API}/clinic/patients/lookup?phone=0700401001", headers=clinic_a)
     assert found.json()["patient"]["id"] == pid
 
-    # До приёма клиника не видит карту (нет связи).
-    assert (await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)).status_code == 403
+    # До приёма клиника не видит карту (нет связи) — и не отличает «не наш» от «нет такого».
+    assert (await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)).status_code == 404
 
     # Приём: цена из услуги (price не передаём) → priceTotal 3000; зуб 46 заводится.
     appt = await client.post(
@@ -145,6 +147,55 @@ async def test_patient_appointment_and_odontogram(
     )
     assert bad.status_code == 422
     assert bad.json()["error"] == "invalid_tooth"
+
+
+async def test_foreign_patient_is_indistinguishable_from_missing(
+    client: AsyncClient, admin_client: AsyncClient, clinic_a: dict[str, str]
+) -> None:
+    """Чужой пациент и несуществующий отвечают одинаково — 404.
+
+    Иначе перебором id подтверждается существование людей, которых клиника не
+    лечит: «403» читается как «такой пациент есть, но не ваш».
+    """
+    # Пациент, которого лечит только клиника B.
+    temp_b = await _provision_clinic(admin_client, "0700404001", "Клиника B404")
+    clinic_b = await _login(client, "0700404001", temp_b)
+    sid = (
+        await client.post(
+            f"{API}/clinic/services", headers=clinic_b, json={"name": "Пломба", "priceTiyin": 3000}
+        )
+    ).json()["id"]
+    pid = (
+        await client.post(
+            f"{API}/clinic/patients",
+            headers=clinic_b,
+            json={"phone": "0700404002", "firstName": "Чужой"},
+        )
+    ).json()["id"]
+    await client.post(
+        f"{API}/clinic/appointments",
+        headers=clinic_b,
+        json={"patientId": pid, "items": [{"serviceId": sid, "teeth": [46]}]},
+    )
+
+    missing_id = str(uuid.uuid4())
+    for path in ("", "/teeth/46"):
+        foreign = await client.get(f"{API}/clinic/patients/{pid}{path}", headers=clinic_a)
+        missing = await client.get(f"{API}/clinic/patients/{missing_id}{path}", headers=clinic_a)
+        assert foreign.status_code == 404, foreign.text
+        assert foreign.json() == missing.json()
+
+    # Правка и одонтограмма — тот же ответ.
+    patched = await client.patch(
+        f"{API}/clinic/patients/{pid}", headers=clinic_a, json={"firstName": "Взлом"}
+    )
+    assert patched.status_code == 404, patched.text
+    teeth = await client.put(
+        f"{API}/clinic/patients/{pid}/teeth",
+        headers=clinic_a,
+        json={"teeth": [{"tooth": 11, "status": "healthy"}]},
+    )
+    assert teeth.status_code == 404, teeth.text
 
 
 async def test_patient_note_is_stored_and_editable(

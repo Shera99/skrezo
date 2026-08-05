@@ -32,18 +32,13 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     404: {
-        "description": "Клиника не найдена",
+        "description": "Клиника не найдена либо врач не из этой клиники",
         "content": {
             "application/json": {
-                "example": {"error": "clinic_not_found", "message": "Клиника не найдена"}
-            }
-        },
-    },
-    422: {
-        "description": "Врач не из этой клиники",
-        "content": {
-            "application/json": {
-                "example": {"error": "invalid_doctor", "message": "Врач не из этой клиники"}
+                "example": {
+                    "error": "doctor_not_found",
+                    "message": "Врач не найден в этой клинике",
+                }
             }
         },
     },

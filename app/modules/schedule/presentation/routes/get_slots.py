@@ -31,11 +31,22 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
             }
         },
     },
-    422: {
-        "description": "Врач или услуга не из этой клиники",
+    404: {
+        "description": "Врач не найден в этой клинике (или врача нет вовсе)",
         "content": {
             "application/json": {
-                "example": {"error": "invalid_doctor", "message": "Врач не из этой клиники"}
+                "example": {
+                    "error": "doctor_not_found",
+                    "message": "Врач не найден в этой клинике",
+                }
+            }
+        },
+    },
+    422: {
+        "description": "Услуга не из этой клиники",
+        "content": {
+            "application/json": {
+                "example": {"error": "invalid_service", "message": "Услуга не из этой клиники"}
             }
         },
     },
