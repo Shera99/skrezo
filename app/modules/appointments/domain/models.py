@@ -14,7 +14,7 @@ from app.shared.db.models.appointment import Appointment
 class ToothInput:
     tooth: int
     service_id: uuid.UUID | None
-    price: int | None
+    price_tiyin: int | None
     comment: str | None
 
 
@@ -28,7 +28,7 @@ class AppointmentRow:
     scheduled_at: datetime | None  # None у черновика (status=draft)
     duration_min: int
     status: AppointmentStatus
-    price_total: int
+    price_total_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +37,7 @@ class AppointmentToothRow:
     tooth_number: int
     service_name: str | None
     status: AppointmentToothStatus
-    price: int
+    price_tiyin: int
     comment: str | None
 
 

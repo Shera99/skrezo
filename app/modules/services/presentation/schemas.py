@@ -15,7 +15,7 @@ class ServiceOut(CamelModel):
     id: uuid.UUID
     name: str
     description: str | None = None
-    price: int = Field(description="Целые сомы")
+    price_tiyin: int = Field(description="Цена в тыйынах (1/100 сома)", examples=[425000])
     duration: int | None = Field(default=None, description="Минуты")
     active: bool
     created_at: datetime
@@ -26,7 +26,7 @@ class ServiceOut(CamelModel):
             id=s.id,
             name=s.name,
             description=s.description,
-            price=s.price,
+            price_tiyin=s.price_tiyin,
             duration=s.duration,
             active=s.active,
             created_at=s.created_at,
@@ -36,7 +36,7 @@ class ServiceOut(CamelModel):
 class CreateServiceRequest(CamelModel):
     name: str = Field(min_length=1)
     description: str | None = None
-    price: int = Field(ge=0, description="Целые сомы")
+    price_tiyin: int = Field(ge=0, description="Цена в тыйынах (1/100 сома)", examples=[425000])
     duration: int | None = Field(default=None, ge=0, description="Минуты")
 
 
@@ -47,10 +47,10 @@ class UpdateServiceRequest(NotNullFieldsModel):
     Для NOT NULL-полей ``null`` — ошибка валидации (422).
     """
 
-    NOT_NULL_FIELDS = ("name", "price", "active")
+    NOT_NULL_FIELDS = ("name", "priceTiyin", "active")
 
     name: str | None = Field(default=None, min_length=1)
     description: str | None = None
-    price: int | None = Field(default=None, ge=0)
+    price_tiyin: int | None = Field(default=None, ge=0, description="Цена в тыйынах")
     duration: int | None = Field(default=None, ge=0)
     active: bool | None = None

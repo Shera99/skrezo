@@ -76,8 +76,8 @@ class TariffRepository:
         row = TariffVersion(
             type=tariff_type,
             version=version,
-            price=price,
-            over_price=over_price,
+            price_tiyin=price,
+            over_price_tiyin=over_price,
             created_by=created_by,
         )
         self._session.add(row)
@@ -88,7 +88,7 @@ class TariffRepository:
         self, *, version_id: uuid.UUID, name: str, up_to: int, price: int
     ) -> None:
         self._session.add(
-            TariffPackage(tariff_version_id=version_id, name=name, up_to=up_to, price=price)
+            TariffPackage(tariff_version_id=version_id, name=name, up_to=up_to, price_tiyin=price)
         )
         await self._session.flush()
 

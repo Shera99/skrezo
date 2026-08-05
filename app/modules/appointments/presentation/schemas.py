@@ -39,7 +39,7 @@ class AppointmentListItem(CamelModel):
     )
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     status: AppointmentStatus
-    price_total: int
+    price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
 
     @classmethod
     def from_row(cls, r: AppointmentRow) -> AppointmentListItem:
@@ -52,7 +52,7 @@ class AppointmentListItem(CamelModel):
             scheduled_at=r.scheduled_at,
             duration_min=r.duration_min,
             status=r.status,
-            price_total=r.price_total,
+            price_total_tiyin=r.price_total_tiyin,
         )
 
 
@@ -66,7 +66,9 @@ class AppointmentsResponse(CamelModel):
 class ToothInputSchema(CamelModel):
     tooth: int = Field(description="Номер зуба FDI")
     service_id: uuid.UUID | None = None
-    price: int | None = Field(default=None, ge=0, description="Цена; по умолч. из услуги")
+    price_tiyin: int | None = Field(
+        default=None, ge=0, description="Цена в тыйынах; по умолчанию из услуги"
+    )
     comment: str | None = None
 
 
@@ -119,7 +121,7 @@ class CreateAppointmentRequest(CamelModel):
 
 class AppointmentCreatedResponse(CamelModel):
     id: uuid.UUID
-    price_total: int
+    price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
 
 
 class AppointmentToothOut(CamelModel):
@@ -127,7 +129,7 @@ class AppointmentToothOut(CamelModel):
     tooth: int
     service_name: str | None = None
     status: AppointmentToothStatus
-    price: int
+    price_tiyin: int = Field(description="Цена в тыйынах", examples=[425000])
     comment: str | None = None
 
     @classmethod
@@ -137,7 +139,7 @@ class AppointmentToothOut(CamelModel):
             tooth=r.tooth_number,
             service_name=r.service_name,
             status=r.status,
-            price=r.price,
+            price_tiyin=r.price_tiyin,
             comment=r.comment,
         )
 
@@ -154,7 +156,7 @@ class AppointmentDetailResponse(CamelModel):
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     service_id: uuid.UUID | None = None
     status: AppointmentStatus
-    price_total: int
+    price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
     comment: str | None = None
     cancel_reason: CancelReason | None = Field(
         default=None, description="Причина отмены; null у неотменённого приёма"
@@ -175,7 +177,7 @@ class AppointmentDetailResponse(CamelModel):
             duration_min=a.duration_min,
             service_id=a.service_id,
             status=a.status,
-            price_total=a.price_total,
+            price_total_tiyin=a.price_total_tiyin,
             comment=a.comment,
             cancel_reason=a.cancel_reason,
             cancel_comment=a.cancel_comment,
@@ -240,7 +242,9 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
 class CompletePaymentInput(CamelModel):
     """Оплата, проводимая при завершении приёма (касса)."""
 
-    amount: int = Field(gt=0, description="Сумма платежа в сомах (> 0)", examples=[1500])
+    amount_tiyin: int = Field(
+        gt=0, description="Сумма платежа в тыйынах (> 0)", examples=[150000]
+    )
     method: PaymentMethod = Field(description="Способ оплаты", examples=["cash"])
     comment: str | None = Field(default=None, max_length=500)
 

@@ -29,7 +29,7 @@ from app.shared.db.enums import (
 class CashPayment(Base, UUIDPKMixin):
     __tablename__ = "cash_payment"
     __table_args__ = (
-        CheckConstraint("amount > 0", name="ck_cash_payment_amount_positive"),
+        CheckConstraint("amount_tiyin > 0", name="ck_cash_payment_amount_positive"),
         # Журнал кассы клиники — по клинике и времени (последние сверху).
         Index("ix_cash_payment_clinic_created", "clinic_id", "created_at"),
         # Свой журнал кассира (RBAC cash.view_own) — по клинике, кассиру и времени.
@@ -54,7 +54,7 @@ class CashPayment(Base, UUIDPKMixin):
     patient_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("patient.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    amount: Mapped[int] = mapped_column(Integer, nullable=False)  # целые сомы, всегда > 0
+    amount_tiyin: Mapped[int] = mapped_column(Integer, nullable=False)  # тыйыны, всегда > 0
     method: Mapped[PaymentMethod] = mapped_column(PaymentMethodType, nullable=False)
     kind: Mapped[PaymentKind] = mapped_column(
         PaymentKindType, nullable=False, default=PaymentKind.PAYMENT

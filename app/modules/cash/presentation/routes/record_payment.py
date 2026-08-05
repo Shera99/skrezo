@@ -64,7 +64,7 @@ async def record_payment(
         context.clinic_id,
         context.account_id,
         body.appointment_id,
-        body.amount,
+        body.amount_tiyin,
         body.method,
         body.comment,
     )

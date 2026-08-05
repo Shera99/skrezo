@@ -168,7 +168,7 @@ async def _add_patient(client: AsyncClient, headers: dict[str, str], name: str) 
 async def _add_service(
     client: AsyncClient, headers: dict[str, str], name: str, duration: int | None
 ) -> str:
-    body: dict[str, Any] = {"name": name, "price": 1000}
+    body: dict[str, Any] = {"name": name, "priceTiyin": 1000}
     if duration is not None:
         body["duration"] = duration
     resp = await client.post(f"{API}/clinic/services", headers=headers, json=body)

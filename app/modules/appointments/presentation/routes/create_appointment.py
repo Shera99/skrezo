@@ -81,10 +81,15 @@ async def create_appointment(
         duration_min=body.duration_min,
         comment=body.comment,
         teeth=[
-            ToothInput(tooth=t.tooth, service_id=t.service_id, price=t.price, comment=t.comment)
+            ToothInput(
+                tooth=t.tooth,
+                service_id=t.service_id,
+                price_tiyin=t.price_tiyin,
+                comment=t.comment,
+            )
             for t in body.teeth
         ],
         status=body.status,
     )
     appt = await use_case.execute(context.clinic_id, data)
-    return AppointmentCreatedResponse(id=appt.id, price_total=appt.price_total)
+    return AppointmentCreatedResponse(id=appt.id, price_total_tiyin=appt.price_total_tiyin)

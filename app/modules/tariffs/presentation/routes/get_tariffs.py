@@ -25,9 +25,9 @@ router = APIRouter()
 def _summary(view: VersionView) -> str:
     version = view.version
     if version.type is ClinicType.SOLO:
-        return f"{version.price}/мес"
-    packages = [PackageDef(p.name, p.up_to, p.price) for p in view.packages]
-    return package_summary(packages, version.over_price or 0)
+        return f"{version.price_tiyin}/мес"
+    packages = [PackageDef(p.name, p.up_to, p.price_tiyin) for p in view.packages]
+    return package_summary(packages, version.over_price_tiyin or 0)
 
 
 @router.get(
@@ -43,11 +43,11 @@ async def get_tariffs(
     result = await use_case.execute()
 
     solo = None
-    if result.solo is not None and result.solo.price is not None:
+    if result.solo is not None and result.solo.price_tiyin is not None:
         solo = SoloTariffOut(
             version=result.solo.version,
             updated_at=result.solo.created_at,
-            price=result.solo.price,
+            price_tiyin=result.solo.price_tiyin,
         )
 
     clinic = None
@@ -56,10 +56,10 @@ async def get_tariffs(
             version=result.clinic.version,
             updated_at=result.clinic.created_at,
             packages=[
-                PackageSchema(name=p.name, up_to=p.up_to, price=p.price)
+                PackageSchema(name=p.name, up_to=p.up_to, price_tiyin=p.price_tiyin)
                 for p in result.clinic_packages
             ],
-            over_price=result.clinic.over_price or 0,
+            over_price_tiyin=result.clinic.over_price_tiyin or 0,
         )
 
     current_ids = {v.id for v in (result.solo, result.clinic) if v is not None}

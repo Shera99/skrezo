@@ -1,6 +1,6 @@
 """Доменные структуры отчётов.
 
-Деньги — целые сомы. Разделение периодов: **деньги считаются по дате платежа**
+Деньги — целые тыйыны (1/100 сома). Разделение периодов: **деньги считаются по дате платежа**
 (``cash_payment.created_at``), **приёмы/услуги/врачи — по дате приёма**
 (``appointment.scheduled_at``), иначе вчерашний приём, оплаченный сегодня, попал
 бы не в тот период.
@@ -20,18 +20,18 @@ class MethodRevenue:
     """Выручка по способу оплаты."""
 
     method: PaymentMethod
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
 class RevenueBlock:
     """Итог по деньгам за период (по дате платежа)."""
 
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
     by_method: list[MethodRevenue]
 
 
@@ -68,9 +68,9 @@ class ReportSummary:
     revenue: RevenueBlock
     appointments: AppointmentsBlock
     patients: PatientsBlock
-    charged: int  # начислено по завершённым приёмам периода
-    debt: int  # остаток по завершённым приёмам периода
-    average_check: int  # начислено / число завершённых приёмов
+    charged_tiyin: int  # начислено по завершённым приёмам периода
+    debt_tiyin: int  # остаток по завершённым приёмам периода
+    average_check_tiyin: int  # начислено / число завершённых приёмов
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +78,9 @@ class RevenuePoint:
     """Точка временного ряда выручки."""
 
     bucket: date
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,10 +102,10 @@ class DoctorReportRow:
     appointments: int
     completed: int
     cancelled: int
-    charged: int  # начислено по завершённым
-    paid: int  # оплачено нетто по его приёмам
-    debt: int  # начислено − оплачено
-    average_check: int
+    charged_tiyin: int  # начислено по завершённым
+    paid_tiyin: int  # оплачено нетто по его приёмам
+    debt_tiyin: int  # начислено − оплачено
+    average_check_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +123,7 @@ class ServiceReportRow:
     service_id: uuid.UUID | None
     name: str
     count: int
-    revenue: int
+    revenue_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +141,8 @@ class ClinicReportRow:
     clinic_id: uuid.UUID
     name: str
     city_name: str | None
-    revenue_net: int
-    debt: int
+    revenue_net_tiyin: int
+    debt_tiyin: int
     appointments: int
     completed: int
     doctors: int
@@ -156,5 +156,5 @@ class ClinicsReport:
     date_from: date | None
     date_to: date
     rows: list[ClinicReportRow]
-    total_revenue_net: int
-    total_debt: int
+    total_revenue_net_tiyin: int
+    total_debt_tiyin: int

@@ -41,8 +41,8 @@ class ClientListItem(CamelModel):
     seats_used: int
     seats_limit: int | None = None
     patients_count: int = 0
-    revenue: int = Field(default=0, description="Выручка кассы клиники (вне скоупа) — 0")
-    lifetime_revenue: int | None = None
+    revenue_tiyin: int = Field(default=0, description="Выручка кассы клиники (вне скоупа) — 0")
+    lifetime_revenue_tiyin: int | None = None
     subscription_status: SubscriptionStatus | None = None
     trial_day: int | None = None
     last_active_at: datetime | None = None
@@ -114,7 +114,7 @@ class ClientPayment(CamelModel):
     id: str
     label: str
     date: datetime
-    amount: int
+    amount_tiyin: int
     status: str = Field(description="success | failed | refunded")
 
 

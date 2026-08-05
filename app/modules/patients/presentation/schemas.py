@@ -168,7 +168,7 @@ class ToothHistoryItem(CamelModel):
     doctor_name: str | None = None
     service_name: str | None = None
     status: AppointmentToothStatus
-    price: int
+    price_tiyin: int = Field(description="Цена в тыйынах")
     comment: str | None = None
 
     @classmethod
@@ -180,7 +180,7 @@ class ToothHistoryItem(CamelModel):
             doctor_name=e.doctor_name,
             service_name=e.service_name,
             status=e.status,
-            price=e.price,
+            price_tiyin=e.price_tiyin,
             comment=e.comment,
         )
 

@@ -14,9 +14,9 @@ from app.shared.db.updates import apply_updates
 
 # Колонки услуги, которые разрешено править через PATCH. Здесь нет clinic_id:
 # иначе тело запроса уводит услугу в чужую клинику.
-_UPDATABLE_FIELDS = frozenset({"name", "description", "price", "duration", "active"})
+_UPDATABLE_FIELDS = frozenset({"name", "description", "price_tiyin", "duration", "active"})
 # Из них — NOT NULL в БД.
-_NOT_NULL_FIELDS = frozenset({"name", "price", "active"})
+_NOT_NULL_FIELDS = frozenset({"name", "price_tiyin", "active"})
 
 
 class ServiceRepository:
@@ -27,9 +27,7 @@ class ServiceRepository:
         stmt = select(Service).where(Service.clinic_id == clinic_id)
         if active_only:
             stmt = stmt.where(Service.active.is_(True))
-        return (
-            (await self._session.execute(stmt.order_by(Service.name))).scalars().all()
-        )
+        return (await self._session.execute(stmt.order_by(Service.name))).scalars().all()
 
     async def get(self, clinic_id: uuid.UUID, service_id: uuid.UUID) -> Service | None:
         service = await self._session.get(Service, service_id)

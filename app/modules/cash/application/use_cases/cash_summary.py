@@ -28,12 +28,12 @@ class CashSummaryUseCase:
         by_method = await self._cash.summary(
             clinic_id, date_from=start, date_to=end, own_membership_id=own_membership_id
         )
-        total_income = sum(m.income for m in by_method)
-        total_refund = sum(m.refund for m in by_method)
+        total_income = sum(m.income_tiyin for m in by_method)
+        total_refund = sum(m.refund_tiyin for m in by_method)
         return CashSummary(
             timezone=timezone,
             by_method=by_method,
-            total_income=total_income,
-            total_refund=total_refund,
-            net=total_income - total_refund,
+            total_income_tiyin=total_income,
+            total_refund_tiyin=total_refund,
+            net_tiyin=total_income - total_refund,
         )

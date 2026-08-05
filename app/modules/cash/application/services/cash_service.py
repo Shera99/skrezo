@@ -44,15 +44,13 @@ class CashService:
             raise NotFoundError("Приём не найден", code="appointment_not_found")
         if amount <= 0:
             raise ValidationAppError("Сумма должна быть больше нуля", code="invalid_amount")
-        if billing.outstanding <= 0:
-            raise ValidationAppError(
-                "По приёму нет неоплаченного остатка", code="nothing_to_pay"
-            )
-        if amount > billing.outstanding:
+        if billing.outstanding_tiyin <= 0:
+            raise ValidationAppError("По приёму нет неоплаченного остатка", code="nothing_to_pay")
+        if amount > billing.outstanding_tiyin:
             raise ValidationAppError(
                 "Сумма больше остатка по приёму",
                 code="overpayment",
-                extra={"outstanding": billing.outstanding},
+                extra={"outstandingTiyin": billing.outstanding_tiyin},
             )
         recorded_by = await self._cash.own_membership(account_id, clinic_id)
         return await self._cash.create_payment(
@@ -90,7 +88,7 @@ class CashService:
             clinic_id=clinic_id,
             appointment_id=payment.appointment_id,
             patient_id=payment.patient_id,
-            amount=payment.amount,
+            amount=payment.amount_tiyin,
             method=payment.method,
             kind=PaymentKind.REFUND,
             recorded_by_membership_id=recorded_by,

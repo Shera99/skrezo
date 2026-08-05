@@ -297,7 +297,7 @@ async def test_constraint_is_live_after_upgrade_of_legacy_data(at_0019: str) -> 
         await _sql(
             at_0019,
             "INSERT INTO appointment (id, clinic_id, patient_id, doctor_membership_id, "
-            "appointment_type, status, price_total, scheduled_at, duration_min) "
+            "appointment_type, status, price_total_tiyin, scheduled_at, duration_min) "
             f"VALUES (gen_random_uuid(), '{CLINIC}', '{PATIENT}', '{DOCTOR_1}', "
             "'treatment', 'scheduled', 0, '2026-07-20 09:10:00+06', 30)",
         )

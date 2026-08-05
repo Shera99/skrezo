@@ -36,5 +36,5 @@ class ListDebtsUseCase:
         return DebtsList(
             timezone=timezone,
             items=items,
-            total_outstanding=sum(r.outstanding for r in items),
+            total_outstanding_tiyin=sum(r.outstanding_tiyin for r in items),
         )

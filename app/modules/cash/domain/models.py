@@ -21,7 +21,7 @@ class PaymentRecord:
     appointment_id: uuid.UUID
     patient_id: uuid.UUID
     patient_name: str
-    amount: int
+    amount_tiyin: int
     method: PaymentMethod
     kind: PaymentKind
     recorded_by_membership_id: uuid.UUID | None
@@ -45,9 +45,9 @@ class MethodTotals:
     """Итог по способу оплаты: приход, возвраты и нетто."""
 
     method: PaymentMethod
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,9 +56,9 @@ class CashSummary:
 
     timezone: str
     by_method: list[MethodTotals]
-    total_income: int
-    total_refund: int
-    net: int
+    total_income_tiyin: int
+    total_refund_tiyin: int
+    net_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,9 +70,9 @@ class AppointmentDebt:
     patient_name: str
     doctor_membership_id: uuid.UUID | None
     scheduled_at: datetime
-    price_total: int
-    paid: int
-    outstanding: int
+    price_total_tiyin: int
+    paid_tiyin: int
+    outstanding_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +81,7 @@ class DebtsList:
 
     timezone: str
     items: list[AppointmentDebt]
-    total_outstanding: int
+    total_outstanding_tiyin: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,10 +91,10 @@ class AppointmentBilling:
     appointment_id: uuid.UUID
     patient_id: uuid.UUID
     doctor_membership_id: uuid.UUID | None
-    price_total: int
-    paid: int
+    price_total_tiyin: int
+    paid_tiyin: int
 
     @property
-    def outstanding(self) -> int:
+    def outstanding_tiyin(self) -> int:
         """Остаток к оплате (может быть 0, если оплачено полностью)."""
-        return self.price_total - self.paid
+        return self.price_total_tiyin - self.paid_tiyin

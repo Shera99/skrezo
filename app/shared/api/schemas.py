@@ -34,7 +34,7 @@ class NotNullFieldsModel(CamelModel):
     Наследники перечисляют такие поля в ``NOT_NULL_FIELDS`` под camelCase-именами::
 
         class UpdateServiceRequest(NotNullFieldsModel):
-            NOT_NULL_FIELDS = ("name", "price", "active")
+            NOT_NULL_FIELDS = ("name", "priceTiyin", "active")
 
     Проверка идёт и по camelCase, и по snake_case: ``CamelModel`` живёт с
     ``populate_by_name=True`` и принимает оба имени, поэтому сверка только по

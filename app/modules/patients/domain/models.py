@@ -38,7 +38,7 @@ class ToothHistoryEntry:
     doctor_name: str | None
     service_name: str | None
     status: AppointmentToothStatus
-    price: int
+    price_tiyin: int
     comment: str | None
 
 

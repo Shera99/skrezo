@@ -43,6 +43,4 @@ class UpdateClinicTariffUseCase:
             )
         affected = await self._tariffs.count_active_clinics()
         await self._session.commit()
-        return UpdateClinicResult(
-            version_id=row.id, version=version_no, affected_clients=affected
-        )
+        return UpdateClinicResult(version_id=row.id, version=version_no, affected_clients=affected)

@@ -32,8 +32,8 @@ def _signed() -> ColumnElement[int]:
     """Знаковая сумма операции: платёж прибавляет, возврат вычитает."""
     return func.sum(
         case(
-            (CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount),
-            else_=-CashPayment.amount,
+            (CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount_tiyin),
+            else_=-CashPayment.amount_tiyin,
         )
     )
 
@@ -50,16 +50,12 @@ class CashRepository:
     async def clinic_timezone(self, clinic_id: uuid.UUID) -> str:
         """IANA-таймзона клиники; при отсутствии — дефолт платформы."""
         tz = (
-            await self._session.execute(
-                select(Clinic.timezone).where(Clinic.id == clinic_id)
-            )
+            await self._session.execute(select(Clinic.timezone).where(Clinic.id == clinic_id))
         ).scalar_one_or_none()
         return tz or DEFAULT_TIMEZONE
 
     # ── «Свой» кассир ──────────────────────────────────────────────────────
-    async def own_membership(
-        self, account_id: uuid.UUID, clinic_id: uuid.UUID
-    ) -> uuid.UUID | None:
+    async def own_membership(self, account_id: uuid.UUID, clinic_id: uuid.UUID) -> uuid.UUID | None:
         """Активное членство аккаунта в этой клинике — «свой» для RBAC и recorded_by."""
         return (
             await self._session.execute(
@@ -82,7 +78,7 @@ class CashRepository:
                     Appointment.id,
                     Appointment.patient_id,
                     Appointment.doctor_membership_id,
-                    Appointment.price_total,
+                    Appointment.price_total_tiyin,
                 ).where(Appointment.id == appointment_id, Appointment.clinic_id == clinic_id)
             )
         ).first()
@@ -92,8 +88,8 @@ class CashRepository:
             appointment_id=row[0],
             patient_id=row[1],
             doctor_membership_id=row[2],
-            price_total=row[3],
-            paid=await self.paid_net(appointment_id),
+            price_total_tiyin=row[3],
+            paid_tiyin=await self.paid_net(appointment_id),
         )
 
     async def paid_net(self, appointment_id: uuid.UUID) -> int:
@@ -126,7 +122,7 @@ class CashRepository:
             clinic_id=clinic_id,
             appointment_id=appointment_id,
             patient_id=patient_id,
-            amount=amount,
+            amount_tiyin=amount,
             method=method,
             kind=kind,
             recorded_by_membership_id=recorded_by_membership_id,
@@ -140,9 +136,7 @@ class CashRepository:
         return record
 
     # ── Возврат: исходный платёж и защита от двойного возврата ─────────────
-    async def get_payment(
-        self, clinic_id: uuid.UUID, payment_id: uuid.UUID
-    ) -> CashPayment | None:
+    async def get_payment(self, clinic_id: uuid.UUID, payment_id: uuid.UUID) -> CashPayment | None:
         """Операция кассы этой клиники по id (для возврата)."""
         return (
             await self._session.execute(
@@ -172,7 +166,7 @@ class CashRepository:
                 CashPayment.appointment_id,
                 CashPayment.patient_id,
                 _patient_name().label("patient_name"),
-                CashPayment.amount,
+                CashPayment.amount_tiyin,
                 CashPayment.method,
                 CashPayment.kind,
                 CashPayment.recorded_by_membership_id,
@@ -192,7 +186,7 @@ class CashRepository:
             appointment_id=row[1],
             patient_id=row[2],
             patient_name=(row[3] or "").strip(),
-            amount=row[4],
+            amount_tiyin=row[4],
             method=row[5],
             kind=row[6],
             recorded_by_membership_id=row[7],
@@ -293,10 +287,10 @@ class CashRepository:
             own_membership_id=own_membership_id,
         )
         income = func.sum(
-            case((CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount), else_=0)
+            case((CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount_tiyin), else_=0)
         )
         refund = func.sum(
-            case((CashPayment.kind == PaymentKind.REFUND, CashPayment.amount), else_=0)
+            case((CashPayment.kind == PaymentKind.REFUND, CashPayment.amount_tiyin), else_=0)
         )
         rows = (
             await self._session.execute(
@@ -310,7 +304,12 @@ class CashRepository:
             )
         ).all()
         return [
-            MethodTotals(method=r[0], income=int(r[1]), refund=int(r[2]), net=int(r[1]) - int(r[2]))
+            MethodTotals(
+                method=r[0],
+                income_tiyin=int(r[1]),
+                refund_tiyin=int(r[2]),
+                net_tiyin=int(r[1]) - int(r[2]),
+            )
             for r in rows
         ]
 
@@ -335,7 +334,7 @@ class CashRepository:
         conditions: list[ColumnElement[bool]] = [
             Appointment.clinic_id == clinic_id,
             Appointment.status == AppointmentStatus.COMPLETED,
-            (Appointment.price_total - paid) > 0,
+            (Appointment.price_total_tiyin - paid) > 0,
         ]
         if patient_id is not None:
             conditions.append(Appointment.patient_id == patient_id)
@@ -349,7 +348,7 @@ class CashRepository:
                     _patient_name().label("patient_name"),
                     Appointment.doctor_membership_id,
                     Appointment.scheduled_at,
-                    Appointment.price_total,
+                    Appointment.price_total_tiyin,
                     paid.label("paid"),
                 )
                 .join(Patient, Patient.id == Appointment.patient_id)
@@ -365,9 +364,9 @@ class CashRepository:
                 patient_name=(r[2] or "").strip(),
                 doctor_membership_id=r[3],
                 scheduled_at=r[4],
-                price_total=int(r[5]),
-                paid=int(r[6]),
-                outstanding=int(r[5]) - int(r[6]),
+                price_total_tiyin=int(r[5]),
+                paid_tiyin=int(r[6]),
+                outstanding_tiyin=int(r[5]) - int(r[6]),
             )
             for r in rows
         ]

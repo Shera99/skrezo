@@ -16,6 +16,4 @@ class Permission(Base, UUIDPKMixin):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # Доступно ли право на триале (настраивается из админки). Дефолт — доступно.
-    in_trial: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    in_trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

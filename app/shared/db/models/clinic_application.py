@@ -35,9 +35,7 @@ class ClinicApplication(Base, UUIDPKMixin, TimestampMixin):
 
     company_name: Mapped[str] = mapped_column(Text, nullable=False)
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
-    doctors_count: Mapped[DoctorsCountRange] = mapped_column(
-        DoctorsCountRangeType, nullable=False
-    )
+    doctors_count: Mapped[DoctorsCountRange] = mapped_column(DoctorsCountRangeType, nullable=False)
     # Телефон подтверждён OTP; НЕ уникален — одна компания может подать повторно.
     phone: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     status: Mapped[ClinicApplicationStatus] = mapped_column(
@@ -49,6 +47,4 @@ class ClinicApplication(Base, UUIDPKMixin, TimestampMixin):
     reviewed_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("account.id", ondelete="SET NULL"), nullable=True
     )
-    reviewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

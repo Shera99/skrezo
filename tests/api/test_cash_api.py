@@ -60,7 +60,7 @@ async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) 
     assert resp.status_code == 201, resp.text
     headers = await _login(client, phone, resp.json()["tempPassword"])
     service = await client.post(
-        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "price": 3000}
+        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
     )
     assert service.status_code == 201, service.text
     patient = await client.post(
@@ -105,7 +105,7 @@ async def _appointment(
         body["doctorMembershipId"] = doctor
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
     assert resp.status_code == 201, resp.text
-    assert resp.json()["priceTotal"] == 3000
+    assert resp.json()["priceTotalTiyin"] == 3000
     return str(resp.json()["id"])
 
 
@@ -120,7 +120,7 @@ async def clinic_b(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
 
 
 def _pay(appointment_id: str, amount: int, method: str = "cash") -> dict[str, Any]:
-    return {"appointmentId": appointment_id, "amount": amount, "method": method}
+    return {"appointmentId": appointment_id, "amountTiyin": amount, "method": method}
 
 
 # ── 1. Завершение приёма с оплатой ──────────────────────────────────────────
@@ -134,7 +134,7 @@ async def test_complete_with_payment_closes_appointment_and_debt(
     done = await client.post(
         f"{API}/clinic/appointments/{appt}/complete",
         headers=clinic_a.headers,
-        json={"payment": {"amount": 3000, "method": "cash"}},
+        json={"payment": {"amountTiyin": 3000, "method": "cash"}},
     )
     assert done.status_code == 200, done.text
     assert done.json()["status"] == "completed"
@@ -142,11 +142,11 @@ async def test_complete_with_payment_closes_appointment_and_debt(
     payments = await client.get(f"{API}/clinic/cash/payments", headers=clinic_a.headers)
     assert payments.status_code == 200, payments.text
     assert payments.json()["totalCount"] == 1
-    assert payments.json()["list"][0]["amount"] == 3000
+    assert payments.json()["list"][0]["amountTiyin"] == 3000
 
     debts = await client.get(f"{API}/clinic/cash/debts", headers=clinic_a.headers)
     assert debts.json()["items"] == []
-    assert debts.json()["totalOutstanding"] == 0
+    assert debts.json()["totalOutstandingTiyin"] == 0
 
 
 async def test_complete_without_payment_leaves_debt(
@@ -163,8 +163,8 @@ async def test_complete_without_payment_leaves_debt(
     items = debts.json()["items"]
     assert len(items) == 1
     assert items[0]["appointmentId"] == appt
-    assert items[0]["outstanding"] == 3000
-    assert debts.json()["totalOutstanding"] == 3000
+    assert items[0]["outstandingTiyin"] == 3000
+    assert debts.json()["totalOutstandingTiyin"] == 3000
 
 
 async def test_complete_twice_is_409_and_cancelled_cannot_complete(
@@ -201,7 +201,7 @@ async def test_complete_overpayment_rolls_back_completion(
     resp = await client.post(
         f"{API}/clinic/appointments/{appt}/complete",
         headers=clinic_a.headers,
-        json={"payment": {"amount": 5000, "method": "cash"}},
+        json={"payment": {"amountTiyin": 5000, "method": "cash"}},
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["error"] == "overpayment"
@@ -234,7 +234,7 @@ async def test_partial_payments_reduce_debt_to_zero(
 
     await client.post(f"{API}/clinic/appointments/{appt}/complete", headers=clinic_a.headers)
     after_complete = await client.get(f"{API}/clinic/cash/debts", headers=clinic_a.headers)
-    assert after_complete.json()["items"][0]["outstanding"] == 2000
+    assert after_complete.json()["items"][0]["outstandingTiyin"] == 2000
 
     second = await client.post(
         f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 2000, "card")
@@ -255,7 +255,7 @@ async def test_overpayment_and_nothing_to_pay_rejected(
     )
     assert over.status_code == 422, over.text
     assert over.json()["error"] == "overpayment"
-    assert over.json()["outstanding"] == 3000
+    assert over.json()["outstandingTiyin"] == 3000
 
     assert (
         await client.post(
@@ -282,10 +282,10 @@ async def test_summary_totals_by_method(client: AsyncClient, clinic_a: ClinicCtx
     assert summary.status_code == 200, summary.text
     body = summary.json()
     by_method = {m["method"]: m for m in body["byMethod"]}
-    assert by_method["cash"]["income"] == 1000
-    assert by_method["card"]["income"] == 2000
-    assert body["totalIncome"] == 3000
-    assert body["net"] == 3000
+    assert by_method["cash"]["incomeTiyin"] == 1000
+    assert by_method["card"]["incomeTiyin"] == 2000
+    assert body["totalIncomeTiyin"] == 3000
+    assert body["netTiyin"] == 3000
 
 
 # ── 3. Возвраты ─────────────────────────────────────────────────────────────
@@ -310,10 +310,10 @@ async def test_refund_returns_debt_and_double_refund_conflicts(
     )
     assert refund.status_code == 201, refund.text
     assert refund.json()["kind"] == "refund"
-    assert refund.json()["amount"] == 3000
+    assert refund.json()["amountTiyin"] == 3000
 
     debts = await client.get(f"{API}/clinic/cash/debts", headers=clinic_a.headers)
-    assert debts.json()["items"][0]["outstanding"] == 3000
+    assert debts.json()["items"][0]["outstandingTiyin"] == 3000
 
     again = await client.post(
         f"{API}/clinic/cash/payments/{payment_id}/refund", headers=clinic_a.headers
@@ -406,7 +406,7 @@ async def test_worker_view_own_sees_only_own_payments(
 
     # Своя сводка работника — только его 2000.
     worker_summary = await client.get(f"{API}/clinic/cash/summary", headers=worker)
-    assert worker_summary.json()["totalIncome"] == 2000
+    assert worker_summary.json()["totalIncomeTiyin"] == 2000
 
 
 @pytest.mark.parametrize(

@@ -24,9 +24,9 @@ class TariffVersion(Base, UUIDPKMixin):
     # Целочисленный номер версии (растёт по типу от 1).
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     # Только для type=solo (фиксированная цена); для clinic — NULL (цена в пакетах).
-    price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price_tiyin: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Только для type=clinic: цена за место сверх последнего пакета («Сеть», 11+).
-    over_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    over_price_tiyin: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

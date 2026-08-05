@@ -55,7 +55,7 @@ class GetReportSummaryUseCase:
                 new=new_patients,
                 returning=total_patients - new_patients,
             ),
-            charged=charged,
-            debt=charged - paid,
-            average_check=charged // completed if completed else 0,
+            charged_tiyin=charged,
+            debt_tiyin=charged - paid,
+            average_check_tiyin=charged // completed if completed else 0,
         )

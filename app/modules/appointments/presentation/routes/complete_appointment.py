@@ -70,7 +70,7 @@ async def complete_appointment(
     payment = None
     if body is not None and body.payment is not None:
         payment = CompletePayment(
-            amount=body.payment.amount,
+            amount=body.payment.amount_tiyin,
             method=body.payment.method,
             comment=body.payment.comment,
         )

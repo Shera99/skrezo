@@ -21,11 +21,15 @@ class CreateServiceUseCase:
         *,
         name: str,
         description: str | None,
-        price: int,
+        price_tiyin: int,
         duration: int | None,
     ) -> Service:
         service = await self._services.create(
-            clinic_id, name=name, description=description, price=price, duration=duration
+            clinic_id,
+            name=name,
+            description=description,
+            price_tiyin=price_tiyin,
+            duration=duration,
         )
         await self._session.commit()
         return service

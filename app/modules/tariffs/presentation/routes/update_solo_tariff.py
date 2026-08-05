@@ -29,12 +29,12 @@ async def update_solo(
     use_case: UpdateSoloTariffUseCase = Depends(get_update_solo_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> SoloTariffCreatedResponse:
-    result = await use_case.execute(body.price, actor)
+    result = await use_case.execute(body.price_tiyin, actor)
     await audit.record(
         actor_id=actor,
         action="tariff.solo_updated",
         entity_type="tariff_version",
         entity_id=result.version_id,
-        payload={"price": body.price, "version": result.version},
+        payload={"priceTiyin": body.price_tiyin, "version": result.version},
     )
     return SoloTariffCreatedResponse(tariff_version_id=result.version_id, version=result.version)

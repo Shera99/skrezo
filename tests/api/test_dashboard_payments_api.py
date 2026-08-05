@@ -32,7 +32,7 @@ async def test_payments_stub(admin_client: AsyncClient) -> None:
     body = resp.json()
     assert body["rows"] == []
     assert body["totalCount"] == 0
-    assert body["summary"]["net"] == 0
+    assert body["summary"]["netTiyin"] == 0
 
     refund = await admin_client.post(
         f"{API}/admin/payments/TXN-1/refund", json={"reason": "тест"}

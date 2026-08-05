@@ -42,11 +42,11 @@ async def test_service_crud(client: AsyncClient, clinic_a: dict[str, str]) -> No
     created = await client.post(
         f"{API}/clinic/services",
         headers=clinic_a,
-        json={"name": "Пломба", "price": 3000, "duration": 30},
+        json={"name": "Пломба", "priceTiyin": 3000, "duration": 30},
     )
     assert created.status_code == 201, created.text
     sid = created.json()["id"]
-    assert created.json()["price"] == 3000
+    assert created.json()["priceTiyin"] == 3000
 
     listing = await client.get(f"{API}/clinic/services", headers=clinic_a)
     assert len(listing.json()) == 1
@@ -55,9 +55,7 @@ async def test_service_crud(client: AsyncClient, clinic_a: dict[str, str]) -> No
         f"{API}/clinic/services/{sid}", headers=clinic_a, json={"active": False}
     )
     assert patched.json()["active"] is False
-    active_only = await client.get(
-        f"{API}/clinic/services?activeOnly=true", headers=clinic_a
-    )
+    active_only = await client.get(f"{API}/clinic/services?activeOnly=true", headers=clinic_a)
     assert active_only.json() == []
 
 
@@ -67,7 +65,7 @@ async def test_patient_appointment_and_odontogram(
     # Услуга.
     sid = (
         await client.post(
-            f"{API}/clinic/services", headers=clinic_a, json={"name": "Пломба", "price": 3000}
+            f"{API}/clinic/services", headers=clinic_a, json={"name": "Пломба", "priceTiyin": 3000}
         )
     ).json()["id"]
 
@@ -90,9 +88,7 @@ async def test_patient_appointment_and_odontogram(
     assert dup.json()["patientId"] == pid
 
     # Поиск по телефону.
-    found = await client.get(
-        f"{API}/clinic/patients/lookup?phone=0700401001", headers=clinic_a
-    )
+    found = await client.get(f"{API}/clinic/patients/lookup?phone=0700401001", headers=clinic_a)
     assert found.json()["patient"]["id"] == pid
 
     # До приёма клиника не видит карту (нет связи).
@@ -105,7 +101,7 @@ async def test_patient_appointment_and_odontogram(
         json={"patientId": pid, "teeth": [{"tooth": 46, "serviceId": sid}]},
     )
     assert appt.status_code == 201, appt.text
-    assert appt.json()["priceTotal"] == 3000
+    assert appt.json()["priceTotalTiyin"] == 3000
     aid = appt.json()["id"]
 
     # Теперь пациент в списке клиники, карта доступна, одонтограмма содержит зуб 46.
@@ -157,7 +153,9 @@ async def test_shared_history_across_clinics(
     # Клиника A лечит пациента (зуб 46, услуга A).
     sa = (
         await client.post(
-            f"{API}/clinic/services", headers=clinic_a, json={"name": "Пломба A", "price": 3000}
+            f"{API}/clinic/services",
+            headers=clinic_a,
+            json={"name": "Пломба A", "priceTiyin": 3000},
         )
     ).json()["id"]
     pid = (
@@ -176,13 +174,13 @@ async def test_shared_history_across_clinics(
     # Клиника B — тот же глобальный пациент (по телефону), свой приём на зуб 46.
     temp_b = await _provision_clinic(admin_client, "0700402001", "Клиника B")
     clinic_b = await _login(client, "0700402001", temp_b)
-    lookup = await client.get(
-        f"{API}/clinic/patients/lookup?phone=0700402002", headers=clinic_b
-    )
+    lookup = await client.get(f"{API}/clinic/patients/lookup?phone=0700402002", headers=clinic_b)
     assert lookup.json()["patient"]["id"] == pid  # тот же глобальный пациент
     sb = (
         await client.post(
-            f"{API}/clinic/services", headers=clinic_b, json={"name": "Коронка B", "price": 8000}
+            f"{API}/clinic/services",
+            headers=clinic_b,
+            json={"name": "Коронка B", "priceTiyin": 8000},
         )
     ).json()["id"]
     await client.post(

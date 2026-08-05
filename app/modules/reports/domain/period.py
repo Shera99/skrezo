@@ -31,7 +31,7 @@ def resolve_tz(timezone: str) -> ZoneInfo:
     """Таймзона клиники; при битом значении — дефолт платформы."""
     try:
         return ZoneInfo(timezone)
-    except (ZoneInfoNotFoundError, ValueError):
+    except ZoneInfoNotFoundError, ValueError:
         return ZoneInfo(DEFAULT_TIMEZONE)
 
 

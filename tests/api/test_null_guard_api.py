@@ -59,7 +59,7 @@ async def _create_service(client: AsyncClient, headers: dict[str, str]) -> dict[
     resp = await client.post(
         f"{API}/clinic/services",
         headers=headers,
-        json={"name": "Пломба", "price": 3000, "duration": 30},
+        json={"name": "Пломба", "priceTiyin": 3000, "duration": 30},
     )
     assert resp.status_code == 201, resp.text
     return dict(resp.json())
@@ -72,7 +72,7 @@ async def _service_row(client: AsyncClient, headers: dict[str, str], sid: str) -
     return next(s for s in listing.json() if s["id"] == sid)
 
 
-@pytest.mark.parametrize("field", ["name", "price", "active"])
+@pytest.mark.parametrize("field", ["name", "priceTiyin", "active"])
 async def test_service_patch_null_into_not_null_is_rejected_and_row_intact(
     client: AsyncClient, clinic: dict[str, str], field: str
 ) -> None:
@@ -262,7 +262,7 @@ async def _create_appointment(client: AsyncClient, headers: dict[str, str]) -> s
         await client.post(
             f"{API}/clinic/services",
             headers=headers,
-            json={"name": "Лечение 45", "price": 3000, "duration": 45},
+            json={"name": "Лечение 45", "priceTiyin": 3000, "duration": 45},
         )
     ).json()["id"]
     resp = await client.post(

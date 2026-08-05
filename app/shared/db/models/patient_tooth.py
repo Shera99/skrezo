@@ -18,9 +18,7 @@ from app.shared.db.enums import ToothStatus, ToothStatusType
 
 class PatientTooth(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "patient_tooth"
-    __table_args__ = (
-        UniqueConstraint("patient_id", "tooth_number", name="uq_patient_tooth"),
-    )
+    __table_args__ = (UniqueConstraint("patient_id", "tooth_number", name="uq_patient_tooth"),)
 
     patient_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("patient.id", ondelete="CASCADE"), nullable=False, index=True

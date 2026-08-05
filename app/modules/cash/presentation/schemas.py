@@ -27,7 +27,9 @@ class RecordPaymentRequest(CamelModel):
     """Проведение платежа по приёму."""
 
     appointment_id: uuid.UUID = Field(description="Приём, за который платят")
-    amount: int = Field(gt=0, description="Сумма платежа в сомах (целое, > 0)", examples=[1500])
+    amount_tiyin: int = Field(
+        gt=0, description="Сумма платежа в тыйынах (1/100 сома, > 0)", examples=[150000]
+    )
     method: PaymentMethod = Field(description="Способ оплаты", examples=["cash"])
     comment: str | None = Field(default=None, max_length=500, description="Комментарий")
 
@@ -39,7 +41,7 @@ class PaymentItem(CamelModel):
     appointment_id: uuid.UUID
     patient_id: uuid.UUID
     patient_name: str = Field(examples=["Петров Пётр"])
-    amount: int = Field(description="Сумма в сомах", examples=[1500])
+    amount_tiyin: int = Field(description="Сумма в тыйынах", examples=[150000])
     method: PaymentMethod
     kind: PaymentKind = Field(description="payment — платёж, refund — возврат")
     recorded_by_membership_id: uuid.UUID | None = Field(default=None, description="Кассир")
@@ -54,7 +56,7 @@ class PaymentItem(CamelModel):
             appointment_id=r.appointment_id,
             patient_id=r.patient_id,
             patient_name=r.patient_name,
-            amount=r.amount,
+            amount_tiyin=r.amount_tiyin,
             method=r.method,
             kind=r.kind,
             recorded_by_membership_id=r.recorded_by_membership_id,
@@ -86,13 +88,18 @@ class MethodTotalsOut(CamelModel):
     """Итог по способу оплаты."""
 
     method: PaymentMethod
-    income: int = Field(description="Приход в сомах")
-    refund: int = Field(description="Возвраты в сомах")
-    net: int = Field(description="Нетто (приход − возвраты)")
+    income_tiyin: int = Field(description="Приход в тыйынах")
+    refund_tiyin: int = Field(description="Возвраты в тыйынах")
+    net_tiyin: int = Field(description="Нетто (приход − возвраты), тыйыны")
 
     @classmethod
     def from_totals(cls, t: MethodTotals) -> MethodTotalsOut:
-        return cls(method=t.method, income=t.income, refund=t.refund, net=t.net)
+        return cls(
+            method=t.method,
+            income_tiyin=t.income_tiyin,
+            refund_tiyin=t.refund_tiyin,
+            net_tiyin=t.net_tiyin,
+        )
 
 
 class CashSummaryResponse(CamelModel):
@@ -100,18 +107,18 @@ class CashSummaryResponse(CamelModel):
 
     timezone: str = Field(examples=["Asia/Bishkek"])
     by_method: list[MethodTotalsOut]
-    total_income: int
-    total_refund: int
-    net: int
+    total_income_tiyin: int
+    total_refund_tiyin: int
+    net_tiyin: int
 
     @classmethod
     def from_summary(cls, s: CashSummary) -> CashSummaryResponse:
         return cls(
             timezone=s.timezone,
             by_method=[MethodTotalsOut.from_totals(m) for m in s.by_method],
-            total_income=s.total_income,
-            total_refund=s.total_refund,
-            net=s.net,
+            total_income_tiyin=s.total_income_tiyin,
+            total_refund_tiyin=s.total_refund_tiyin,
+            net_tiyin=s.net_tiyin,
         )
 
 
@@ -123,9 +130,9 @@ class DebtItem(CamelModel):
     patient_name: str = Field(examples=["Петров Пётр"])
     doctor_membership_id: uuid.UUID | None = None
     scheduled_at: datetime = Field(examples=["2026-07-20T09:00:00+06:00"])
-    price_total: int = Field(description="Начислено по приёму, сомы")
-    paid: int = Field(description="Оплачено нетто, сомы")
-    outstanding: int = Field(description="Остаток долга, сомы")
+    price_total_tiyin: int = Field(description="Начислено по приёму, тыйыны")
+    paid_tiyin: int = Field(description="Оплачено нетто, тыйыны")
+    outstanding_tiyin: int = Field(description="Остаток долга, тыйыны")
 
     @classmethod
     def from_debt(cls, d: AppointmentDebt) -> DebtItem:
@@ -135,9 +142,9 @@ class DebtItem(CamelModel):
             patient_name=d.patient_name,
             doctor_membership_id=d.doctor_membership_id,
             scheduled_at=d.scheduled_at,
-            price_total=d.price_total,
-            paid=d.paid,
-            outstanding=d.outstanding,
+            price_total_tiyin=d.price_total_tiyin,
+            paid_tiyin=d.paid_tiyin,
+            outstanding_tiyin=d.outstanding_tiyin,
         )
 
 
@@ -146,12 +153,12 @@ class DebtsResponse(CamelModel):
 
     timezone: str = Field(examples=["Asia/Bishkek"])
     items: list[DebtItem]
-    total_outstanding: int = Field(description="Сумма всех остатков, сомы")
+    total_outstanding_tiyin: int = Field(description="Сумма всех остатков, тыйыны")
 
     @classmethod
     def from_list(cls, debts: DebtsList) -> DebtsResponse:
         return cls(
             timezone=debts.timezone,
             items=[DebtItem.from_debt(d) for d in debts.items],
-            total_outstanding=debts.total_outstanding,
+            total_outstanding_tiyin=debts.total_outstanding_tiyin,
         )

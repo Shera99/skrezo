@@ -31,7 +31,7 @@ async def create_service(
         context.clinic_id,
         name=body.name,
         description=body.description,
-        price=body.price,
+        price_tiyin=body.price_tiyin,
         duration=body.duration,
     )
     return ServiceOut.from_orm_service(service)

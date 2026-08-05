@@ -46,20 +46,25 @@ _NO_SERVICE = "Без услуги"
 
 def _income() -> ColumnElement[int]:
     return func.coalesce(
-        func.sum(case((CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount), else_=0)), 0
+        func.sum(
+            case((CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount_tiyin), else_=0)
+        ),
+        0,
     )
 
 
 def _refund() -> ColumnElement[int]:
     return func.coalesce(
-        func.sum(case((CashPayment.kind == PaymentKind.REFUND, CashPayment.amount), else_=0)), 0
+        func.sum(case((CashPayment.kind == PaymentKind.REFUND, CashPayment.amount_tiyin), else_=0)),
+        0,
     )
 
 
 def _signed_amount() -> ColumnElement[int]:
     """Знаковая сумма операции: платёж прибавляет, возврат вычитает."""
     return case(
-        (CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount), else_=-CashPayment.amount
+        (CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount_tiyin),
+        else_=-CashPayment.amount_tiyin,
     )
 
 
@@ -127,20 +132,25 @@ class ReportsRepository:
         own_membership_id: uuid.UUID | None,
     ) -> RevenueBlock:
         """Приход/возврат/нетто за период, всего и по способам оплаты."""
-        stmt = self._payments_query(clinic_id, start, end, own_membership_id).with_only_columns(
-            CashPayment.method, _income(), _refund()
-        ).group_by(CashPayment.method)
+        stmt = (
+            self._payments_query(clinic_id, start, end, own_membership_id)
+            .with_only_columns(CashPayment.method, _income(), _refund())
+            .group_by(CashPayment.method)
+        )
         rows = (await self._session.execute(stmt)).all()
         by_method = [
             MethodRevenue(
-                method=r[0], income=int(r[1]), refund=int(r[2]), net=int(r[1]) - int(r[2])
+                method=r[0],
+                income_tiyin=int(r[1]),
+                refund_tiyin=int(r[2]),
+                net_tiyin=int(r[1]) - int(r[2]),
             )
             for r in rows
         ]
-        income = sum(m.income for m in by_method)
-        refund = sum(m.refund for m in by_method)
+        income = sum(m.income_tiyin for m in by_method)
+        refund = sum(m.refund_tiyin for m in by_method)
         return RevenueBlock(
-            income=income, refund=refund, net=income - refund, by_method=by_method
+            income_tiyin=income, refund_tiyin=refund, net_tiyin=income - refund, by_method=by_method
         )
 
     async def revenue_series(
@@ -167,9 +177,9 @@ class ReportsRepository:
         return [
             RevenuePoint(
                 bucket=r[0].date() if isinstance(r[0], datetime) else r[0],
-                income=int(r[1]),
-                refund=int(r[2]),
-                net=int(r[1]) - int(r[2]),
+                income_tiyin=int(r[1]),
+                refund_tiyin=int(r[2]),
+                net_tiyin=int(r[1]) - int(r[2]),
             )
             for r in rows
         ]
@@ -220,9 +230,9 @@ class ReportsRepository:
         ]
         charged_row = (
             await self._session.execute(
-                select(func.coalesce(func.sum(Appointment.price_total), 0), func.count()).where(
-                    *conditions
-                )
+                select(
+                    func.coalesce(func.sum(Appointment.price_total_tiyin), 0), func.count()
+                ).where(*conditions)
             )
         ).first()
         charged = int(charged_row[0]) if charged_row else 0
@@ -306,7 +316,8 @@ class ReportsRepository:
         completed = case((Appointment.status == AppointmentStatus.COMPLETED, 1), else_=0)
         cancelled = case((Appointment.status == AppointmentStatus.CANCELLED, 1), else_=0)
         charged = case(
-            (Appointment.status == AppointmentStatus.COMPLETED, Appointment.price_total), else_=0
+            (Appointment.status == AppointmentStatus.COMPLETED, Appointment.price_total_tiyin),
+            else_=0,
         )
         tr_lang = aliased(SpecializationTranslation)
         tr_ru = aliased(SpecializationTranslation)
@@ -353,10 +364,10 @@ class ReportsRepository:
                     appointments=int(r[3]),
                     completed=completed_count,
                     cancelled=int(r[5]),
-                    charged=charged_total,
-                    paid=paid_total,
-                    debt=charged_total - paid_total,
-                    average_check=charged_total // completed_count if completed_count else 0,
+                    charged_tiyin=charged_total,
+                    paid_tiyin=paid_total,
+                    debt_tiyin=charged_total - paid_total,
+                    average_check_tiyin=charged_total // completed_count if completed_count else 0,
                 )
             )
         return result
@@ -370,7 +381,7 @@ class ReportsRepository:
         own_membership_id: uuid.UUID | None,
     ) -> list[ServiceReportRow]:
         """Топ услуг периода по манипуляциям в приёмах и их сумме."""
-        revenue = func.coalesce(func.sum(AppointmentTooth.price), 0)
+        revenue = func.coalesce(func.sum(AppointmentTooth.price_tiyin), 0)
         rows = (
             await self._session.execute(
                 select(
@@ -388,9 +399,7 @@ class ReportsRepository:
             )
         ).all()
         return [
-            ServiceReportRow(
-                service_id=r[0], name=r[1], count=int(r[2]), revenue=int(r[3])
-            )
+            ServiceReportRow(service_id=r[0], name=r[1], count=int(r[2]), revenue_tiyin=int(r[3]))
             for r in rows
         ]
 
@@ -416,7 +425,8 @@ class ReportsRepository:
         )
         completed = case((Appointment.status == AppointmentStatus.COMPLETED, 1), else_=0)
         charged = case(
-            (Appointment.status == AppointmentStatus.COMPLETED, Appointment.price_total), else_=0
+            (Appointment.status == AppointmentStatus.COMPLETED, Appointment.price_total_tiyin),
+            else_=0,
         )
         appt_sq = (
             select(
@@ -443,9 +453,7 @@ class ReportsRepository:
             .subquery()
         )
         doctors_sq = (
-            select(
-                Membership.clinic_id.label("clinic_id"), func.count().label("doctors")
-            )
+            select(Membership.clinic_id.label("clinic_id"), func.count().label("doctors"))
             .where(Membership.active.is_(True), Membership.specialization_id.is_not(None))
             .group_by(Membership.clinic_id)
             .subquery()
@@ -481,8 +489,8 @@ class ReportsRepository:
                 clinic_id=r[0],
                 name=r[1],
                 city_name=r[2],
-                revenue_net=int(r[3]),
-                debt=int(r[4]) - int(r[5]),
+                revenue_net_tiyin=int(r[3]),
+                debt_tiyin=int(r[4]) - int(r[5]),
                 appointments=int(r[6]),
                 completed=int(r[7]),
                 doctors=int(r[8]),
@@ -501,9 +509,7 @@ class ReportsRepository:
         ).first()
         return (row[0], row[1]) if row is not None else None
 
-    async def own_membership(
-        self, account_id: uuid.UUID, clinic_id: uuid.UUID
-    ) -> uuid.UUID | None:
+    async def own_membership(self, account_id: uuid.UUID, clinic_id: uuid.UUID) -> uuid.UUID | None:
         """Собственное активное членство в клинике — «свой» для reports.view_own."""
         return (
             await self._session.execute(

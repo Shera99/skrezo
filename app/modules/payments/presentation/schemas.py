@@ -16,13 +16,13 @@ from app.shared.api.schemas import CamelModel
 
 class PaymentSummary(CamelModel):
     period_label: str
-    success_sum: int = 0
+    success_sum_tiyin: int = 0
     success_count: int = 0
     failed_count: int = 0
-    failed_sum: int = 0
-    refund_sum: int = 0  # отрицательная
+    failed_sum_tiyin: int = 0
+    refund_sum_tiyin: int = 0  # отрицательная
     refund_count: int = 0
-    net: int = 0  # успешно − возвраты
+    net_tiyin: int = 0  # успешно − возвраты
 
 
 class PaymentRow(CamelModel):
@@ -32,7 +32,7 @@ class PaymentRow(CamelModel):
     client_type: str = Field(description="solo | clinic")
     type: str = Field(description="«Продление» | «Активация» | «Ручная оплата» | «Возврат»")
     period: str
-    amount: int  # отрицательная — возврат
+    amount_tiyin: int  # отрицательная — возврат
     status: str = Field(description="success | failed | refund")
     method: str
     txn_id: str

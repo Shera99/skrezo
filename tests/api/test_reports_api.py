@@ -84,7 +84,7 @@ async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) 
     assert resp.status_code == 201, resp.text
     headers = await _login(client, phone, resp.json()["tempPassword"])
     service = await client.post(
-        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "price": 3000}
+        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
     )
     patient = await client.post(
         f"{API}/clinic/patients",
@@ -131,7 +131,7 @@ async def _appointment(client: AsyncClient, ctx: ClinicCtx, doctor: str) -> str:
 async def _complete(
     client: AsyncClient, ctx: ClinicCtx, appointment_id: str, paid: int | None
 ) -> None:
-    body = {"payment": {"amount": paid, "method": "cash"}} if paid else None
+    body = {"payment": {"amountTiyin": paid, "method": "cash"}} if paid else None
     resp = await client.post(
         f"{API}/clinic/appointments/{appointment_id}/complete", headers=ctx.headers, json=body
     )
@@ -164,11 +164,11 @@ async def test_summary_aggregates_money_and_appointments(
     resp = await client.get(f"{API}/clinic/reports/summary", headers=clinic_a.headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["revenue"]["income"] == 3000
-    assert body["revenue"]["net"] == 3000
-    assert body["charged"] == 6000  # два завершённых приёма по 3000
-    assert body["debt"] == 3000  # второй не оплачен
-    assert body["averageCheck"] == 3000
+    assert body["revenue"]["incomeTiyin"] == 3000
+    assert body["revenue"]["netTiyin"] == 3000
+    assert body["chargedTiyin"] == 6000  # два завершённых приёма по 3000
+    assert body["debtTiyin"] == 3000  # второй не оплачен
+    assert body["averageCheckTiyin"] == 3000
     assert body["appointments"]["completed"] == 2
     assert body["patients"]["total"] == 1
     assert body["patients"]["new"] == 1
@@ -188,7 +188,7 @@ async def test_summary_period_presets_accepted(
             f"{API}/clinic/reports/summary?period={preset}", headers=clinic_a.headers
         )
         assert resp.status_code == 200, f"{preset}: {resp.text}"
-        assert resp.json()["revenue"]["net"] == 3000, preset
+        assert resp.json()["revenue"]["netTiyin"] == 3000, preset
 
     # «За всё время» не имеет нижней границы.
     all_time = await client.get(
@@ -211,8 +211,8 @@ async def test_summary_custom_range_overrides_preset(
     )
     assert past.status_code == 200, past.text
     assert past.json()["dateFrom"] == "2020-01-01"
-    assert past.json()["revenue"]["net"] == 0
-    assert past.json()["charged"] == 0
+    assert past.json()["revenue"]["netTiyin"] == 0
+    assert past.json()["chargedTiyin"] == 0
 
 
 # ── 2. RBAC: свои против всех ───────────────────────────────────────────────
@@ -230,15 +230,15 @@ async def test_doctor_sees_only_own_reports(client: AsyncClient, clinic_a: Clini
 
     # Владелец видит обе выручки.
     owner = await client.get(f"{API}/clinic/reports/summary", headers=clinic_a.headers)
-    assert owner.json()["revenue"]["net"] == 6000
+    assert owner.json()["revenue"]["netTiyin"] == 6000
     assert owner.json()["appointments"]["completed"] == 2
 
     # Врач — только свою.
     own = await client.get(f"{API}/clinic/reports/summary", headers=doctor_headers)
     assert own.status_code == 200, own.text
-    assert own.json()["revenue"]["net"] == 3000
+    assert own.json()["revenue"]["netTiyin"] == 3000
     assert own.json()["appointments"]["completed"] == 1
-    assert own.json()["charged"] == 3000
+    assert own.json()["chargedTiyin"] == 3000
 
 
 async def test_doctors_report_scoped_to_self_for_worker(
@@ -260,13 +260,13 @@ async def test_doctors_report_scoped_to_self_for_worker(
     rows = own.json()["rows"]
     assert len(rows) == 1
     assert rows[0]["membershipId"] == mine
-    assert rows[0]["charged"] == 3000
-    assert rows[0]["paid"] == 3000
-    assert rows[0]["debt"] == 0
+    assert rows[0]["chargedTiyin"] == 3000
+    assert rows[0]["paidTiyin"] == 3000
+    assert rows[0]["debtTiyin"] == 0
 
     # У неоплаченного врача в полном отчёте виден долг.
     other_row = next(r for r in owner.json()["rows"] if r["membershipId"] == other)
-    assert other_row["debt"] == 3000
+    assert other_row["debtTiyin"] == 3000
 
 
 async def test_services_and_revenue_scoped_for_worker(
@@ -281,18 +281,18 @@ async def test_services_and_revenue_scoped_for_worker(
     services = await client.get(f"{API}/clinic/reports/services", headers=doctor_headers)
     assert services.status_code == 200, services.text
     assert services.json()["rows"][0]["count"] == 1  # только своя манипуляция
-    assert services.json()["rows"][0]["revenue"] == 3000
+    assert services.json()["rows"][0]["revenueTiyin"] == 3000
 
     revenue = await client.get(
         f"{API}/clinic/reports/revenue?groupBy=day", headers=doctor_headers
     )
     assert revenue.status_code == 200, revenue.text
-    assert sum(p["net"] for p in revenue.json()["points"]) == 3000
+    assert sum(p["netTiyin"] for p in revenue.json()["points"]) == 3000
 
     owner_revenue = await client.get(
         f"{API}/clinic/reports/revenue?groupBy=month", headers=clinic_a.headers
     )
-    assert sum(p["net"] for p in owner_revenue.json()["points"]) == 6000
+    assert sum(p["netTiyin"] for p in owner_revenue.json()["points"]) == 6000
 
 
 # ── 3. Изоляция клиник ──────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ async def test_reports_do_not_leak_across_clinics(
     await _complete(client, clinic_b, await _appointment(client, clinic_b, doctor_b), 3000)
 
     summary_a = await client.get(f"{API}/clinic/reports/summary", headers=clinic_a.headers)
-    assert summary_a.json()["revenue"]["net"] == 0
+    assert summary_a.json()["revenue"]["netTiyin"] == 0
     assert summary_a.json()["appointments"]["total"] == 0
     assert (await client.get(f"{API}/clinic/reports/doctors", headers=clinic_a.headers)).json()[
         "rows"
@@ -328,12 +328,12 @@ async def test_admin_clinics_report_lists_all_with_metrics(
     resp = await admin_client.get(f"{API}/admin/reports/clinics")
     assert resp.status_code == 200, resp.text
     rows = {r["clinicId"]: r for r in resp.json()["rows"]}
-    assert rows[clinic_a.clinic_id]["revenueNet"] == 3000
-    assert rows[clinic_a.clinic_id]["debt"] == 0
-    assert rows[clinic_b.clinic_id]["revenueNet"] == 0
-    assert rows[clinic_b.clinic_id]["debt"] == 3000
+    assert rows[clinic_a.clinic_id]["revenueNetTiyin"] == 3000
+    assert rows[clinic_a.clinic_id]["debtTiyin"] == 0
+    assert rows[clinic_b.clinic_id]["revenueNetTiyin"] == 0
+    assert rows[clinic_b.clinic_id]["debtTiyin"] == 3000
     assert rows[clinic_a.clinic_id]["doctors"] >= 1
-    assert resp.json()["totalRevenueNet"] >= 3000
+    assert resp.json()["totalRevenueNetTiyin"] >= 3000
 
 
 async def test_admin_can_open_any_clinic_report(
@@ -346,7 +346,7 @@ async def test_admin_can_open_any_clinic_report(
 
     summary = await admin_client.get(f"{base}/summary")
     assert summary.status_code == 200, summary.text
-    assert summary.json()["revenue"]["net"] == 3000
+    assert summary.json()["revenue"]["netTiyin"] == 3000
 
     for path in ("revenue", "doctors", "services"):
         resp = await admin_client.get(f"{base}/{path}")

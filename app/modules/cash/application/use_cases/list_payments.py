@@ -43,6 +43,4 @@ class ListPaymentsUseCase:
         )
         # Из БД created_at приходит в UTC — показываем в таймзоне клиники.
         items = [replace(r, created_at=r.created_at.astimezone(tz)) for r in records]
-        return PaymentsPage(
-            items=items, total_count=total, current_page=page, page_size=page_size
-        )
+        return PaymentsPage(items=items, total_count=total, current_page=page, page_size=page_size)

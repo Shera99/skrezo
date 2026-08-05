@@ -33,7 +33,5 @@ class GetServicesReportUseCase:
         bounds, timezone, _ = await clinic_report_context(
             self._reports, clinic_id, period, date_from, date_to
         )
-        rows = await self._reports.services(
-            clinic_id, bounds.start, bounds.end, own_membership_id
-        )
+        rows = await self._reports.services(clinic_id, bounds.start, bounds.end, own_membership_id)
         return ServicesReport(timezone=timezone, rows=rows)

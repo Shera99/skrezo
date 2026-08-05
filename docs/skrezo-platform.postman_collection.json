@@ -959,7 +959,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"price\": 0\n}",
+                  "raw": "{\n  \"priceTiyin\": 200000\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -994,7 +994,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"packages\": [\n    {\n      \"name\": \"string\",\n      \"upTo\": 0,\n      \"price\": 0\n    }\n  ],\n  \"overPrice\": 0\n}",
+                  "raw": "{\n  \"packages\": [\n    {\n      \"name\": \"string\",\n      \"upTo\": 0,\n      \"priceTiyin\": 500000\n    }\n  ],\n  \"overPriceTiyin\": 0\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2365,7 +2365,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"price\": 0,\n  \"duration\": 0\n}",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 425000,\n  \"duration\": 0\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2400,7 +2400,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"price\": 0,\n  \"duration\": 0,\n  \"active\": true\n}",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 0,\n  \"duration\": 0,\n  \"active\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2492,7 +2492,7 @@
                 "description": "Записать пациента на приём.\n\nДлительность приёма — ``durationMin``, иначе длительность услуги ``serviceId``,\nиначе 30 минут. Если врач назначен, приём обязан попадать в его рабочее окно\n(часы клиники ∩ график врача, мимо обеда и отсутствий → 422) и не пересекаться\nс другими его приёмами (→ 409). Пересечение дополнительно запрещено\nEXCLUDE-констрейнтом в БД, что закрывает гонку параллельных записей.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n  \"appointmentType\": \"consultation\",\n  \"status\": \"draft\",\n  \"scheduledAt\": \"2026-07-20T09:00:00+06:00\",\n  \"durationMin\": 45,\n  \"comment\": \"string\",\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"price\": 0,\n      \"comment\": \"string\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"doctorMembershipId\": \"00000000-0000-0000-0000-000000000000\",\n  \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n  \"appointmentType\": \"consultation\",\n  \"status\": \"draft\",\n  \"scheduledAt\": \"2026-07-20T09:00:00+06:00\",\n  \"durationMin\": 45,\n  \"comment\": \"string\",\n  \"teeth\": [\n    {\n      \"tooth\": 0,\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"priceTiyin\": 0,\n      \"comment\": \"string\"\n    }\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2586,7 +2586,7 @@
                 "description": "Перевести приём в ``completed`` и, если передана оплата, провести её в кассу.\n\nСмена статуса и платёж атомарны: не прошла оплата (переплата/нет остатка) —\nзавершение откатывается. Без блока ``payment`` приём закрывается, а остаток\nстановится долгом (виден в ``GET /clinic/cash/debts``).",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"payment\": {\n    \"amount\": 1500,\n    \"method\": \"cash\",\n    \"comment\": \"string\"\n  }\n}",
+                  "raw": "{\n  \"payment\": {\n    \"amountTiyin\": 150000,\n    \"method\": \"cash\",\n    \"comment\": \"string\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2687,7 +2687,7 @@
                 "description": "Приход денег в кассу за конкретный приём.\n\nСумма не может превышать остаток по приёму (``price_total − оплачено``);\nпереплата → 422 ``overpayment`` с полем ``outstanding``. Кассир проставляется\nпо членству вызывающего в этой клинике.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"appointmentId\": \"00000000-0000-0000-0000-000000000000\",\n  \"amount\": 1500,\n  \"method\": \"cash\",\n  \"comment\": \"string\"\n}",
+                  "raw": "{\n  \"appointmentId\": \"00000000-0000-0000-0000-000000000000\",\n  \"amountTiyin\": 150000,\n  \"method\": \"cash\",\n  \"comment\": \"string\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

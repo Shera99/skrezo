@@ -1,7 +1,7 @@
 """Таблица приёмов — связывает клинику, врача и пациента.
 
 Врач = наш ``membership`` (account+роль), а не отдельная сущность. Итоговая
-стоимость приёма — ``price_total``; манипуляции по зубам — в ``appointment_tooth``.
+стоимость приёма — ``price_total_tiyin`` (тыйыны); манипуляции по зубам — в ``appointment_tooth``.
 
 Приём занимает интервал ``[scheduled_at, scheduled_at + duration_min)``. Пересечение
 интервалов у одного врача запрещено EXCLUDE-констрейнтом
@@ -63,13 +63,12 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
         DateTime(timezone=True), nullable=True, index=True
     )
     # Длительность приёма в минутах — высота карточки в «ленте дня».
-    duration_min: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("30")
-    )
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("30"))
     status: Mapped[AppointmentStatus] = mapped_column(
         AppointmentStatusType, nullable=False, default=AppointmentStatus.SCHEDULED
     )
-    price_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # целые сомы
+    # Тыйыны (1/100 сома): в целых сомах не выражается результат обычной скидки.
+    price_total_tiyin: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Причина отмены — справочником (иначе отмены нечем считать); комментарий
     # обязателен при ``other``. Заполняются вместе со статусом ``cancelled`` и

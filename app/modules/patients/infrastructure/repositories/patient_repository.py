@@ -180,7 +180,7 @@ class PatientRepository:
                     Account.full_name,
                     Service.name,
                     AppointmentTooth.status,
-                    AppointmentTooth.price,
+                    AppointmentTooth.price_tiyin,
                     AppointmentTooth.comment,
                 )
                 .select_from(PatientTooth)
@@ -205,7 +205,7 @@ class PatientRepository:
                 doctor_name=r[3],
                 service_name=r[4],
                 status=r[5],
-                price=r[6],
+                price_tiyin=r[6],
                 comment=r[7],
             )
             for r in rows

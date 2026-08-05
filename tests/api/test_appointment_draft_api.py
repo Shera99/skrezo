@@ -83,7 +83,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> 
     )
     assert doctor.status_code == 201, doctor.text
     service = await client.post(
-        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "price": 3000}
+        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
     )
     return ClinicCtx(
         headers=headers,

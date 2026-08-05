@@ -34,29 +34,34 @@ class MethodRevenueOut(CamelModel):
     """Выручка по способу оплаты."""
 
     method: PaymentMethod
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
 
     @classmethod
     def from_domain(cls, m: MethodRevenue) -> MethodRevenueOut:
-        return cls(method=m.method, income=m.income, refund=m.refund, net=m.net)
+        return cls(
+            method=m.method,
+            income_tiyin=m.income_tiyin,
+            refund_tiyin=m.refund_tiyin,
+            net_tiyin=m.net_tiyin,
+        )
 
 
 class RevenueBlockOut(CamelModel):
     """Деньги за период (по дате платежа)."""
 
-    income: int = Field(description="Приход, сомы")
-    refund: int = Field(description="Возвраты, сомы")
-    net: int = Field(description="Нетто = приход − возвраты")
+    income_tiyin: int = Field(description="Приход, сомы")
+    refund_tiyin: int = Field(description="Возвраты, сомы")
+    net_tiyin: int = Field(description="Нетто = приход − возвраты")
     by_method: list[MethodRevenueOut]
 
     @classmethod
     def from_domain(cls, r: RevenueBlock) -> RevenueBlockOut:
         return cls(
-            income=r.income,
-            refund=r.refund,
-            net=r.net,
+            income_tiyin=r.income_tiyin,
+            refund_tiyin=r.refund_tiyin,
+            net_tiyin=r.net_tiyin,
             by_method=[MethodRevenueOut.from_domain(m) for m in r.by_method],
         )
 
@@ -108,9 +113,9 @@ class ReportSummaryResponse(CamelModel):
     revenue: RevenueBlockOut
     appointments: AppointmentsBlockOut
     patients: PatientsBlockOut
-    charged: int = Field(description="Начислено по завершённым приёмам периода, сомы")
-    debt: int = Field(description="Остаток по завершённым приёмам периода, сомы")
-    average_check: int = Field(description="Начислено / число завершённых приёмов")
+    charged_tiyin: int = Field(description="Начислено по завершённым приёмам периода, сомы")
+    debt_tiyin: int = Field(description="Остаток по завершённым приёмам периода, сомы")
+    average_check_tiyin: int = Field(description="Начислено / число завершённых приёмов")
 
     @classmethod
     def from_summary(cls, s: ReportSummary) -> ReportSummaryResponse:
@@ -121,9 +126,9 @@ class ReportSummaryResponse(CamelModel):
             revenue=RevenueBlockOut.from_domain(s.revenue),
             appointments=AppointmentsBlockOut.from_domain(s.appointments),
             patients=PatientsBlockOut.from_domain(s.patients),
-            charged=s.charged,
-            debt=s.debt,
-            average_check=s.average_check,
+            charged_tiyin=s.charged_tiyin,
+            debt_tiyin=s.debt_tiyin,
+            average_check_tiyin=s.average_check_tiyin,
         )
 
 
@@ -131,13 +136,18 @@ class RevenuePointOut(CamelModel):
     """Точка временного ряда выручки."""
 
     bucket: date = Field(description="День или первое число месяца")
-    income: int
-    refund: int
-    net: int
+    income_tiyin: int
+    refund_tiyin: int
+    net_tiyin: int
 
     @classmethod
     def from_domain(cls, p: RevenuePoint) -> RevenuePointOut:
-        return cls(bucket=p.bucket, income=p.income, refund=p.refund, net=p.net)
+        return cls(
+            bucket=p.bucket,
+            income_tiyin=p.income_tiyin,
+            refund_tiyin=p.refund_tiyin,
+            net_tiyin=p.net_tiyin,
+        )
 
 
 class RevenueSeriesResponse(CamelModel):
@@ -165,10 +175,10 @@ class DoctorReportItem(CamelModel):
     appointments: int
     completed: int
     cancelled: int
-    charged: int = Field(description="Начислено по завершённым, сомы")
-    paid: int = Field(description="Оплачено нетто по его приёмам, сомы")
-    debt: int = Field(description="Начислено − оплачено, сомы")
-    average_check: int
+    charged_tiyin: int = Field(description="Начислено по завершённым, сомы")
+    paid_tiyin: int = Field(description="Оплачено нетто по его приёмам, сомы")
+    debt_tiyin: int = Field(description="Начислено − оплачено, сомы")
+    average_check_tiyin: int
 
     @classmethod
     def from_domain(cls, d: DoctorReportRow) -> DoctorReportItem:
@@ -179,10 +189,10 @@ class DoctorReportItem(CamelModel):
             appointments=d.appointments,
             completed=d.completed,
             cancelled=d.cancelled,
-            charged=d.charged,
-            paid=d.paid,
-            debt=d.debt,
-            average_check=d.average_check,
+            charged_tiyin=d.charged_tiyin,
+            paid_tiyin=d.paid_tiyin,
+            debt_tiyin=d.debt_tiyin,
+            average_check_tiyin=d.average_check_tiyin,
         )
 
 
@@ -194,9 +204,7 @@ class DoctorsReportResponse(CamelModel):
 
     @classmethod
     def from_report(cls, r: DoctorsReport) -> DoctorsReportResponse:
-        return cls(
-            timezone=r.timezone, rows=[DoctorReportItem.from_domain(x) for x in r.rows]
-        )
+        return cls(timezone=r.timezone, rows=[DoctorReportItem.from_domain(x) for x in r.rows])
 
 
 class ServiceReportItem(CamelModel):
@@ -205,11 +213,13 @@ class ServiceReportItem(CamelModel):
     service_id: uuid.UUID | None = Field(default=None, description="null — манипуляции без услуги")
     name: str = Field(examples=["Лечение кариеса"])
     count: int = Field(description="Число манипуляций")
-    revenue: int = Field(description="Сумма по манипуляциям, сомы")
+    revenue_tiyin: int = Field(description="Сумма по манипуляциям, сомы")
 
     @classmethod
     def from_domain(cls, s: ServiceReportRow) -> ServiceReportItem:
-        return cls(service_id=s.service_id, name=s.name, count=s.count, revenue=s.revenue)
+        return cls(
+            service_id=s.service_id, name=s.name, count=s.count, revenue_tiyin=s.revenue_tiyin
+        )
 
 
 class ServicesReportResponse(CamelModel):
@@ -220,9 +230,7 @@ class ServicesReportResponse(CamelModel):
 
     @classmethod
     def from_report(cls, r: ServicesReport) -> ServicesReportResponse:
-        return cls(
-            timezone=r.timezone, rows=[ServiceReportItem.from_domain(x) for x in r.rows]
-        )
+        return cls(timezone=r.timezone, rows=[ServiceReportItem.from_domain(x) for x in r.rows])
 
 
 class ClinicReportItem(CamelModel):
@@ -231,8 +239,8 @@ class ClinicReportItem(CamelModel):
     clinic_id: uuid.UUID
     name: str
     city_name: str | None = None
-    revenue_net: int = Field(description="Нетто кассы за период, сомы")
-    debt: int = Field(description="Остаток по завершённым приёмам периода, сомы")
+    revenue_net_tiyin: int = Field(description="Нетто кассы за период, сомы")
+    debt_tiyin: int = Field(description="Остаток по завершённым приёмам периода, сомы")
     appointments: int
     completed: int
     doctors: int = Field(description="Активных врачей сейчас")
@@ -244,8 +252,8 @@ class ClinicReportItem(CamelModel):
             clinic_id=c.clinic_id,
             name=c.name,
             city_name=c.city_name,
-            revenue_net=c.revenue_net,
-            debt=c.debt,
+            revenue_net_tiyin=c.revenue_net_tiyin,
+            debt_tiyin=c.debt_tiyin,
             appointments=c.appointments,
             completed=c.completed,
             doctors=c.doctors,
@@ -259,8 +267,8 @@ class ClinicsReportResponse(CamelModel):
     date_from: date | None = Field(default=None, description="null — за всё время")
     date_to: date
     rows: list[ClinicReportItem]
-    total_revenue_net: int
-    total_debt: int
+    total_revenue_net_tiyin: int
+    total_debt_tiyin: int
 
     @classmethod
     def from_report(cls, r: ClinicsReport) -> ClinicsReportResponse:
@@ -268,6 +276,6 @@ class ClinicsReportResponse(CamelModel):
             date_from=r.date_from,
             date_to=r.date_to,
             rows=[ClinicReportItem.from_domain(x) for x in r.rows],
-            total_revenue_net=r.total_revenue_net,
-            total_debt=r.total_debt,
+            total_revenue_net_tiyin=r.total_revenue_net_tiyin,
+            total_debt_tiyin=r.total_debt_tiyin,
         )

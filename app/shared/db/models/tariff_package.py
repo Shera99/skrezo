@@ -23,4 +23,6 @@ class TariffPackage(Base, UUIDPKMixin):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     up_to: Mapped[int] = mapped_column(Integer, nullable=False)  # верхняя граница мест (вкл.)
-    price: Mapped[int] = mapped_column(Integer, nullable=False)  # цена за клинику до up_to мест
+    price_tiyin: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # тыйыны за клинику до up_to мест

@@ -34,6 +34,6 @@ class ListClinicsReportUseCase:
             date_from=bounds.date_from,
             date_to=bounds.date_to,
             rows=rows,
-            total_revenue_net=sum(r.revenue_net for r in rows),
-            total_debt=sum(r.debt for r in rows),
+            total_revenue_net_tiyin=sum(r.revenue_net_tiyin for r in rows),
+            total_debt_tiyin=sum(r.debt_tiyin for r in rows),
         )

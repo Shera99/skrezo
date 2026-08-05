@@ -24,9 +24,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     422: {
         "description": "Некорректные пакеты (границы/цены не строго возрастают и т.п.)",
         "content": {
-            "application/json": {
-                "example": {"error": "tariff_not_increasing", "message": "..."}
-            }
+            "application/json": {"example": {"error": "tariff_not_increasing", "message": "..."}}
         },
     },
 }
@@ -46,8 +44,8 @@ async def update_clinic(
     use_case: UpdateClinicTariffUseCase = Depends(get_update_clinic_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> ClinicTariffCreatedResponse:
-    packages = [PackageDef(name=p.name, up_to=p.up_to, price=p.price) for p in body.packages]
-    result = await use_case.execute(packages, body.over_price, actor)
+    packages = [PackageDef(name=p.name, up_to=p.up_to, price=p.price_tiyin) for p in body.packages]
+    result = await use_case.execute(packages, body.over_price_tiyin, actor)
     await audit.record(
         actor_id=actor,
         action="tariff.clinic_updated",

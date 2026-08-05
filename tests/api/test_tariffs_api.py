@@ -7,26 +7,26 @@ from httpx import AsyncClient
 from tests.conftest import API
 
 _PACKAGES = [
-    {"name": "Старт", "upTo": 3, "price": 3000},
-    {"name": "Про", "upTo": 6, "price": 5000},
-    {"name": "Макс", "upTo": 10, "price": 8000},
+    {"name": "Старт", "upTo": 3, "priceTiyin": 3000},
+    {"name": "Про", "upTo": 6, "priceTiyin": 5000},
+    {"name": "Макс", "upTo": 10, "priceTiyin": 8000},
 ]
 
 
 async def test_update_solo_and_bundle(admin_client: AsyncClient) -> None:
-    created = await admin_client.post(f"{API}/admin/tariffs/solo", json={"price": 3000})
+    created = await admin_client.post(f"{API}/admin/tariffs/solo", json={"priceTiyin": 3000})
     assert created.status_code == 201, created.text
     assert created.json()["version"] == 1
 
     bundle = await admin_client.get(f"{API}/admin/tariffs")
     assert bundle.status_code == 200
-    assert bundle.json()["solo"]["price"] == 3000
+    assert bundle.json()["solo"]["priceTiyin"] == 3000
     assert bundle.json()["solo"]["version"] == 1
 
 
 async def test_update_clinic_packages(admin_client: AsyncClient) -> None:
     created = await admin_client.post(
-        f"{API}/admin/tariffs/clinic", json={"packages": _PACKAGES, "overPrice": 800}
+        f"{API}/admin/tariffs/clinic", json={"packages": _PACKAGES, "overPriceTiyin": 800}
     )
     assert created.status_code == 201, created.text
     assert created.json()["version"] == 1
@@ -34,7 +34,7 @@ async def test_update_clinic_packages(admin_client: AsyncClient) -> None:
 
     bundle = await admin_client.get(f"{API}/admin/tariffs")
     clinic = bundle.json()["clinic"]
-    assert clinic["overPrice"] == 800
+    assert clinic["overPriceTiyin"] == 800
     assert [p["upTo"] for p in clinic["packages"]] == [3, 6, 10]
     # История содержит текущую версию с summary.
     current = [h for h in bundle.json()["history"] if h["current"] and h["kind"] == "clinic"]
@@ -46,10 +46,10 @@ async def test_clinic_validation_422(admin_client: AsyncClient) -> None:
         f"{API}/admin/tariffs/clinic",
         json={
             "packages": [
-                {"name": "A", "upTo": 3, "price": 3000},
-                {"name": "B", "upTo": 3, "price": 5000},  # up_to не возрастает
+                {"name": "A", "upTo": 3, "priceTiyin": 3000},
+                {"name": "B", "upTo": 3, "priceTiyin": 5000},  # up_to не возрастает
             ],
-            "overPrice": 800,
+            "overPriceTiyin": 800,
         },
     )
     assert bad.status_code == 422
@@ -57,9 +57,9 @@ async def test_clinic_validation_422(admin_client: AsyncClient) -> None:
 
 
 async def test_version_increments(admin_client: AsyncClient) -> None:
-    v1 = await admin_client.post(f"{API}/admin/tariffs/solo", json={"price": 3000})
-    v2 = await admin_client.post(f"{API}/admin/tariffs/solo", json={"price": 3500})
+    v1 = await admin_client.post(f"{API}/admin/tariffs/solo", json={"priceTiyin": 3000})
+    v2 = await admin_client.post(f"{API}/admin/tariffs/solo", json={"priceTiyin": 3500})
     assert v1.json()["version"] == 1
     assert v2.json()["version"] == 2
     bundle = await admin_client.get(f"{API}/admin/tariffs")
-    assert bundle.json()["solo"]["price"] == 3500  # текущая = максимальная версия
+    assert bundle.json()["solo"]["priceTiyin"] == 3500  # текущая = максимальная версия

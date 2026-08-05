@@ -13,20 +13,24 @@ from app.shared.api.schemas import CamelModel
 class PackageSchema(CamelModel):
     name: str = Field(description="Название пакета")
     up_to: int = Field(ge=2, description="Верхняя граница мест (включительно)")
-    price: int = Field(gt=0, description="Цена за клинику до up_to мест, сом/мес")
+    price_tiyin: int = Field(
+        gt=0, description="Цена за клинику до up_to мест, тыйын/мес", examples=[500000]
+    )
 
 
 class SoloTariffOut(CamelModel):
     version: int
     updated_at: datetime
-    price: int
+    price_tiyin: int
 
 
 class ClinicTariffOut(CamelModel):
     version: int
     updated_at: datetime
     packages: list[PackageSchema]
-    over_price: int = Field(description="Цена за место сверх последнего пакета («Сеть»)")
+    over_price_tiyin: int = Field(
+        description="Цена за место сверх последнего пакета («Сеть»), тыйын"
+    )
 
 
 class TariffHistoryItem(CamelModel):
@@ -45,12 +49,16 @@ class TariffsBundle(CamelModel):
 
 
 class UpdateSoloRequest(CamelModel):
-    price: int = Field(gt=0, description="Фиксированная цена соло, сом/мес")
+    price_tiyin: int = Field(
+        gt=0, description="Фиксированная цена соло, тыйын/мес", examples=[200000]
+    )
 
 
 class UpdateClinicRequest(CamelModel):
     packages: list[PackageSchema] = Field(min_length=1, description="Пакеты по возрастанию мест")
-    over_price: int = Field(gt=0, description="Доплата за место сверх последнего пакета")
+    over_price_tiyin: int = Field(
+        gt=0, description="Доплата за место сверх последнего пакета, тыйын"
+    )
 
 
 class SoloTariffCreatedResponse(CamelModel):

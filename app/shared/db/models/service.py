@@ -18,6 +18,6 @@ class Service(Base, UUIDPKMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    price: Mapped[int] = mapped_column(Integer, nullable=False)  # целые сомы
+    price_tiyin: Mapped[int] = mapped_column(Integer, nullable=False)  # тыйыны
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # минуты
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

@@ -120,7 +120,7 @@ class AppointmentRepository:
         total = 0
         for item in teeth:
             patient_tooth = await self._get_or_create_patient_tooth(patient_id, item.tooth)
-            price = item.price
+            price = item.price_tiyin
             if price is None and item.service_id is not None:
                 price = service_prices.get(item.service_id, 0)
             price = price or 0
@@ -132,11 +132,11 @@ class AppointmentRepository:
                     service_id=item.service_id,
                     doctor_membership_id=doctor_membership_id,
                     status=AppointmentToothStatus.PLANNED,
-                    price=price,
+                    price_tiyin=price,
                     comment=item.comment,
                 )
             )
-        appointment.price_total = total
+        appointment.price_total_tiyin = total
         await self._session.flush()
         return appointment
 
@@ -161,7 +161,7 @@ class AppointmentRepository:
                 Appointment.scheduled_at,
                 Appointment.duration_min,
                 Appointment.status,
-                Appointment.price_total,
+                Appointment.price_total_tiyin,
             )
             .join(Patient, Patient.id == Appointment.patient_id)
             .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
@@ -201,7 +201,7 @@ class AppointmentRepository:
                 scheduled_at=r[5],
                 duration_min=r[6],
                 status=r[7],
-                price_total=r[8],
+                price_total_tiyin=r[8],
             )
             for r in rows
         ]
@@ -240,7 +240,7 @@ class AppointmentRepository:
                     PatientTooth.tooth_number,
                     Service.name,
                     AppointmentTooth.status,
-                    AppointmentTooth.price,
+                    AppointmentTooth.price_tiyin,
                     AppointmentTooth.comment,
                 )
                 .join(PatientTooth, PatientTooth.id == AppointmentTooth.patient_tooth_id)
@@ -255,7 +255,7 @@ class AppointmentRepository:
                 tooth_number=r[1],
                 service_name=r[2],
                 status=r[3],
-                price=r[4],
+                price_tiyin=r[4],
                 comment=r[5],
             )
             for r in rows
@@ -268,7 +268,7 @@ class AppointmentRepository:
             return {}
         rows = (
             await self._session.execute(
-                select(Service.id, Service.price).where(Service.id.in_(service_ids))
+                select(Service.id, Service.price_tiyin).where(Service.id.in_(service_ids))
             )
         ).all()
         return {r[0]: r[1] for r in rows}
