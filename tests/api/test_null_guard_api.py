@@ -120,7 +120,7 @@ async def _create_patient_with_appointment(
     appt = await client.post(
         f"{API}/clinic/appointments",
         headers=headers,
-        json={"patientId": pid, "teeth": [{"tooth": 46}]},
+        json={"patientId": pid, "items": [{"teeth": [46]}]},
     )
     assert appt.status_code == 201, appt.text
     return str(pid)
@@ -274,7 +274,7 @@ async def _create_appointment(client: AsyncClient, headers: dict[str, str]) -> s
             "serviceId": service,
             "scheduledAt": "2026-07-20T09:00:00+06:00",
             "durationMin": 45,
-            "teeth": [{"tooth": 46}],
+            "items": [{"teeth": [46]}],
         },
     )
     assert resp.status_code == 201, resp.text

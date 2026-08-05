@@ -13,7 +13,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
-from app.modules.cash.domain.models import PaymentRecord
+from app.modules.cash.domain.models import AppointmentBilling, PaymentRecord
 from app.modules.cash.infrastructure.repositories.cash_repository import CashRepository
 from app.shared.db.enums import PaymentKind, PaymentMethod
 
@@ -21,6 +21,16 @@ from app.shared.db.enums import PaymentKind, PaymentMethod
 class CashService:
     def __init__(self, cash: CashRepository) -> None:
         self._cash = cash
+
+    async def billing(
+        self, clinic_id: uuid.UUID, appointment_id: uuid.UUID
+    ) -> AppointmentBilling | None:
+        """Биллинговое состояние приёма: начислено, оплачено, остаток.
+
+        Нужно соседнему модулю ``appointments``: правка позиций не должна
+        уводить итог приёма ниже уже оплаченного.
+        """
+        return await self._cash.get_billing(clinic_id, appointment_id)
 
     async def record_payment(
         self,

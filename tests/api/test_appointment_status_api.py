@@ -134,7 +134,7 @@ async def _book(client: AsyncClient, ctx: ClinicCtx, **extra: Any) -> str:
     body: dict[str, Any] = {
         "patientId": ctx.patient_id,
         "scheduledAt": _slot(),
-        "teeth": [{"tooth": 46, "serviceId": ctx.service_id}],
+        "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
         **extra,
     }
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
@@ -431,7 +431,7 @@ async def test_cancel_zeroes_total_but_keeps_items(client: AsyncClient, ctx: Cli
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["priceTotalTiyin"] == 0
-    assert len(resp.json()["teeth"]) == 1
+    assert len(resp.json()["items"]) == 1
 
 
 async def test_uncancel_restores_total_from_items(client: AsyncClient, ctx: ClinicCtx) -> None:

@@ -167,12 +167,12 @@ class UpdateAppointmentUseCase:
 
         patient_name = await self._appointments.patient_name(appointment.patient_id)
         doctor_name = await self._appointments.doctor_name(appointment.doctor_membership_id)
-        teeth = list(await self._appointments.teeth(appointment_id))
+        items = list(await self._appointments.items(appointment_id))
         return AppointmentDetail(
             appointment=appointment,
             patient_name=patient_name,
             doctor_name=doctor_name,
-            teeth=teeth,
+            items=items,
         )
 
     async def _check_transition(
@@ -259,7 +259,7 @@ class UpdateAppointmentUseCase:
         if not closing and "no_charge" not in fields and "no_charge_comment" not in fields:
             return
 
-        has_items = await self._appointments.has_teeth(appointment.id)
+        has_items = await self._appointments.has_items(appointment.id)
         if closing:
             ensure_closable(has_items=has_items, no_charge=no_charge, comment=comment)
         else:
@@ -279,7 +279,7 @@ class UpdateAppointmentUseCase:
         if target is AppointmentStatus.CANCELLED:
             fields["price_total_tiyin"] = 0
         elif appointment.status is AppointmentStatus.CANCELLED:
-            fields["price_total_tiyin"] = await self._appointments.teeth_total(appointment.id)
+            fields["price_total_tiyin"] = await self._appointments.items_total(appointment.id)
 
     async def _validate_refs(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> None:
         """Врач и услуга обязаны быть из этой клиники — иначе IDOR."""

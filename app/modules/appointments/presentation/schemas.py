@@ -10,13 +10,13 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from app.modules.appointments.domain.models import (
     AppointmentDetail,
+    AppointmentItemRow,
     AppointmentRow,
-    AppointmentToothRow,
 )
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import (
+    AppointmentItemStatus,
     AppointmentStatus,
-    AppointmentToothStatus,
     AppointmentType,
     CancelReason,
     PaymentMethod,
@@ -26,6 +26,9 @@ from app.shared.db.enums import (
 # проходит (у приёма без врача проверок занятости нет) и растягивает карточку
 # на годы вперёд.
 MAX_DURATION_MIN = 24 * 60
+# Потолок количества в позиции: столько единиц одной услуги за приём не оказывают,
+# а без границы опечатка в количестве раздувает чек и выручку в отчётах.
+MAX_ITEM_QUANTITY = 999
 
 
 class AppointmentListItem(CamelModel):
@@ -63,13 +66,41 @@ class AppointmentsResponse(CamelModel):
     total_count: int
 
 
-class ToothInputSchema(CamelModel):
-    tooth: int = Field(description="Номер зуба FDI")
-    service_id: uuid.UUID | None = None
+class ItemInputSchema(CamelModel):
+    """Позиция чека: услуга, цена за единицу, количество и зубы.
+
+    Реальный приём многопозиционный («кариес 36 + чистка»), поэтому позиций
+    может быть несколько. `teeth` пуст у работ, не привязанных к зубу (чистка,
+    консультация), и содержит несколько номеров, если одна работа покрывает
+    несколько зубов (мост на 35–37).
+    """
+
+    service_id: uuid.UUID | None = Field(
+        default=None, description="Услуга из прайса клиники; без неё цену задают вручную"
+    )
     price_tiyin: int | None = Field(
-        default=None, ge=0, description="Цена в тыйынах; по умолчанию из услуги"
+        default=None,
+        ge=0,
+        description="Цена ЗА ЕДИНИЦУ в тыйынах; по умолчанию — цена услуги на момент оказания",
+        examples=[150000],
+    )
+    quantity: int = Field(
+        default=1, ge=1, le=MAX_ITEM_QUANTITY, description="Количество", examples=[2]
+    )
+    teeth: list[int] = Field(
+        default_factory=list,
+        description="Номера зубов FDI; пусто — работа не привязана к зубу",
+        examples=[[36, 37]],
     )
     comment: str | None = None
+
+
+class ReplaceItemsRequest(CamelModel):
+    """Новый список позиций приёма — заменяет прежний целиком."""
+
+    items: list[ItemInputSchema] = Field(
+        default_factory=list, description="Позиции чека; пустой список очищает чек"
+    )
 
 
 class CreateAppointmentRequest(CamelModel):
@@ -109,7 +140,14 @@ class CreateAppointmentRequest(CamelModel):
         examples=[45],
     )
     comment: str | None = None
-    teeth: list[ToothInputSchema] = Field(default_factory=list, description="Манипуляции по зубам")
+    items: list[ItemInputSchema] = Field(
+        default_factory=list,
+        description=(
+            "Позиции чека (услуга, цена за единицу, количество, зубы). Приём без "
+            "позиций завести можно — но закрыть его потом получится только как "
+            "бесплатный (`noCharge`)"
+        ),
+    )
     force: bool = Field(
         default=False,
         description=(
@@ -133,22 +171,32 @@ class AppointmentCreatedResponse(CamelModel):
     price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
 
 
-class AppointmentToothOut(CamelModel):
+class AppointmentItemOut(CamelModel):
+    """Позиция чека в карточке приёма."""
+
     id: uuid.UUID
-    tooth: int
+    service_id: uuid.UUID | None = None
     service_name: str | None = None
-    status: AppointmentToothStatus
-    price_tiyin: int = Field(description="Цена в тыйынах", examples=[425000])
+    status: AppointmentItemStatus
+    price_tiyin: int = Field(description="Цена за единицу в тыйынах", examples=[425000])
+    quantity: int = Field(description="Количество", examples=[2])
+    total_tiyin: int = Field(description="Итог строки: цена × количество", examples=[850000])
+    teeth: list[int] = Field(
+        description="Номера зубов FDI; пусто — работа не привязана к зубу", examples=[[36, 37]]
+    )
     comment: str | None = None
 
     @classmethod
-    def from_row(cls, r: AppointmentToothRow) -> AppointmentToothOut:
+    def from_row(cls, r: AppointmentItemRow) -> AppointmentItemOut:
         return cls(
             id=r.id,
-            tooth=r.tooth_number,
+            service_id=r.service_id,
             service_name=r.service_name,
             status=r.status,
             price_tiyin=r.price_tiyin,
+            quantity=r.quantity,
+            total_tiyin=r.total_tiyin,
+            teeth=r.teeth,
             comment=r.comment,
         )
 
@@ -177,7 +225,7 @@ class AppointmentDetailResponse(CamelModel):
     no_charge_comment: str | None = Field(
         default=None, description="Пояснение к бесплатному приёму"
     )
-    teeth: list[AppointmentToothOut]
+    items: list[AppointmentItemOut] = Field(description="Позиции чека")
 
     @classmethod
     def from_detail(cls, d: AppointmentDetail) -> AppointmentDetailResponse:
@@ -198,7 +246,7 @@ class AppointmentDetailResponse(CamelModel):
             cancel_comment=a.cancel_comment,
             no_charge=a.no_charge,
             no_charge_comment=a.no_charge_comment,
-            teeth=[AppointmentToothOut.from_row(t) for t in d.teeth],
+            items=[AppointmentItemOut.from_row(i) for i in d.items],
         )
 
 

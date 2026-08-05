@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from app.shared.db.enums import AppointmentToothStatus, ToothStatus
+from app.shared.db.enums import AppointmentItemStatus, ToothStatus
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
 
@@ -37,7 +37,7 @@ class ToothHistoryEntry:
     clinic_name: str
     doctor_name: str | None
     service_name: str | None
-    status: AppointmentToothStatus
+    status: AppointmentItemStatus
     price_tiyin: int
     comment: str | None
 

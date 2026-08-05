@@ -9,6 +9,7 @@ from app.modules.appointments.presentation.routes import (
     create_appointment,
     get_appointment,
     list_appointments,
+    replace_items,
     update_appointment,
 )
 
@@ -17,4 +18,5 @@ router.include_router(list_appointments.router)
 router.include_router(create_appointment.router)
 router.include_router(get_appointment.router)
 router.include_router(update_appointment.router)
+router.include_router(replace_items.router)
 router.include_router(complete_appointment.router)

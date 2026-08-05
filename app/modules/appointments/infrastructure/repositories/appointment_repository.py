@@ -1,7 +1,8 @@
-"""Репозиторий приёмов и истории лечения (appointment + appointment_tooth).
+"""Репозиторий приёмов и позиций чека (appointment + appointment_item).
 
-Врач = ``membership``. Зуб приёма ссылается на ``patient_tooth`` (создаётся, если
-для пациента такого зуба ещё не было). Итог приёма — сумма цен по зубам.
+Врач = ``membership``. Позиция ссылается на зубы через ``appointment_item_tooth``
+(строка ``patient_tooth`` создаётся, если для пациента такого зуба ещё не было).
+Итог приёма — сумма позиций: ``цена за единицу × количество``.
 """
 
 from __future__ import annotations
@@ -11,18 +12,19 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.appointments.domain.models import (
+    AppointmentItemRow,
     AppointmentRow,
-    AppointmentToothRow,
-    ToothInput,
+    ItemInput,
 )
-from app.shared.db.enums import AppointmentStatus, AppointmentToothStatus, AppointmentType
+from app.shared.db.enums import AppointmentItemStatus, AppointmentStatus, AppointmentType
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
-from app.shared.db.models.appointment_tooth import AppointmentTooth
+from app.shared.db.models.appointment_item import AppointmentItem
+from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
@@ -113,7 +115,7 @@ class AppointmentRepository:
         scheduled_at: datetime | None,  # None только у черновика (status=draft)
         duration_min: int,
         comment: str | None,
-        teeth: list[ToothInput],
+        items: list[ItemInput],
         service_prices: dict[uuid.UUID, int],
         status: AppointmentStatus = AppointmentStatus.SCHEDULED,
     ) -> Appointment:
@@ -130,29 +132,61 @@ class AppointmentRepository:
         )
         self._session.add(appointment)
         await self._session.flush()
+        await self._write_items(appointment, items, service_prices)
+        return appointment
 
+    async def replace_items(
+        self,
+        appointment: Appointment,
+        items: list[ItemInput],
+        service_prices: dict[uuid.UUID, int],
+    ) -> None:
+        """Заменить позиции приёма целиком и пересчитать итог.
+
+        Замена, а не точечная правка: чек приёма — это список, и «положить
+        текущее состояние» проще и безопаснее для клиента, чем вести дифф из
+        добавлений и удалений. Связки с зубами уходят каскадом вместе с позициями.
+        """
+        await self._session.execute(
+            delete(AppointmentItem).where(AppointmentItem.appointment_id == appointment.id)
+        )
+        await self._write_items(appointment, items, service_prices)
+
+    async def _write_items(
+        self,
+        appointment: Appointment,
+        items: list[ItemInput],
+        service_prices: dict[uuid.UUID, int],
+    ) -> None:
+        """Записать позиции с привязкой к зубам и проставить итог приёма."""
         total = 0
-        for item in teeth:
-            patient_tooth = await self._get_or_create_patient_tooth(patient_id, item.tooth)
+        for item in items:
             price = item.price_tiyin
             if price is None and item.service_id is not None:
                 price = service_prices.get(item.service_id, 0)
             price = price or 0
-            total += price
-            self._session.add(
-                AppointmentTooth(
-                    appointment_id=appointment.id,
-                    patient_tooth_id=patient_tooth.id,
-                    service_id=item.service_id,
-                    doctor_membership_id=doctor_membership_id,
-                    status=AppointmentToothStatus.PLANNED,
-                    price_tiyin=price,
-                    comment=item.comment,
-                )
+            total += price * item.quantity
+            row = AppointmentItem(
+                appointment_id=appointment.id,
+                service_id=item.service_id,
+                doctor_membership_id=appointment.doctor_membership_id,
+                status=AppointmentItemStatus.PLANNED,
+                price_tiyin=price,
+                quantity=item.quantity,
+                comment=item.comment,
             )
+            self._session.add(row)
+            await self._session.flush()
+            # dict.fromkeys: один зуб в позиции — один раз (ключ связки составной).
+            for tooth in dict.fromkeys(item.teeth):
+                patient_tooth = await self._get_or_create_patient_tooth(
+                    appointment.patient_id, tooth
+                )
+                self._session.add(
+                    AppointmentItemTooth(item_id=row.id, patient_tooth_id=patient_tooth.id)
+                )
         appointment.price_total_tiyin = total
         await self._session.flush()
-        return appointment
 
     async def list_page(
         self,
@@ -246,54 +280,68 @@ class AppointmentRepository:
             )
         ).scalar_one_or_none()
 
-    async def teeth(self, appointment_id: uuid.UUID) -> Sequence[AppointmentToothRow]:
+    async def items(self, appointment_id: uuid.UUID) -> Sequence[AppointmentItemRow]:
+        """Позиции приёма с номерами зубов (у позиции их может быть 0, 1 или много)."""
         rows = (
             await self._session.execute(
                 select(
-                    AppointmentTooth.id,
-                    PatientTooth.tooth_number,
+                    AppointmentItem.id,
+                    AppointmentItem.service_id,
                     Service.name,
-                    AppointmentTooth.status,
-                    AppointmentTooth.price_tiyin,
-                    AppointmentTooth.comment,
+                    AppointmentItem.status,
+                    AppointmentItem.price_tiyin,
+                    AppointmentItem.quantity,
+                    AppointmentItem.comment,
+                    # array_remove: у позиции без зубов outer join даёт {NULL}.
+                    func.array_remove(func.array_agg(PatientTooth.tooth_number), None),
                 )
-                .join(PatientTooth, PatientTooth.id == AppointmentTooth.patient_tooth_id)
-                .outerjoin(Service, Service.id == AppointmentTooth.service_id)
-                .where(AppointmentTooth.appointment_id == appointment_id)
-                .order_by(PatientTooth.tooth_number)
+                .outerjoin(Service, Service.id == AppointmentItem.service_id)
+                .outerjoin(
+                    AppointmentItemTooth, AppointmentItemTooth.item_id == AppointmentItem.id
+                )
+                .outerjoin(PatientTooth, PatientTooth.id == AppointmentItemTooth.patient_tooth_id)
+                .where(AppointmentItem.appointment_id == appointment_id)
+                .group_by(AppointmentItem.id, Service.name)
+                .order_by(AppointmentItem.created_at, AppointmentItem.id)
             )
         ).all()
         return [
-            AppointmentToothRow(
+            AppointmentItemRow(
                 id=r[0],
-                tooth_number=r[1],
+                service_id=r[1],
                 service_name=r[2],
                 status=r[3],
                 price_tiyin=r[4],
-                comment=r[5],
+                quantity=r[5],
+                comment=r[6],
+                teeth=sorted(r[7] or []),
             )
             for r in rows
         ]
 
-    async def has_teeth(self, appointment_id: uuid.UUID) -> bool:
-        """Есть ли у приёма хотя бы одна позиция (манипуляция по зубу)."""
+    async def has_items(self, appointment_id: uuid.UUID) -> bool:
+        """Есть ли у приёма хотя бы одна позиция."""
         return (
             await self._session.execute(
-                select(AppointmentTooth.id)
-                .where(AppointmentTooth.appointment_id == appointment_id)
+                select(AppointmentItem.id)
+                .where(AppointmentItem.appointment_id == appointment_id)
                 .limit(1)
             )
         ).scalar_one_or_none() is not None
 
-    async def teeth_total(self, appointment_id: uuid.UUID) -> int:
-        """Сумма цен по позициям приёма — итог, пересчитанный из фактических работ."""
-        return (
-            await self._session.execute(
-                select(func.coalesce(func.sum(AppointmentTooth.price_tiyin), 0)).where(
-                    AppointmentTooth.appointment_id == appointment_id
+    async def items_total(self, appointment_id: uuid.UUID) -> int:
+        """Итог приёма, пересчитанный из позиций: Σ(цена за единицу × количество)."""
+        return int(
+            (
+                await self._session.execute(
+                    select(
+                        func.coalesce(
+                            func.sum(AppointmentItem.price_tiyin * AppointmentItem.quantity), 0
+                        )
+                    ).where(AppointmentItem.appointment_id == appointment_id)
                 )
-            )
-        ).scalar_one()
+            ).scalar_one()
+        )
 
     async def service_prices(
         self, service_ids: list[uuid.UUID]

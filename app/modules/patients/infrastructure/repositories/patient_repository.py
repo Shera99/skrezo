@@ -1,8 +1,8 @@
 """Репозиторий пациентов (глобальные) + одонтограмма + история зуба.
 
 Пациент глобальный; «пациенты клиники» = у кого есть приём в этой клинике.
-История зуба — сквозной JOIN patient_tooth→appointment_tooth→appointment→clinic/
-doctor/service (по всем клиникам, никогда не теряется).
+История зуба — сквозной JOIN patient_tooth→appointment_item_tooth→appointment_item
+→appointment→clinic/doctor/service (по всем клиникам, никогда не теряется).
 """
 
 from __future__ import annotations
@@ -21,7 +21,8 @@ from app.modules.patients.domain.models import (
 )
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
-from app.shared.db.models.appointment_tooth import AppointmentTooth
+from app.shared.db.models.appointment_item import AppointmentItem
+from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
@@ -179,17 +180,21 @@ class PatientRepository:
                     Clinic.name,
                     Account.full_name,
                     Service.name,
-                    AppointmentTooth.status,
-                    AppointmentTooth.price_tiyin,
-                    AppointmentTooth.comment,
+                    AppointmentItem.status,
+                    AppointmentItem.price_tiyin,
+                    AppointmentItem.comment,
                 )
                 .select_from(PatientTooth)
-                .join(AppointmentTooth, AppointmentTooth.patient_tooth_id == PatientTooth.id)
-                .join(Appointment, Appointment.id == AppointmentTooth.appointment_id)
+                .join(
+                    AppointmentItemTooth,
+                    AppointmentItemTooth.patient_tooth_id == PatientTooth.id,
+                )
+                .join(AppointmentItem, AppointmentItem.id == AppointmentItemTooth.item_id)
+                .join(Appointment, Appointment.id == AppointmentItem.appointment_id)
                 .join(Clinic, Clinic.id == Appointment.clinic_id)
-                .outerjoin(Membership, Membership.id == AppointmentTooth.doctor_membership_id)
+                .outerjoin(Membership, Membership.id == AppointmentItem.doctor_membership_id)
                 .outerjoin(Account, Account.id == Membership.account_id)
-                .outerjoin(Service, Service.id == AppointmentTooth.service_id)
+                .outerjoin(Service, Service.id == AppointmentItem.service_id)
                 .where(
                     PatientTooth.patient_id == patient_id,
                     PatientTooth.tooth_number == tooth_number,

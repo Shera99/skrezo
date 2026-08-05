@@ -98,7 +98,7 @@ async def test_patient_appointment_and_odontogram(
     appt = await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_a,
-        json={"patientId": pid, "teeth": [{"tooth": 46, "serviceId": sid}]},
+        json={"patientId": pid, "items": [{"serviceId": sid, "teeth": [46]}]},
     )
     assert appt.status_code == 201, appt.text
     assert appt.json()["priceTotalTiyin"] == 3000
@@ -131,7 +131,7 @@ async def test_patient_appointment_and_odontogram(
 
     # Детали приёма + смена статуса.
     detail = await client.get(f"{API}/clinic/appointments/{aid}", headers=clinic_a)
-    assert detail.json()["teeth"][0]["tooth"] == 46
+    assert detail.json()["items"][0]["teeth"] == [46]
     upd = await client.patch(
         f"{API}/clinic/appointments/{aid}", headers=clinic_a, json={"status": "completed"}
     )
@@ -141,7 +141,7 @@ async def test_patient_appointment_and_odontogram(
     bad = await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_a,
-        json={"patientId": pid, "teeth": [{"tooth": 99}]},
+        json={"patientId": pid, "items": [{"teeth": [99]}]},
     )
     assert bad.status_code == 422
     assert bad.json()["error"] == "invalid_tooth"
@@ -174,7 +174,7 @@ async def test_patient_note_is_stored_and_editable(
     await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_a,
-        json={"patientId": pid, "teeth": [{"tooth": 11, "serviceId": sid}]},
+        json={"patientId": pid, "items": [{"serviceId": sid, "teeth": [11]}]},
     )
 
     card = await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)
@@ -218,7 +218,7 @@ async def test_shared_history_across_clinics(
     await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_a,
-        json={"patientId": pid, "teeth": [{"tooth": 46, "serviceId": sa}]},
+        json={"patientId": pid, "items": [{"serviceId": sa, "teeth": [46]}]},
     )
 
     # Клиника B — тот же глобальный пациент (по телефону), свой приём на зуб 46.
@@ -236,7 +236,7 @@ async def test_shared_history_across_clinics(
     await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_b,
-        json={"patientId": pid, "teeth": [{"tooth": 46, "serviceId": sb}]},
+        json={"patientId": pid, "items": [{"serviceId": sb, "teeth": [46]}]},
     )
 
     # Клиника B видит СКВОЗНУЮ историю зуба 46 — обе клиники.

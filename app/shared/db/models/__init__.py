@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
-from app.shared.db.models.appointment_tooth import AppointmentTooth
+from app.shared.db.models.appointment_item import AppointmentItem
+from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
 from app.shared.db.models.audit_log import AuditLog
 from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
@@ -36,7 +37,8 @@ from app.shared.db.models.tariff_version import TariffVersion
 __all__ = [
     "Account",
     "Appointment",
-    "AppointmentTooth",
+    "AppointmentItem",
+    "AppointmentItemTooth",
     "AuditLog",
     "CashPayment",
     "City",

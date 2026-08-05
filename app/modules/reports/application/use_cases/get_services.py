@@ -24,11 +24,11 @@ class GetServicesReportUseCase:
         date_to: date | None,
         own_membership_id: uuid.UUID | None,
     ) -> ServicesReport:
-        """Услуги по числу манипуляций и сумме, по убыванию выручки.
+        """Услуги по количеству оказанных и сумме, по убыванию выручки.
 
-        Считается по ``appointment_tooth`` — фактически выполненным манипуляциям,
-        а не по основной услуге приёма. Манипуляции без услуги сводятся в строку
-        «Без услуги».
+        Считается по позициям приёмов (``appointment_item``) с учётом
+        **количества**, а не по основной услуге приёма: «снимок ×3» — это три
+        оказанные услуги. Позиции без услуги сводятся в строку «Без услуги».
         """
         bounds, timezone, _ = await clinic_report_context(
             self._reports, clinic_id, period, date_from, date_to

@@ -31,7 +31,7 @@ from app.modules.reports.domain.models import (
 from app.shared.db.enums import AppointmentStatus, Lang, PaymentKind
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
-from app.shared.db.models.appointment_tooth import AppointmentTooth
+from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
@@ -380,21 +380,28 @@ class ReportsRepository:
         end: datetime,
         own_membership_id: uuid.UUID | None,
     ) -> list[ServiceReportRow]:
-        """Топ услуг периода по манипуляциям в приёмах и их сумме."""
-        revenue = func.coalesce(func.sum(AppointmentTooth.price_tiyin), 0)
+        """Топ услуг периода по позициям приёмов: сколько раз оказали и на сколько.
+
+        Считается по **количеству**, а не по числу строк: «снимок ×3» — это три
+        оказанные услуги одной позицией, иначе отчёт занижает и работу, и выручку.
+        """
+        quantity = func.coalesce(func.sum(AppointmentItem.quantity), 0)
+        revenue = func.coalesce(
+            func.sum(AppointmentItem.price_tiyin * AppointmentItem.quantity), 0
+        )
         rows = (
             await self._session.execute(
                 select(
-                    AppointmentTooth.service_id,
+                    AppointmentItem.service_id,
                     func.coalesce(Service.name, literal(_NO_SERVICE)),
-                    func.count(),
+                    quantity,
                     revenue,
                 )
-                .select_from(AppointmentTooth)
-                .join(Appointment, Appointment.id == AppointmentTooth.appointment_id)
-                .outerjoin(Service, Service.id == AppointmentTooth.service_id)
+                .select_from(AppointmentItem)
+                .join(Appointment, Appointment.id == AppointmentItem.appointment_id)
+                .outerjoin(Service, Service.id == AppointmentItem.service_id)
                 .where(*self._appointment_filters(clinic_id, start, end, own_membership_id))
-                .group_by(AppointmentTooth.service_id, Service.name)
+                .group_by(AppointmentItem.service_id, Service.name)
                 .order_by(revenue.desc())
             )
         ).all()

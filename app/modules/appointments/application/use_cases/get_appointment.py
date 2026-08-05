@@ -21,10 +21,10 @@ class GetAppointmentUseCase:
             raise NotFoundError("Приём не найден", code="appointment_not_found")
         patient_name = await self._appointments.patient_name(appointment.patient_id)
         doctor_name = await self._appointments.doctor_name(appointment.doctor_membership_id)
-        teeth = list(await self._appointments.teeth(appointment_id))
+        items = list(await self._appointments.items(appointment_id))
         return AppointmentDetail(
             appointment=appointment,
             patient_name=patient_name,
             doctor_name=doctor_name,
-            teeth=teeth,
+            items=items,
         )

@@ -14,6 +14,7 @@ from app.modules.appointments.application.use_cases.create_appointment import (
 )
 from app.modules.appointments.application.use_cases.get_appointment import GetAppointmentUseCase
 from app.modules.appointments.application.use_cases.list_appointments import ListAppointmentsUseCase
+from app.modules.appointments.application.use_cases.replace_items import ReplaceItemsUseCase
 from app.modules.appointments.application.use_cases.update_appointment import (
     UpdateAppointmentUseCase,
 )
@@ -74,6 +75,14 @@ def get_update_appointment_use_case(
 def get_cash_service(session: AsyncSession = Depends(get_session)) -> CashService:
     """Кассовый сервис из модуля кассы (общие правила проведения оплаты)."""
     return build_cash_service(session)
+
+
+def get_replace_items_use_case(
+    session: AsyncSession = Depends(get_session),
+    appointments: AppointmentRepository = Depends(get_appointment_repository),
+    cash: CashService = Depends(get_cash_service),
+) -> ReplaceItemsUseCase:
+    return ReplaceItemsUseCase(session, appointments, cash)
 
 
 def get_complete_appointment_use_case(

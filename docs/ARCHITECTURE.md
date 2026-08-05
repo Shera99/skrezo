@@ -66,7 +66,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |
 | `patients` | клиническое ядро: **глобальные** пациенты, одонтограмма (FDI), сквозная история зуба (RBAC `patients.*`) | `patient`, `patient_tooth` | 9 ✅ |
 | `services` | прайс клиники (услуги, цены) (RBAC `price.*`) | `service` | 9 ✅ |
-| `appointments` | приёмы (клиника+врач=membership+пациент) и история лечения по зубам (RBAC `appointments.*`) | `appointment`, `appointment_tooth` | 9 ✅ |
+| `appointments` | приёмы (клиника+врач=membership+пациент) и **чек списком позиций**: услуга, цена за единицу, количество, зубы (RBAC `appointments.*`) | `appointment`, `appointment_item`, `appointment_item_tooth` | 9 ✅ / 14 ✅ |
 | `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |
 | `reports` | операционная аналитика: выручка, врачи, услуги, пациенты, долг. Два контура: клиентский (RBAC `reports.view_own`/`view_all`) и платформенный (`is_platform_admin`, свод по всем клиникам + любая клиника). Своих таблиц нет — агрегирует приёмы и кассу | читает appointment(_tooth)/cash_payment/membership | 12 ✅ |
@@ -142,11 +142,15 @@ DDD. Документ фиксирует принципы, границы мод
 - **doctor_time_off** — `id, clinic_id→, membership_id→membership, starts_at,
   ends_at, reason?, timestamps`. Отсутствия врача (абсолютные интервалы). Пока
   только читается: ручек ведения ещё нет.
-- **appointment_tooth** — `id, appointment_id→, patient_tooth_id→patient_tooth,
-  service_id?→service, doctor_membership_id?→membership, status(enum), price,
-  comment?, created_at`. История лечения: запись = зуб в приёме. История зуба =
-  JOIN patient_tooth→appointment_tooth→appointment→clinic/doctor/service, сквозная
-  по всем клиникам и не теряется.
+- **appointment_item** — `id, appointment_id→, service_id?→service,
+  doctor_membership_id?→membership, status(enum), price_tiyin (за ЕДИНИЦУ),
+  quantity (CHECK > 0), comment?, created_at`. Строка чека приёма; итог приёма =
+  Σ(price_tiyin × quantity).
+- **appointment_item_tooth** — `item_id→appointment_item, patient_tooth_id→
+  patient_tooth` (составной PK). Связка «позиция ↔ зуб» многие-ко-многим: работа
+  может покрывать несколько зубов (мост) или ни одного (чистка). История зуба =
+  JOIN patient_tooth→appointment_item_tooth→appointment_item→appointment→
+  clinic/doctor/service, сквозная по всем клиникам и не теряется.
 
 > Базовые `account`/`clinic`/`membership` **реконструированы из admin-спеки**
 > (исходный BACKEND_SPEC.md недоступен — относился к мобильному приложению

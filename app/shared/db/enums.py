@@ -90,8 +90,8 @@ ACTIVE_APPOINTMENT_STATUSES: frozenset[AppointmentStatus] = frozenset(
 )
 
 
-class AppointmentToothStatus(enum.StrEnum):
-    """Статус манипуляции по зубу в рамках приёма."""
+class AppointmentItemStatus(enum.StrEnum):
+    """Статус позиции приёма (услуга с количеством, возможно — по зубам)."""
 
     PLANNED = "planned"
     STARTED = "started"
@@ -160,9 +160,9 @@ AppointmentTypeType = SAEnum(
 AppointmentStatusType = SAEnum(
     AppointmentStatus, name="appointment_status", values_callable=lambda e: [m.value for m in e]
 )
-AppointmentToothStatusType = SAEnum(
-    AppointmentToothStatus,
-    name="appointment_tooth_status",
+AppointmentItemStatusType = SAEnum(
+    AppointmentItemStatus,
+    name="appointment_item_status",
     values_callable=lambda e: [m.value for m in e],
 )
 PaymentMethodType = SAEnum(

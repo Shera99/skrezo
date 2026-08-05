@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0028** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0029** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -24,7 +24,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | RBAC (права/роли) | `permission`, `role`, `role_permission` |
 | Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
 | Аудит | `audit_log` |
-| **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_tooth` |
+| **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 | **Касса клиники** | `cash_payment` |
 
@@ -63,10 +63,11 @@ erDiagram
     PATIENT ||--o{ APPOINTMENT : "пациент (глобальный)"
     MEMBERSHIP ||--o{ APPOINTMENT : "врач (опц.)"
     SERVICE ||--o{ APPOINTMENT : "основная услуга (опц.)"
-    APPOINTMENT ||--o{ APPOINTMENT_TOOTH : "манипуляции"
-    PATIENT_TOOTH ||--o{ APPOINTMENT_TOOTH : "зуб"
-    SERVICE ||--o{ APPOINTMENT_TOOTH : "услуга (опц.)"
-    MEMBERSHIP ||--o{ APPOINTMENT_TOOTH : "врач (опц.)"
+    APPOINTMENT ||--o{ APPOINTMENT_ITEM : "позиции чека"
+    APPOINTMENT_ITEM ||--o{ APPOINTMENT_ITEM_TOOTH : "зубы позиции"
+    PATIENT_TOOTH ||--o{ APPOINTMENT_ITEM_TOOTH : "зуб"
+    SERVICE ||--o{ APPOINTMENT_ITEM : "услуга (опц.)"
+    MEMBERSHIP ||--o{ APPOINTMENT_ITEM : "врач (опц.)"
 
     CLINIC ||--o{ CLINIC_WORKING_HOURS : "часы работы (7 дней)"
     CLINIC ||--o{ DOCTOR_SCHEDULE : "графики врачей"
@@ -263,16 +264,20 @@ erDiagram
         bool no_charge "приём закрыт как бесплатный"
         text no_charge_comment "nullable, обязателен при no_charge"
     }
-    APPOINTMENT_TOOTH {
+    APPOINTMENT_ITEM {
         uuid id PK
         uuid appointment_id FK
-        uuid patient_tooth_id FK
         uuid service_id FK "nullable"
         uuid doctor_membership_id FK "nullable"
-        enum status "appointment_tooth_status"
-        int price_tiyin
+        enum status "appointment_item_status"
+        int price_tiyin "цена ЗА ЕДИНИЦУ на момент оказания"
+        int quantity "CHECK > 0"
         text comment "nullable"
         timestamptz created_at
+    }
+    APPOINTMENT_ITEM_TOOTH {
+        uuid item_id FK "составной PK"
+        uuid patient_tooth_id FK "составной PK"
     }
     CLINIC_WORKING_HOURS {
         uuid id PK
@@ -364,7 +369,7 @@ erDiagram
 | `tooth_status` | `healthy`, `caries`, `filling`, `crown`, `implant`, `missing`, `broken`, `root`, `under_treatment` | patient_tooth |
 | `appointment_type` | `consultation`, `treatment`, `operation`, `cleaning`, `xray` | appointment |
 | `appointment_status` | `draft`, `scheduled`, `confirmed`, `arrived`, `in_progress`, `completed`, `cancelled`, `no_show` | appointment |
-| `appointment_tooth_status` | `planned`, `started`, `completed`, `cancelled` | appointment_tooth |
+| `appointment_item_status` | `planned`, `started`, `completed`, `cancelled` | appointment_item |
 | `payment_method` | `cash`, `card`, `transfer` | cash_payment |
 | `payment_kind` | `payment`, `refund` | cash_payment |
 | `doctors_count_range` | `2-5`, `6-10`, `10+` | clinic_application |
@@ -379,14 +384,16 @@ erDiagram
 неё есть с ним `appointment`. **Сквозная история зуба** (по всем клиникам):
 
 ```
-patient ──1:N── patient_tooth ──1:N── appointment_tooth ──N:1── appointment ──N:1── clinic
-                     (текущее                (манипуляция)          (приём)        + doctor(membership)
-                      состояние зуба)                                              + service
+patient ─1:N─ patient_tooth ─1:N─ appointment_item_tooth ─N:1─ appointment_item ─N:1─ appointment ─N:1─ clinic
+                   (текущее              (связка «позиция↔зуб»)      (строка чека)         (приём)      + doctor(membership)
+                    состояние зуба)                                                                     + service
 ```
 
 - **Одонтограмма** = строки `patient_tooth` (по одной на зуб, `UNIQUE`).
-- **История зуба** = все `appointment_tooth` для этого `patient_tooth`, JOIN к
-  `appointment` (дата, клиника), `membership→account` (врач), `service` (услуга).
+- **История зуба** = все позиции, связанные с этим `patient_tooth` через
+  `appointment_item_tooth`, JOIN к `appointment` (дата, клиника),
+  `membership→account` (врач), `service` (услуга). Связь многие-ко-многим: одна
+  позиция может покрывать несколько зубов (мост) или ни одного (чистка).
 - **Врач** — это `membership` (account + роль в клинике), отдельной таблицы
   `doctors` нет.
 
@@ -408,8 +415,9 @@ patient ──1:N── patient_tooth ──1:N── appointment_tooth ──N:
 | `appointment` | doctor_membership_id, service_id | SET NULL |
 | `clinic_working_hours` | clinic_id | CASCADE |
 | `doctor_schedule` / `doctor_time_off` | clinic_id, membership_id | CASCADE |
-| `appointment_tooth` | appointment_id, patient_tooth_id | CASCADE |
-| `appointment_tooth` | service_id, doctor_membership_id | SET NULL |
+| `appointment_item` | appointment_id | CASCADE |
+| `appointment_item` | service_id, doctor_membership_id | SET NULL |
+| `appointment_item_tooth` | item_id, patient_tooth_id | CASCADE |
 | `cash_payment` | clinic_id, appointment_id, patient_id | CASCADE |
 | `cash_payment` | recorded_by_membership_id, refunds_payment_id | SET NULL |
 | `clinic` | city_id | (без каскада) |

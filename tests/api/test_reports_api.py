@@ -121,7 +121,7 @@ async def _appointment(client: AsyncClient, ctx: ClinicCtx, doctor: str) -> str:
         "patientId": ctx.patient_id,
         "doctorMembershipId": doctor,
         "scheduledAt": _slot(),
-        "teeth": [{"tooth": 46, "serviceId": ctx.service_id}],
+        "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
     }
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
     assert resp.status_code == 201, resp.text

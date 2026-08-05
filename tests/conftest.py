@@ -48,7 +48,8 @@ _CLEAN_SQL = [
     "DELETE FROM audit_log",
     # Клиническое ядро v2: приём ссылается на membership/clinic/service, поэтому
     # чистится до них. Пациент глобальный — чистится вместе с остальными.
-    "DELETE FROM appointment_tooth",
+    "DELETE FROM appointment_item_tooth",
+    "DELETE FROM appointment_item",
     "DELETE FROM appointment",
     "DELETE FROM patient_tooth",
     "DELETE FROM service",

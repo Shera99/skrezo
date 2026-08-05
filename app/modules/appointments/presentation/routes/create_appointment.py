@@ -12,7 +12,7 @@ from app.modules.appointments.application.use_cases.create_appointment import (
     CreateAppointmentInput,
     CreateAppointmentUseCase,
 )
-from app.modules.appointments.domain.models import ToothInput
+from app.modules.appointments.domain.models import ItemInput
 from app.modules.appointments.presentation.deps import get_create_appointment_use_case
 from app.modules.appointments.presentation.schemas import (
     AppointmentCreatedResponse,
@@ -64,7 +64,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     "/clinic/appointments",
     status_code=status.HTTP_201_CREATED,
     response_model=AppointmentCreatedResponse,
-    summary="Создать приём с манипуляциями по зубам",
+    summary="Создать приём со списком позиций",
     response_description="Идентификатор приёма и его итоговая стоимость",
     responses=_ERRORS,
 )
@@ -96,14 +96,15 @@ async def create_appointment(
         scheduled_at=body.scheduled_at,
         duration_min=body.duration_min,
         comment=body.comment,
-        teeth=[
-            ToothInput(
-                tooth=t.tooth,
-                service_id=t.service_id,
-                price_tiyin=t.price_tiyin,
-                comment=t.comment,
+        items=[
+            ItemInput(
+                service_id=i.service_id,
+                price_tiyin=i.price_tiyin,
+                quantity=i.quantity,
+                teeth=i.teeth,
+                comment=i.comment,
             )
-            for t in body.teeth
+            for i in body.items
         ],
         status=body.status,
         force=body.force,

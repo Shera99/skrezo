@@ -212,7 +212,7 @@ class ServiceReportItem(CamelModel):
 
     service_id: uuid.UUID | None = Field(default=None, description="null — манипуляции без услуги")
     name: str = Field(examples=["Лечение кариеса"])
-    count: int = Field(description="Число манипуляций")
+    count: int = Field(description="Сколько раз услуга оказана (с учётом количества)")
     revenue_tiyin: int = Field(description="Сумма по манипуляциям, сомы")
 
     @classmethod

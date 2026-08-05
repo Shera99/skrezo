@@ -10,11 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ForbiddenError, NotFoundError, ValidationAppError
 from app.modules.appointments.application.services.booking import booking_guard
-from app.modules.appointments.domain.models import ToothInput
+from app.modules.appointments.application.services.items import (
+    ensure_items_valid,
+    resolve_service_prices,
+)
+from app.modules.appointments.domain.models import ItemInput
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
-from app.modules.patients.domain.teeth import is_valid_tooth
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     span_of,
@@ -32,7 +35,7 @@ class CreateAppointmentInput:
     scheduled_at: datetime | None
     duration_min: int | None
     comment: str | None
-    teeth: list[ToothInput]
+    items: list[ItemInput]
     status: AppointmentStatus = AppointmentStatus.SCHEDULED
     # Записать вне рабочих часов врача (право ``appointments.force_booking``).
     force: bool = False
@@ -59,15 +62,7 @@ class CreateAppointmentUseCase:
         if not await self._appointments.patient_exists(data.patient_id):
             raise NotFoundError("Пациент не найден", code="patient_not_found")
 
-        for item in data.teeth:
-            if not is_valid_tooth(item.tooth):
-                raise ValidationAppError(
-                    f"Некорректный номер зуба (FDI): {item.tooth}", code="invalid_tooth"
-                )
-            if item.service_id is not None and not await self._appointments.service_in_clinic(
-                clinic_id, item.service_id
-            ):
-                raise ValidationAppError("Услуга не из этой клиники", code="invalid_service")
+        await ensure_items_valid(clinic_id, data.items, self._appointments)
 
         doctor_id = data.doctor_membership_id
         if doctor_id is not None and not await self._availability.is_doctor(clinic_id, doctor_id):
@@ -91,8 +86,7 @@ class CreateAppointmentUseCase:
                 clinic_id, doctor_id, span_of(scheduled_at, duration_min), force=data.force
             )
 
-        service_ids = [t.service_id for t in data.teeth if t.service_id is not None]
-        prices = await self._appointments.service_prices(service_ids)
+        prices = await resolve_service_prices(data.items, self._appointments)
 
         # Гвард накрывает и create() (внутри флашит INSERT — там и срабатывает
         # констрейнт), и commit(): ловить только коммит недостаточно.
@@ -106,7 +100,7 @@ class CreateAppointmentUseCase:
                 scheduled_at=scheduled_at,
                 duration_min=duration_min,
                 comment=data.comment,
-                teeth=data.teeth,
+                items=data.items,
                 service_prices=prices,
                 status=data.status,
             )

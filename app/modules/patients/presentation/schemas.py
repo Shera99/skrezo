@@ -13,7 +13,7 @@ from app.modules.patients.domain.models import (
     ToothHistoryEntry,
 )
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import AppointmentToothStatus, ToothStatus
+from app.shared.db.enums import AppointmentItemStatus, ToothStatus
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
 
@@ -188,7 +188,7 @@ class ToothHistoryItem(CamelModel):
     clinic_name: str
     doctor_name: str | None = None
     service_name: str | None = None
-    status: AppointmentToothStatus
+    status: AppointmentItemStatus
     price_tiyin: int = Field(description="Цена в тыйынах")
     comment: str | None = None
 

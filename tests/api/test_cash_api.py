@@ -100,7 +100,7 @@ async def _appointment(
     """Приём с ценой 3000 (одна услуга по зубу). Возвращает id."""
     body: dict[str, Any] = {
         "patientId": ctx.patient_id,
-        "teeth": [{"tooth": 46, "serviceId": ctx.service_id}],
+        "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
     }
     if doctor is not None:
         body["doctorMembershipId"] = doctor

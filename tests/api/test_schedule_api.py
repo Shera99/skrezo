@@ -1601,7 +1601,7 @@ async def test_clinic_survives_rejected_null_patch(
     assert appointment_id in [a["id"] for a in day.json()["appointments"]]
 
 
-@pytest.mark.parametrize("field", ["patientId", "appointmentType", "teeth"])
+@pytest.mark.parametrize("field", ["patientId", "appointmentType", "items"])
 async def test_post_null_into_required_field_is_rejected(
     client: AsyncClient, clinic_a: ClinicCtx, field: str
 ) -> None:
