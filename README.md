@@ -354,9 +354,19 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | Метод | Путь | Описание |
 |---|---|---|
 | `GET` · `POST` | `/clinic/cash/payments` | Журнал (view_all → вся клиника, view_own → свои) / провести платёж (`cash.operate`); переплата → 422 |
-| `POST` | `/clinic/cash/payments/{id}/refund` | Полный возврат по платежу; повторный → 409 (`cash.operate`) |
+| `POST` | `/clinic/cash/payments/{id}/refund` | Возврат по платежу: частичный (`amountTiyin`) или остаток; сверх остатка → 422, по исчерпанному → 409 (`cash.operate`) |
 | `GET` | `/clinic/cash/summary?from=&to=` | Приход/возврат/нетто по способам оплаты (`cash.view_all`/`view_own`) |
 | `GET` | `/clinic/cash/debts?patientId=` | Завершённые приёмы с ненулевым остатком (`cash.view_all`/`view_own`) |
+
+> **Возврат частичный и многократный.** «Из трёх услуг переделали одну» —
+> обычный случай, поэтому по одному платежу может быть несколько возвратов;
+> ограничение одно: их сумма не больше самого платежа. `amountTiyin` не передан
+> — возвращается весь остаток (привычный полный возврат). Сверх остатка → 422
+> `refund_exceeds_payment` с полем `refundableTiyin`; когда возвращать нечего →
+> 409 `already_refunded`. Возврат по возврату запрещён (422 `not_a_payment`):
+> сторнируют приход. Каждая строка журнала несёт `refundedTiyin` и
+> `refundableTiyin`, а возврат — `refundsPaymentId`, чтобы фронт не пересобирал
+> остаток сам.
 
 **Подписка клиники (клиент-сайд, право `billing.view`).** Клиника из токена —
 чужую подписку по этой ручке не посмотреть.

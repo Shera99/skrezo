@@ -66,34 +66,57 @@ class CashService:
         )
 
     async def refund_payment(
-        self, *, clinic_id: uuid.UUID, account_id: uuid.UUID, payment_id: uuid.UUID
+        self,
+        *,
+        clinic_id: uuid.UUID,
+        account_id: uuid.UUID,
+        payment_id: uuid.UUID,
+        amount: int | None = None,
+        comment: str | None = None,
     ) -> PaymentRecord:
-        """Провести полный возврат по конкретному платежу.
+        """Провести возврат по платежу — частичный и, при необходимости, не первый.
 
-        Возврат возможен только по платежу (не по возврату) и только один раз —
-        повторный возврат того же платежа → 409. Возврат увеличивает остаток
-        приёма обратно.
+        «Из трёх услуг переделали одну» — частый случай, поэтому возврат
+        ограничен не признаком «уже возвращали», а **остатком платежа**:
+        ``сумма платежа − уже возвращённое``. ``amount`` не передан — возвращаем
+        весь остаток (привычный полный возврат). Возвращать нечего → 409, сумма
+        больше остатка → 422. Возврат по возврату запрещён: сторнируют приход.
+
+        Строка платежа берётся под блокировку — два параллельных возврата иначе
+        увидели бы один остаток и вместе перевалили бы за сумму платежа.
         """
-        payment = await self._cash.get_payment(clinic_id, payment_id)
+        payment = await self._cash.get_payment(clinic_id, payment_id, for_update=True)
         if payment is None:
             raise NotFoundError("Платёж не найден", code="payment_not_found")
         if payment.kind is not PaymentKind.PAYMENT:
             raise ValidationAppError(
                 "Возврат можно провести только по платежу", code="not_a_payment"
             )
-        if await self._cash.refund_exists(payment_id):
-            raise ConflictError("По платежу уже есть возврат", code="already_refunded")
+
+        refundable = payment.amount_tiyin - await self._cash.refunded_total(payment_id)
+        if refundable <= 0:
+            raise ConflictError("Платёж уже возвращён полностью", code="already_refunded")
+        amount = refundable if amount is None else amount
+        if amount <= 0:
+            raise ValidationAppError("Сумма должна быть больше нуля", code="invalid_amount")
+        if amount > refundable:
+            raise ValidationAppError(
+                "Сумма больше остатка по платежу",
+                code="refund_exceeds_payment",
+                extra={"refundableTiyin": refundable},
+            )
+
         recorded_by = await self._cash.own_membership(account_id, clinic_id)
         return await self._cash.create_payment(
             clinic_id=clinic_id,
             appointment_id=payment.appointment_id,
             patient_id=payment.patient_id,
-            amount=payment.amount_tiyin,
+            amount=amount,
             method=payment.method,
             kind=PaymentKind.REFUND,
             recorded_by_membership_id=recorded_by,
             refunds_payment_id=payment.id,
-            comment=None,
+            comment=comment,
         )
 
 

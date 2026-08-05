@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0027** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0028** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -310,7 +310,7 @@ erDiagram
         enum method "cash|card|transfer"
         enum kind "payment|refund"
         uuid recorded_by_membership_id FK "кассир, nullable"
-        uuid refunds_payment_id FK "исходный платёж (для возврата), nullable"
+        uuid refunds_payment_id FK "исходный платёж (возвратов по нему может быть несколько), nullable"
         text comment "nullable"
         timestamptz created_at
     }
@@ -330,6 +330,13 @@ erDiagram
 > сложение завёрнуто в IMMUTABLE-функцию `appointment_tstzrange` (чистые минуты через
 > `make_interval(mins => ...)` от таймзоны не зависят). Клиника хранит IANA-таймзону
 > (`clinic.timezone`) — в ней считаются границы дня.
+>
+> **Возвраты кассы.** Сумма возвратов по платежу ограничена самим платежом, но
+> констрейнтом это не выразить (ограничение на агрегат): правило стережёт
+> прикладной слой, беря строку платежа `SELECT ... FOR UPDATE` — иначе два
+> параллельных возврата увидели бы один остаток. Частичный индекс
+> `ix_cash_payment_refunds_payment` (0028) обслуживает агрегат «сколько
+> возвращено», который подмешивается к каждой строке журнала.
 >
 > **CHECK'и приёма.** `ck_appointment_scheduled_at_required`: дата обязательна
 > у всех статусов, кроме `draft` и `cancelled` — приём, который не состоялся, до

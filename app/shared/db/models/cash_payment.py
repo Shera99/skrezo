@@ -1,9 +1,11 @@
 """Таблица кассы клиники — леджер платежей и возвратов по приёмам.
 
-Долг моделируется по приёму: остаток приёма = ``appointment.price_total`` минус
-сумма платежей плюс сумма возвратов. Одна строка = одна кассовая операция
+Долг моделируется по приёму: остаток приёма = ``appointment.price_total_tiyin``
+минус сумма платежей плюс сумма возвратов. Одна строка = одна кассовая операция
 (``kind``): приход (``payment``) или возврат (``refund``). Возврат ссылается на
-исходный платёж (``refunds_payment_id``).
+исходный платёж (``refunds_payment_id``); возвратов по одному платежу может быть
+несколько (частичные), их сумма ограничена суммой платежа — это стережёт
+прикладной слой под блокировкой строки платежа, а не констрейнт.
 
 Это касса КЛИНИКИ (оплата приёмов пациентами), не путать с ``platform_payment`` —
 биллингом Skrezo (подписки клиник).
@@ -14,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, UUIDPKMixin
@@ -41,6 +43,13 @@ class CashPayment(Base, UUIDPKMixin):
         ),
         # Расчёт остатка по приёму — сумма операций одного приёма.
         Index("ix_cash_payment_appointment", "appointment_id"),
+        # «Сколько возвращено по платежу» — агрегат за каждой строкой журнала.
+        # Частичный: ссылка есть только у возвратов, а их в кассе меньшинство.
+        Index(
+            "ix_cash_payment_refunds_payment",
+            "refunds_payment_id",
+            postgresql_where=text("refunds_payment_id IS NOT NULL"),
+        ),
     )
 
     clinic_id: Mapped[uuid.UUID] = mapped_column(
@@ -63,7 +72,7 @@ class CashPayment(Base, UUIDPKMixin):
     recorded_by_membership_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("membership.id", ondelete="SET NULL"), nullable=True
     )
-    # Для возврата — ссылка на исходный платёж (аудит и защита от двойного возврата).
+    # Для возврата — ссылка на исходный платёж (аудит и расчёт остатка к возврату).
     refunds_payment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cash_payment.id", ondelete="SET NULL"), nullable=True
     )

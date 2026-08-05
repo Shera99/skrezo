@@ -42,6 +42,26 @@ def _patient_name() -> ColumnElement[str]:
     return func.concat_ws(" ", Patient.last_name, Patient.first_name)
 
 
+def _refunded_by_payment() -> Any:
+    """Подзапрос «сколько возвращено по каждому платежу».
+
+    Возвратов по одному платежу может быть несколько (частичные), поэтому это
+    сумма, а не признак наличия: остаток к возврату = сумма платежа минус она.
+    """
+    return (
+        select(
+            CashPayment.refunds_payment_id.label("payment_id"),
+            func.sum(CashPayment.amount_tiyin).label("refunded"),
+        )
+        .where(
+            CashPayment.kind == PaymentKind.REFUND,
+            CashPayment.refunds_payment_id.is_not(None),
+        )
+        .group_by(CashPayment.refunds_payment_id)
+        .subquery()
+    )
+
+
 class CashRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -135,31 +155,41 @@ class CashRepository:
         assert record is not None  # только что вставили
         return record
 
-    # ── Возврат: исходный платёж и защита от двойного возврата ─────────────
-    async def get_payment(self, clinic_id: uuid.UUID, payment_id: uuid.UUID) -> CashPayment | None:
-        """Операция кассы этой клиники по id (для возврата)."""
-        return (
-            await self._session.execute(
-                select(CashPayment).where(
-                    CashPayment.id == payment_id, CashPayment.clinic_id == clinic_id
-                )
-            )
-        ).scalar_one_or_none()
+    # ── Возврат: исходный платёж и уже возвращённое по нему ────────────────
+    async def get_payment(
+        self, clinic_id: uuid.UUID, payment_id: uuid.UUID, *, for_update: bool = False
+    ) -> CashPayment | None:
+        """Операция кассы этой клиники по id (для возврата).
 
-    async def refund_exists(self, payment_id: uuid.UUID) -> bool:
-        """Есть ли уже возврат, ссылающийся на этот платёж."""
-        return (
+        ``for_update`` блокирует строку платежа до конца транзакции. Возвраты
+        стали многократными, и «сколько уже вернули» считается запросом: без
+        блокировки два одновременных возврата увидели бы один и тот же остаток
+        и вместе перевалили бы за сумму платежа. Все возвраты ссылаются на этот
+        же платёж, поэтому блокировка одной строки их и сериализует.
+        """
+        stmt = select(CashPayment).where(
+            CashPayment.id == payment_id, CashPayment.clinic_id == clinic_id
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def refunded_total(self, payment_id: uuid.UUID) -> int:
+        """Сколько уже возвращено по этому платежу (0, если возвратов нет)."""
+        value = (
             await self._session.execute(
-                select(CashPayment.id).where(
+                select(func.coalesce(func.sum(CashPayment.amount_tiyin), 0)).where(
                     CashPayment.refunds_payment_id == payment_id,
                     CashPayment.kind == PaymentKind.REFUND,
                 )
             )
-        ).first() is not None
+        ).scalar_one()
+        return int(value)
 
     # ── Журнал ─────────────────────────────────────────────────────────────
     def _record_columns(self) -> Select[Any]:
         recorder = Account.full_name
+        refunded = _refunded_by_payment()
         return (
             select(
                 CashPayment.id,
@@ -173,10 +203,15 @@ class CashRepository:
                 recorder.label("recorded_by_name"),
                 CashPayment.comment,
                 CashPayment.created_at,
+                CashPayment.refunds_payment_id,
+                # Журнал сразу отвечает на вопрос «сколько ещё можно вернуть» —
+                # иначе фронт считал бы это сам, собирая возвраты по страницам.
+                func.coalesce(refunded.c.refunded, 0).label("refunded"),
             )
             .join(Patient, Patient.id == CashPayment.patient_id)
             .outerjoin(Membership, Membership.id == CashPayment.recorded_by_membership_id)
             .outerjoin(Account, Account.id == Membership.account_id)
+            .outerjoin(refunded, refunded.c.payment_id == CashPayment.id)
         )
 
     @staticmethod
@@ -193,6 +228,8 @@ class CashRepository:
             recorded_by_name=row[8],
             comment=row[9],
             created_at=row[10],
+            refunds_payment_id=row[11],
+            refunded_tiyin=int(row[12]),
         )
 
     async def _load_record(

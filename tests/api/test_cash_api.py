@@ -3,7 +3,8 @@
 Ключевые риски:
 
 * деньги — переплата запрещена, частичная оплата даёт долг, возврат возвращает
-  долг; двойной возврат — 409;
+  долг; возврат частичный и многократный, но в сумме не больше платежа
+  (сверх остатка — 422, по исчерпанному платежу — 409);
 * изоляция клиник (IDOR) — платёж/возврат по чужому приёму/платежу не проходит;
 * RBAC — без права/токена отказ; cash.view_own отдаёт только свои операции;
 * завершение приёма и оплата атомарны: переплата откатывает завершение.
@@ -39,7 +40,7 @@ class ClinicCtx:
     clinic_id: str
     headers: dict[str, str]
     patient_id: str
-    service_id: str  # услуга на 3000 сомов
+    service_id: str  # услуга на 3000 тыйынов
 
 
 async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) -> ClinicCtx:
@@ -294,7 +295,7 @@ async def test_summary_totals_by_method(client: AsyncClient, clinic_a: ClinicCtx
 async def test_refund_returns_debt_and_double_refund_conflicts(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Возврат возвращает долг; повторный возврат того же платежа → 409."""
+    """Возврат возвращает долг; когда возвращать нечего — 409."""
     appt = await _appointment(client, clinic_a)
     await client.post(f"{API}/clinic/appointments/{appt}/complete", headers=clinic_a.headers)
     paid = await client.post(
@@ -320,6 +321,153 @@ async def test_refund_returns_debt_and_double_refund_conflicts(
     )
     assert again.status_code == 409, again.text
     assert again.json()["error"] == "already_refunded"
+
+
+async def test_partial_refunds_accumulate_to_full(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """«Из трёх услуг переделали одну»: возврат частичный и не последний.
+
+    Долг растёт на каждую возвращённую часть, остаток к возврату уменьшается,
+    а когда он исчерпан — следующий возврат уже 409.
+    """
+    appt = await _appointment(client, clinic_a)
+    await client.post(f"{API}/clinic/appointments/{appt}/complete", headers=clinic_a.headers)
+    paid = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 3000)
+    )
+    payment_id = paid.json()["id"]
+
+    first = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 1000, "comment": "Переделали чистку"},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["amountTiyin"] == 1000
+    assert first.json()["refundsPaymentId"] == payment_id
+    assert first.json()["comment"] == "Переделали чистку"
+
+    debts = await client.get(f"{API}/clinic/cash/debts", headers=clinic_a.headers)
+    assert debts.json()["items"][0]["outstandingTiyin"] == 1000
+
+    second = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 2000},
+    )
+    assert second.status_code == 201, second.text
+
+    debts = await client.get(f"{API}/clinic/cash/debts", headers=clinic_a.headers)
+    assert debts.json()["items"][0]["outstandingTiyin"] == 3000
+
+    exhausted = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 1},
+    )
+    assert exhausted.status_code == 409, exhausted.text
+    assert exhausted.json()["error"] == "already_refunded"
+
+
+async def test_refund_over_remainder_is_rejected(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Вернуть больше остатка нельзя — в ошибке видно, сколько можно."""
+    appt = await _appointment(client, clinic_a)
+    paid = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 3000)
+    )
+    payment_id = paid.json()["id"]
+
+    over = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 3001},
+    )
+    assert over.status_code == 422, over.text
+    assert over.json()["error"] == "refund_exceeds_payment"
+    assert over.json()["refundableTiyin"] == 3000
+
+    await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 2500},
+    )
+    over_again = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 600},
+    )
+    assert over_again.status_code == 422, over_again.text
+    assert over_again.json()["refundableTiyin"] == 500
+
+
+async def test_refund_without_amount_returns_remainder(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Без суммы возвращается остаток — привычный «полный возврат» цел."""
+    appt = await _appointment(client, clinic_a)
+    paid = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 3000)
+    )
+    payment_id = paid.json()["id"]
+    await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 1200},
+    )
+
+    rest = await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund", headers=clinic_a.headers
+    )
+    assert rest.status_code == 201, rest.text
+    assert rest.json()["amountTiyin"] == 1800
+
+
+async def test_journal_shows_refundable_remainder(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Журнал сам отвечает, сколько ещё можно вернуть — фронт не считает за нас."""
+    appt = await _appointment(client, clinic_a)
+    paid = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 3000)
+    )
+    payment_id = paid.json()["id"]
+    assert paid.json()["refundableTiyin"] == 3000
+    assert paid.json()["refundedTiyin"] == 0
+
+    await client.post(
+        f"{API}/clinic/cash/payments/{payment_id}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 1000},
+    )
+    journal = await client.get(f"{API}/clinic/cash/payments", headers=clinic_a.headers)
+    rows = {r["id"]: r for r in journal.json()["list"]}
+    assert rows[payment_id]["refundedTiyin"] == 1000
+    assert rows[payment_id]["refundableTiyin"] == 2000
+    # У самого возврата возвращать нечего.
+    refund_row = next(r for r in rows.values() if r["kind"] == "refund")
+    assert refund_row["refundableTiyin"] == 0
+    assert refund_row["refundsPaymentId"] == payment_id
+
+
+async def test_refund_of_refund_is_rejected(client: AsyncClient, clinic_a: ClinicCtx) -> None:
+    """Возврат по возврату — не операция кассы: сторнируют приход."""
+    appt = await _appointment(client, clinic_a)
+    paid = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt, 3000)
+    )
+    refund = await client.post(
+        f"{API}/clinic/cash/payments/{paid.json()['id']}/refund",
+        headers=clinic_a.headers,
+        json={"amountTiyin": 1000},
+    )
+    resp = await client.post(
+        f"{API}/clinic/cash/payments/{refund.json()['id']}/refund", headers=clinic_a.headers
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "not_a_payment"
 
 
 async def test_refund_unknown_payment_is_404(

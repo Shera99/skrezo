@@ -1,7 +1,7 @@
 """Доменные структуры кассы: платёж, страница журнала, сводка, долг по приёму.
 
-Все суммы — целые сомы (как ``appointment.price_total``). Долг считается по
-приёму: ``outstanding = price_total − Σплатежей + Σвозвратов``.
+Все суммы — целые тыйыны (как ``appointment.price_total_tiyin``). Долг считается
+по приёму: ``outstanding = price_total − Σплатежей + Σвозвратов``.
 """
 
 from __future__ import annotations
@@ -28,6 +28,21 @@ class PaymentRecord:
     recorded_by_name: str | None
     comment: str | None
     created_at: datetime
+    #: Для возврата — исходный платёж; у платежа ``None``.
+    refunds_payment_id: uuid.UUID | None = None
+    #: Сколько по этому платежу уже возвращено (возвратов может быть несколько).
+    refunded_tiyin: int = 0
+
+    @property
+    def refundable_tiyin(self) -> int:
+        """Сколько ещё можно вернуть по этой операции (у возврата — ноль).
+
+        Возврат частичный и многократный, поэтому «можно ли вернуть» — это не
+        флаг, а остаток: клиенту нужно знать, какую сумму подставить в форму.
+        """
+        if self.kind is not PaymentKind.PAYMENT:
+            return 0
+        return max(0, self.amount_tiyin - self.refunded_tiyin)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,8 @@
 """Схемы модуля кассы (camelCase наружу).
 
-Все суммы — целые сомы. Времена операций — aware-datetime в таймзоне клиники
-(поле ``timezone`` в списках/сводке), чтобы фронт не пересчитывал.
+Все суммы — целые тыйыны (1/100 сома). Времена операций — aware-datetime в
+таймзоне клиники (поле ``timezone`` в списках/сводке), чтобы фронт не
+пересчитывал.
 """
 
 from __future__ import annotations
@@ -34,6 +35,26 @@ class RecordPaymentRequest(CamelModel):
     comment: str | None = Field(default=None, max_length=500, description="Комментарий")
 
 
+class RefundPaymentRequest(CamelModel):
+    """Возврат по платежу: сумма (необязательна) и пояснение."""
+
+    amount_tiyin: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Сумма возврата в тыйынах. Не передана — возвращается весь остаток "
+            "платежа (`refundableTiyin`). Больше остатка → 422"
+        ),
+        examples=[50000],
+    )
+    comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="За что вернули (например, переделанная услуга)",
+        examples=["Переделали чистку по гарантии"],
+    )
+
+
 class PaymentItem(CamelModel):
     """Кассовая операция в журнале."""
 
@@ -48,6 +69,17 @@ class PaymentItem(CamelModel):
     recorded_by_name: str | None = Field(default=None, examples=["Иванов Иван"])
     comment: str | None = None
     created_at: datetime = Field(examples=["2026-07-20T14:30:00+06:00"])
+    refunds_payment_id: uuid.UUID | None = Field(
+        default=None, description="У возврата — платёж, который он сторнирует"
+    )
+    refunded_tiyin: int = Field(
+        default=0, description="Сколько уже возвращено по этому платежу", examples=[50000]
+    )
+    refundable_tiyin: int = Field(
+        default=0,
+        description="Сколько ещё можно вернуть (у возврата — 0)",
+        examples=[100000],
+    )
 
     @classmethod
     def from_record(cls, r: PaymentRecord) -> PaymentItem:
@@ -63,6 +95,9 @@ class PaymentItem(CamelModel):
             recorded_by_name=r.recorded_by_name,
             comment=r.comment,
             created_at=r.created_at,
+            refunds_payment_id=r.refunds_payment_id,
+            refunded_tiyin=r.refunded_tiyin,
+            refundable_tiyin=r.refundable_tiyin,
         )
 
 
