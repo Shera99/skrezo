@@ -23,6 +23,8 @@ from app.shared.db.enums import (
     AppointmentStatusType,
     AppointmentType,
     AppointmentTypeType,
+    CancelReason,
+    CancelReasonType,
 )
 
 
@@ -69,6 +71,8 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     )
     price_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # целые сомы
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Причина отмены: заполняется вместе со статусом ``cancelled`` и очищается,
-    # когда отмену снимают, — чтобы у активного приёма не висела старая причина.
-    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Причина отмены — справочником (иначе отмены нечем считать); комментарий
+    # обязателен при ``other``. Заполняются вместе со статусом ``cancelled`` и
+    # очищаются при снятии отмены, чтобы у активного приёма не висел старый повод.
+    cancel_reason: Mapped[CancelReason | None] = mapped_column(CancelReasonType, nullable=True)
+    cancel_comment: Mapped[str | None] = mapped_column(Text, nullable=True)

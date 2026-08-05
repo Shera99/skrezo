@@ -350,6 +350,7 @@ erDiagram
 | `payment_kind` | `payment`, `refund` | cash_payment |
 | `doctors_count_range` | `2-5`, `6-10`, `10+` | clinic_application |
 | `clinic_application_status` | `pending`, `reviewed`, `rejected` | clinic_application |
+| `cancel_reason` | `patient_request`, `patient_illness`, `clinic_reschedule`, `doctor_unavailable`, `duplicate`, `other` | appointment |
 
 ---
 

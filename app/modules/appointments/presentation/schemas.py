@@ -18,6 +18,7 @@ from app.shared.db.enums import (
     AppointmentStatus,
     AppointmentToothStatus,
     AppointmentType,
+    CancelReason,
     PaymentMethod,
 )
 
@@ -155,9 +156,10 @@ class AppointmentDetailResponse(CamelModel):
     status: AppointmentStatus
     price_total: int
     comment: str | None = None
-    cancel_reason: str | None = Field(
+    cancel_reason: CancelReason | None = Field(
         default=None, description="Причина отмены; null у неотменённого приёма"
     )
+    cancel_comment: str | None = Field(default=None, description="Пояснение к отмене")
     teeth: list[AppointmentToothOut]
 
     @classmethod
@@ -176,6 +178,7 @@ class AppointmentDetailResponse(CamelModel):
             price_total=a.price_total,
             comment=a.comment,
             cancel_reason=a.cancel_reason,
+            cancel_comment=a.cancel_comment,
             teeth=[AppointmentToothOut.from_row(t) for t in d.teeth],
         )
 
@@ -205,14 +208,28 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
         examples=[45],
     )
     comment: str | None = None
-    cancel_reason: str | None = Field(
+    cancel_reason: CancelReason | None = Field(
+        default=None,
+        description=(
+            "Причина отмены из справочника — обязательна при `status: cancelled` "
+            "и запрещена без неё. При снятии отмены очищается автоматически"
+        ),
+        examples=["patient_illness"],
+    )
+    cancel_comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Пояснение к отмене; обязательно при `cancelReason: other`",
+        examples=["Перенёс на следующую неделю"],
+    )
+    rollback_comment: str | None = Field(
         default=None,
         max_length=500,
         description=(
-            "Причина отмены — только вместе со `status: cancelled` (иначе 422). "
-            "При снятии отмены очищается автоматически"
+            "Обязателен при откате статуса назад по воронке (право "
+            "`appointments.status_rollback`); попадает в аудит"
         ),
-        examples=["Пациент перенёс на следующую неделю"],
+        examples=["Пациент опоздал, но пришёл"],
     )
     doctor_membership_id: uuid.UUID | None = None
     service_id: uuid.UUID | None = Field(

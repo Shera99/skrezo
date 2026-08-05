@@ -8,18 +8,19 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError, ValidationAppError
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
 from app.modules.appointments.application.services.booking import booking_guard
 from app.modules.appointments.domain.models import AppointmentDetail
-from app.modules.appointments.domain.transitions import is_transition_allowed
+from app.modules.appointments.domain.transitions import TransitionKind, classify_transition
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     span_of,
 )
-from app.shared.db.enums import AppointmentStatus
+from app.shared.db.enums import AppointmentStatus, CancelReason
 from app.shared.db.models.appointment import Appointment
 
 # Поля, при смене которых приём нужно перепроверить на окно и пересечения.
@@ -44,30 +45,37 @@ def _affects_booking(appointment: Appointment, fields: dict[str, Any]) -> bool:
     return was_free and new_status != appointment.status
 
 
-def _ensure_transition_allowed(appointment: Appointment, fields: dict[str, Any]) -> None:
-    """Проверить, что смена статуса разрешена жизненным циклом приёма."""
-    target = fields.get("status")
-    if target is not None and not is_transition_allowed(appointment.status, target):
-        raise ConflictError(
-            f"Недопустимый переход статуса: {appointment.status.value} → {target.value}",
-            code="invalid_status_transition",
-        )
-
-
 def _apply_cancel_reason(appointment: Appointment, fields: dict[str, Any]) -> None:
-    """Причина отмены живёт только у отменённого приёма.
+    """Причина отмены обязательна и живёт только у отменённого приёма.
 
-    Указана без отмены — ошибка (иначе причина повисла бы на рабочем приёме);
-    при снятии отмены поле очищается, чтобы не осталось следа от прошлого решения.
+    Справочник вместо свободного текста — иначе отмены нечем считать. При
+    ``other`` обязателен комментарий, иначе «иное» не несёт информации. Снятие
+    отмены очищает оба поля, чтобы у рабочего приёма не висел прошлый повод.
     """
     target = fields.get("status", appointment.status)
-    if fields.get("cancel_reason") is not None and target is not AppointmentStatus.CANCELLED:
+    if target is AppointmentStatus.CANCELLED:
+        reason = fields.get("cancel_reason", appointment.cancel_reason)
+        if reason is None:
+            raise ValidationAppError(
+                "Укажите причину отмены (cancelReason)", code="cancel_reason_required"
+            )
+        comment = fields.get("cancel_comment", appointment.cancel_comment)
+        if reason is CancelReason.OTHER and not comment:
+            raise ValidationAppError(
+                "При причине «иное» нужен комментарий (cancelComment)",
+                code="cancel_comment_required",
+            )
+        return
+
+    if fields.get("cancel_reason") is not None or fields.get("cancel_comment") is not None:
         raise ValidationAppError(
             "Причину отмены можно указать только вместе со статусом cancelled",
             code="cancel_reason_without_cancel",
         )
-    if target is not AppointmentStatus.CANCELLED and appointment.cancel_reason is not None:
+    # Отмену сняли — повод больше не относится к приёму.
+    if appointment.cancel_reason is not None:
         fields["cancel_reason"] = None
+        fields["cancel_comment"] = None
 
 
 def _ensure_date_for_status(appointment: Appointment, fields: dict[str, Any]) -> None:
@@ -93,13 +101,22 @@ class UpdateAppointmentUseCase:
         session: AsyncSession,
         appointments: AppointmentRepository,
         availability: AvailabilityService,
+        audit: AuditService,
     ) -> None:
         self._session = session
         self._appointments = appointments
         self._availability = availability
+        self._audit = audit
 
     async def execute(
-        self, clinic_id: uuid.UUID, appointment_id: uuid.UUID, fields: dict[str, Any]
+        self,
+        clinic_id: uuid.UUID,
+        appointment_id: uuid.UUID,
+        fields: dict[str, Any],
+        *,
+        actor_id: uuid.UUID,
+        can_rollback: bool = False,
+        rollback_comment: str | None = None,
     ) -> AppointmentDetail:
         appointment = await self._appointments.get(clinic_id, appointment_id)
         if appointment is None:
@@ -108,7 +125,9 @@ class UpdateAppointmentUseCase:
         fields = dict(fields)
         await self._validate_refs(clinic_id, fields)
         await self._resolve_duration(clinic_id, fields)
-        _ensure_transition_allowed(appointment, fields)
+        rollback_from = await self._check_transition(
+            clinic_id, appointment, fields, can_rollback=can_rollback, comment=rollback_comment
+        )
         _apply_cancel_reason(appointment, fields)
         _ensure_date_for_status(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields)
@@ -119,6 +138,21 @@ class UpdateAppointmentUseCase:
             await self._appointments.update(appointment, fields)
             await self._session.commit()
 
+        if rollback_from is not None:
+            # Откат — подотчётная операция: кто, что и почему откатил.
+            await self._audit.record(
+                actor_id=actor_id,
+                action="appointment.status_rollback",
+                entity_type="appointment",
+                entity_id=appointment_id,
+                payload={
+                    "clinicId": str(clinic_id),
+                    "from": rollback_from.value,
+                    "to": appointment.status.value,
+                    "comment": rollback_comment,
+                },
+            )
+
         patient_name = await self._appointments.patient_name(appointment.patient_id)
         doctor_name = await self._appointments.doctor_name(appointment.doctor_membership_id)
         teeth = list(await self._appointments.teeth(appointment_id))
@@ -128,6 +162,63 @@ class UpdateAppointmentUseCase:
             doctor_name=doctor_name,
             teeth=teeth,
         )
+
+    async def _check_transition(
+        self,
+        clinic_id: uuid.UUID,
+        appointment: Appointment,
+        fields: dict[str, Any],
+        *,
+        can_rollback: bool,
+        comment: str | None,
+    ) -> AppointmentStatus | None:
+        """Проверить смену статуса. Вернуть прежний статус, если это был откат.
+
+        Откат разрешён узко: только предусмотренные пары, только с правом
+        ``appointments.status_rollback``, только для приёма текущего дня и всегда
+        с комментарием — иначе исправление ошибок превращается в тихое
+        переписывание истории.
+        """
+        target = fields.get("status")
+        if target is None:
+            return None
+
+        kind = classify_transition(appointment.status, target)
+        if kind is TransitionKind.FORBIDDEN:
+            raise ConflictError(
+                f"Недопустимый переход статуса: {appointment.status.value} → {target.value}",
+                code="invalid_status_transition",
+            )
+        if kind is not TransitionKind.ROLLBACK:
+            return None
+
+        if not can_rollback:
+            raise ForbiddenError(
+                "Нужно право на откат статуса приёма", code="status_rollback_forbidden"
+            )
+        if not comment:
+            raise ValidationAppError(
+                "Откат статуса требует комментария (rollbackComment)",
+                code="rollback_comment_required",
+            )
+        await self._ensure_today(clinic_id, appointment, fields)
+        return appointment.status
+
+    async def _ensure_today(
+        self, clinic_id: uuid.UUID, appointment: Appointment, fields: dict[str, Any]
+    ) -> None:
+        """Откатывать можно только приём текущего дня (в таймзоне клиники).
+
+        Иначе появляется способ править статистику прошедших дней задним числом.
+        """
+        scheduled_at = fields.get("scheduled_at", appointment.scheduled_at)
+        tz = await self._availability.clinic_timezone(clinic_id)
+        today = datetime.now(tz).date()
+        if scheduled_at is None or scheduled_at.astimezone(tz).date() != today:
+            raise ValidationAppError(
+                "Откат статуса возможен только для приёма текущего дня",
+                code="rollback_not_today",
+            )
 
     async def _validate_refs(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> None:
         """Врач и услуга обязаны быть из этой клиники — иначе IDOR."""

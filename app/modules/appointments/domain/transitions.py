@@ -1,48 +1,86 @@
 """Разрешённые переходы между статусами приёма.
 
-Жизненный цикл: ``draft → scheduled → confirmed → arrived → in_progress →
-completed``; из любого рабочего состояния приём можно отменить (``cancelled``)
-или отметить неявку (``no_show``).
+Воронка дня: ``draft → scheduled → confirmed → arrived → in_progress →
+completed``; из рабочих состояний приём можно отменить (``cancelled``) или
+отметить неявку (``no_show``).
 
-Правила намеренно **свободные внутри «активных» статусов** и **строгие там, где
-появляются деньги**:
+Переходы делятся на два класса:
 
-* между активными (``scheduled``/``confirmed``/``arrived``/``in_progress``)
-  двигаться можно в любую сторону: регистратор ошибся кнопкой — поправит, денег
-  это не касается;
-* ``completed`` — терминальный: по завершённому приёму уже проведены платежи в
-  кассе, и «расзавершение» рассинхронизировало бы кассу, долги и отчёты;
-* отмену и неявку можно снять (приём вернётся в работу) — при этом слот
-  перепроверяется на занятость, как и при обычном переносе;
-* вернуть приём в ``draft`` нельзя: у черновика пустая дата, а у рабочего
-  приёма она уже есть (и NULL в неё не пускает защита из миграции 0020).
+* **вперёд по воронке** — обычная работа регистратора, ничего не требует
+  (в том числе «перепрыгнуть»: записали и сразу закрыли приём);
+* **откат назад** — узкий и подотчётный: ровно один шаг назад, отдельное право
+  ``appointments.status_rollback``, только для приёма текущего дня, обязательный
+  комментарий и запись в аудит. Без отката промах кнопкой не исправить, и
+  администратор начнёт плодить дубли — но и разрешать его свободно нельзя.
+
+``completed`` — терминальный: за завершённым приёмом стоят платежи кассы и
+выручка врача. Ошибочно закрытый приём исправляется **возвратом платежа**, а не
+переписыванием статуса, иначе отчётам нельзя доверять.
 """
 
 from __future__ import annotations
 
-from app.shared.db.enums import ACTIVE_APPOINTMENT_STATUSES, AppointmentStatus
+import enum
 
-_ACTIVE = ACTIVE_APPOINTMENT_STATUSES
-_CLOSED = frozenset({AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED})
+from app.shared.db.enums import AppointmentStatus
 
-# Куда можно перейти из каждого статуса (переход «в себя» разрешён всегда).
-ALLOWED_TRANSITIONS: dict[AppointmentStatus, frozenset[AppointmentStatus]] = {
-    # Черновик либо доводится до записи, либо отменяется.
+_CLOSING = frozenset(
+    {AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW}
+)
+
+# Движение вперёд: дальше по воронке либо в закрывающий статус.
+FORWARD_TRANSITIONS: dict[AppointmentStatus, frozenset[AppointmentStatus]] = {
+    # Черновик доводится до записи либо закрывается отменой.
     AppointmentStatus.DRAFT: frozenset({AppointmentStatus.SCHEDULED, AppointmentStatus.CANCELLED}),
-    AppointmentStatus.SCHEDULED: _ACTIVE | _CLOSED | {AppointmentStatus.NO_SHOW},
-    AppointmentStatus.CONFIRMED: _ACTIVE | _CLOSED | {AppointmentStatus.NO_SHOW},
-    AppointmentStatus.ARRIVED: _ACTIVE | _CLOSED | {AppointmentStatus.NO_SHOW},
-    AppointmentStatus.IN_PROGRESS: _ACTIVE | _CLOSED | {AppointmentStatus.NO_SHOW},
-    # Снятие отмены/неявки: приём возвращается в работу или сразу закрывается.
-    AppointmentStatus.CANCELLED: _ACTIVE | {AppointmentStatus.COMPLETED},
-    AppointmentStatus.NO_SHOW: _ACTIVE | _CLOSED,
-    # Завершённый приём не меняет статус: за ним стоят платежи кассы.
+    AppointmentStatus.SCHEDULED: frozenset(
+        {AppointmentStatus.CONFIRMED, AppointmentStatus.ARRIVED, AppointmentStatus.IN_PROGRESS}
+    )
+    | _CLOSING,
+    AppointmentStatus.CONFIRMED: frozenset(
+        {AppointmentStatus.ARRIVED, AppointmentStatus.IN_PROGRESS}
+    )
+    | _CLOSING,
+    AppointmentStatus.ARRIVED: frozenset({AppointmentStatus.IN_PROGRESS}) | _CLOSING,
+    # Прервать начатый приём можно — с обязательной причиной отмены.
+    AppointmentStatus.IN_PROGRESS: frozenset(
+        {AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED}
+    ),
     AppointmentStatus.COMPLETED: frozenset(),
+    AppointmentStatus.CANCELLED: frozenset(),
+    AppointmentStatus.NO_SHOW: frozenset(),
+}
+
+# Откат: ровно один шаг назад по воронке (плюс возврат из неявки и отмены).
+ROLLBACK_TRANSITIONS: dict[AppointmentStatus, frozenset[AppointmentStatus]] = {
+    AppointmentStatus.CONFIRMED: frozenset({AppointmentStatus.SCHEDULED}),
+    AppointmentStatus.ARRIVED: frozenset({AppointmentStatus.CONFIRMED}),
+    AppointmentStatus.IN_PROGRESS: frozenset({AppointmentStatus.ARRIVED}),
+    # Опоздал, но всё-таки пришёл — ежедневный случай.
+    AppointmentStatus.NO_SHOW: frozenset(
+        {AppointmentStatus.SCHEDULED, AppointmentStatus.ARRIVED}
+    ),
+    # Отмену снимают только в исходное состояние — и лишь если слот свободен.
+    AppointmentStatus.CANCELLED: frozenset({AppointmentStatus.SCHEDULED}),
 }
 
 
-def is_transition_allowed(current: AppointmentStatus, target: AppointmentStatus) -> bool:
-    """Можно ли перевести приём из ``current`` в ``target``."""
+class TransitionKind(enum.StrEnum):
+    """Чем является смена статуса: ничем, шагом вперёд, откатом или запретом."""
+
+    SAME = "same"
+    FORWARD = "forward"
+    ROLLBACK = "rollback"
+    FORBIDDEN = "forbidden"
+
+
+def classify_transition(
+    current: AppointmentStatus, target: AppointmentStatus
+) -> TransitionKind:
+    """Определить класс перехода ``current → target``."""
     if current is target:
-        return True
-    return target in ALLOWED_TRANSITIONS.get(current, frozenset())
+        return TransitionKind.SAME
+    if target in FORWARD_TRANSITIONS.get(current, frozenset()):
+        return TransitionKind.FORWARD
+    if target in ROLLBACK_TRANSITIONS.get(current, frozenset()):
+        return TransitionKind.ROLLBACK
+    return TransitionKind.FORBIDDEN

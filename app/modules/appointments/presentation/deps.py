@@ -20,6 +20,8 @@ from app.modules.appointments.application.use_cases.update_appointment import (
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.cash.application.services.cash_service import CashService, build_cash_service
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
@@ -64,8 +66,9 @@ def get_update_appointment_use_case(
     session: AsyncSession = Depends(get_session),
     appointments: AppointmentRepository = Depends(get_appointment_repository),
     availability: AvailabilityService = Depends(get_availability_service),
+    audit: AuditService = Depends(get_audit_service),
 ) -> UpdateAppointmentUseCase:
-    return UpdateAppointmentUseCase(session, appointments, availability)
+    return UpdateAppointmentUseCase(session, appointments, availability, audit)
 
 
 def get_cash_service(session: AsyncSession = Depends(get_session)) -> CashService:

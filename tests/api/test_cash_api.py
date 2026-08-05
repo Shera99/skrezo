@@ -184,7 +184,7 @@ async def test_complete_twice_is_409_and_cancelled_cannot_complete(
     other = await _appointment(client, clinic_a)
     await client.patch(
         f"{API}/clinic/appointments/{other}", headers=clinic_a.headers,
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "cancelReason": "patient_request"},
     )
     cancelled = await client.post(
         f"{API}/clinic/appointments/{other}/complete", headers=clinic_a.headers

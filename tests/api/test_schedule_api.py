@@ -48,6 +48,15 @@ def _phone() -> str:
     return f"070094{next(_phone_seq):04d}"
 
 
+def today() -> str:
+    """Сегодняшняя дата в таймзоне клиники.
+
+    Нужна там, где проверяется откат статуса: он разрешён только для приёма
+    текущего дня, поэтому фиксированный MONDAY не подходит.
+    """
+    return datetime.now(BISHKEK).date().isoformat()
+
+
 def at(day: str, hhmm: str, tz: ZoneInfo = BISHKEK) -> str:
     """ISO-момент «локальное время клиники» — то, что фронт кладёт в scheduledAt."""
     hour, minute = (int(x) for x in hhmm.split(":"))
@@ -481,7 +490,7 @@ async def test_cancelled_appointment_frees_the_slot(
     cancelled = await client.patch(
         f"{API}/clinic/appointments/{first.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "cancelReason": "patient_request"},
     )
     assert cancelled.status_code == 200, cancelled.text
 
@@ -631,25 +640,36 @@ async def test_concurrent_booking_of_one_slot_returns_409_not_500(
 async def test_uncancelling_appointment_onto_taken_slot_returns_409(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Возврат отменённого приёма на уже занятый слот — штатный 409, а не 500."""
-    first = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45)
+    """Возврат отменённого приёма на уже занятый слот — штатный 409, а не 500.
+
+    Снятие отмены — это откат: он разрешён только для приёма ТЕКУЩЕГО дня и
+    только с комментарием, поэтому приём заводится на сегодня (часы работы
+    открываем на все семь дней, чтобы тест не зависел от дня недели).
+    """
+    await client.put(
+        f"{API}/clinic/schedule/working-hours",
+        headers=clinic_a.headers,
+        json=hours_payload(working=tuple(range(7))),
+    )
+    slot = at(today(), "09:00")
+    first = await _book(client, clinic_a, start=slot, duration=45)
     assert first.status_code == 201, first.text
     cancelled = await client.patch(
         f"{API}/clinic/appointments/{first.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "cancelReason": "patient_request"},
     )
     assert cancelled.status_code == 200, cancelled.text
 
     # Слот освободился и занят другим приёмом.
-    second = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45)
+    second = await _book(client, clinic_a, start=slot, duration=45)
     assert second.status_code == 201, second.text
 
     # Теперь снять отмену нельзя — слот занят.
     back = await client.patch(
         f"{API}/clinic/appointments/{first.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "scheduled"},
+        json={"status": "scheduled", "rollbackComment": "Пациент вернулся"},
     )
     assert back.status_code == 409, back.text
     assert back.json()["error"] == "slot_taken"
@@ -1305,18 +1325,28 @@ async def test_completing_appointment_outside_current_hours_is_not_blocked(
 async def test_uncancelling_appointment_into_free_slot_succeeds(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Снятие отмены на свободный слот проходит — проверка не стала слишком строгой."""
-    booked = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30)
+    """Снятие отмены на свободный слот проходит — проверка не стала слишком строгой.
+
+    Это откат, поэтому нужен приём текущего дня и комментарий (право на откат у
+    владельца есть). Часы работы открываем на все семь дней, чтобы тест не
+    зависел от дня недели.
+    """
+    await client.put(
+        f"{API}/clinic/schedule/working-hours",
+        headers=clinic_a.headers,
+        json=hours_payload(working=tuple(range(7))),
+    )
+    booked = await _book(client, clinic_a, start=at(today(), "10:00"), duration=30)
     assert booked.status_code == 201, booked.text
     await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "cancelReason": "patient_request"},
     )
     back = await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "scheduled"},
+        json={"status": "scheduled", "rollbackComment": "Пациент вернулся"},
     )
     assert back.status_code == 200, back.text
     assert back.json()["status"] == "scheduled"
@@ -1428,20 +1458,21 @@ async def test_reassigning_appointment_to_deactivated_doctor_is_rejected(
     assert resp.json()["error"] == "invalid_doctor"
 
 
-async def test_uncancelling_to_completed_onto_taken_slot_returns_409(
+async def test_uncancelling_straight_to_completed_is_forbidden(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Снятие отмены проверяется для ЛЮБОГО не-cancelled статуса, не только scheduled.
+    """Снять отмену можно только в ``scheduled`` — прыжок сразу в ``completed`` закрыт.
 
-    _affects_booking() формулирует правило как «cancelled → не-cancelled», поэтому
-    переход сразу в completed обязан ловиться так же, как и в scheduled.
+    Раньше такой переход разрешался и ловился лишь проверкой занятости слота.
+    Теперь он запрещён самой воронкой: иначе отменённый приём восстанавливался бы
+    сразу как финансовый факт (завершён = деньги в кассе), минуя рабочие статусы.
     """
     first = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45)
     assert first.status_code == 201, first.text
     await client.patch(
         f"{API}/clinic/appointments/{first.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "cancelReason": "patient_request"},
     )
     second = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45)
     assert second.status_code == 201, second.text
@@ -1449,10 +1480,10 @@ async def test_uncancelling_to_completed_onto_taken_slot_returns_409(
     back = await client.patch(
         f"{API}/clinic/appointments/{first.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "completed"},
+        json={"status": "completed", "rollbackComment": "Всё-таки пришёл"},
     )
     assert back.status_code == 409, back.text
-    assert back.json()["error"] == "slot_taken"
+    assert back.json()["error"] == "invalid_status_transition"
 
 
 # ── 11. NULL в NOT NULL-колонки: порча данных через PATCH ───────────────────

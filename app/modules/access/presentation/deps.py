@@ -78,6 +78,30 @@ def get_update_trial_features_use_case(
     return UpdateTrialFeaturesUseCase(session, repository, trial)
 
 
+def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
+    """Вернуть зависимость-признак «есть ли право» — без отказа в доступе.
+
+    Нужна там, где право включает дополнительную возможность внутри уже
+    разрешённой ручки (например откат статуса приёма при обычной правке), а не
+    открывает саму ручку.
+    """
+
+    async def _dep(
+        context: ClientContext = Depends(get_client_context),
+        resolver: PermissionResolver = Depends(get_permission_resolver),
+        trial: TrialPolicy = Depends(get_trial_policy),
+    ) -> bool:
+        if context.role_id is None:
+            return False
+        resolved = await resolver.resolve(context.role_id)
+        if resolved is None:
+            return False
+        granted = resolved.is_owner or permission_key in resolved.permissions
+        return granted and await trial.permits(context.clinic_id, permission_key)
+
+    return _dep
+
+
 def require_permission(
     permission_key: str,
 ) -> Callable[..., Awaitable[ClientContext]]:

@@ -114,6 +114,17 @@ class PaymentKind(enum.StrEnum):
     REFUND = "refund"  # возврат (расход)
 
 
+class CancelReason(enum.StrEnum):
+    """Причина отмены приёма — справочник, чтобы отмены можно было считать."""
+
+    PATIENT_REQUEST = "patient_request"  # пациент попросил отменить
+    PATIENT_ILLNESS = "patient_illness"  # пациент заболел
+    CLINIC_RESCHEDULE = "clinic_reschedule"  # клиника перенесла
+    DOCTOR_UNAVAILABLE = "doctor_unavailable"  # врач недоступен
+    DUPLICATE = "duplicate"  # дубль записи
+    OTHER = "other"  # иное — обязателен комментарий
+
+
 class DoctorsCountRange(enum.StrEnum):
     """Размер клиники в заявке — диапазон числа врачей."""
 
@@ -159,6 +170,9 @@ PaymentMethodType = SAEnum(
 )
 PaymentKindType = SAEnum(
     PaymentKind, name="payment_kind", values_callable=lambda e: [m.value for m in e]
+)
+CancelReasonType = SAEnum(
+    CancelReason, name="cancel_reason", values_callable=lambda e: [m.value for m in e]
 )
 DoctorsCountRangeType = SAEnum(
     DoctorsCountRange, name="doctors_count_range", values_callable=lambda e: [m.value for m in e]

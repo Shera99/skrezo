@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
-from app.modules.access.presentation.deps import require_permission
+from app.modules.access.presentation.deps import has_permission, require_permission
 from app.modules.appointments.application.use_cases.update_appointment import (
     UpdateAppointmentUseCase,
 )
@@ -59,6 +59,7 @@ async def update_appointment(
     appointment_id: uuid.UUID,
     body: UpdateAppointmentRequest,
     context: ClientContext = Depends(require_permission("appointments.edit")),
+    can_rollback: bool = Depends(has_permission("appointments.status_rollback")),
     use_case: UpdateAppointmentUseCase = Depends(get_update_appointment_use_case),
 ) -> AppointmentDetailResponse:
     """Изменить приём (передаются только правимые поля).
@@ -71,7 +72,15 @@ async def update_appointment(
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    fields = body.model_dump(exclude_unset=True)
+    # Комментарий к откату — не поле приёма: он уходит в аудит.
+    rollback_comment = fields.pop("rollback_comment", None)
     detail = await use_case.execute(
-        context.clinic_id, appointment_id, body.model_dump(exclude_unset=True)
+        context.clinic_id,
+        appointment_id,
+        fields,
+        actor_id=context.account_id,
+        can_rollback=can_rollback,
+        rollback_comment=rollback_comment,
     )
     return AppointmentDetailResponse.from_detail(detail)

@@ -1,4 +1,4 @@
-"""Защита от ``null`` в NOT NULL-поля (PATCH) — модули services/patients/clients.
+"""Защита от ``null`` в NOT NULL-поля (PATCH) — модули services/patients/clients/appointments.
 
 Класс дефекта общий: поле схемы типизировано как ``X | None`` (чтобы его можно
 было «не передавать»), но колонка в БД объявлена NOT NULL. Явный ``null`` в теле
@@ -222,3 +222,125 @@ async def test_client_nullable_fields_still_accept_null(admin_client: AsyncClien
         json={"address": None, "cityId": None, "businessPhone": None, "notes": None},
     )
     assert resp.status_code == 200, resp.text
+
+
+# ── appointments: PATCH /clinic/appointments/{id} ───────────────────────────
+#
+# NOT NULL-поля приёма (ORM app/shared/db/models/appointment.py): scheduled_at,
+# status, appointment_type, duration_min. NULLABLE: comment, doctor_membership_id,
+# service_id. Приёмы косвенно затронуты в test_schedule_api.py; здесь — прицельный
+# null-guard уровня соседних модулей (services/patients/clients выше).
+
+
+async def _add_doctor(client: AsyncClient, headers: dict[str, str]) -> str:
+    """Врач клиники (membership) — нужен, чтобы у приёма было что занулять в doctorMembershipId."""
+    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
+    resp = await client.post(
+        f"{API}/clinic/staff",
+        headers=headers,
+        json={"fullName": "Врач Null", "phone": "0700703001", "specializationId": spec},
+    )
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["membershipId"])
+
+
+async def _create_appointment(client: AsyncClient, headers: dict[str, str]) -> str:
+    """Приём с врачом, услугой на 45 минут и одним зубом — вернуть его id.
+
+    Длительность задаётся явно (45), чтобы контроль ``serviceId: null`` мог
+    отличить «сохранили 45» от «схлопнули в дефолтные 30».
+    """
+    pid = (
+        await client.post(
+            f"{API}/clinic/patients",
+            headers=headers,
+            json={"phone": "0700703002", "firstName": "Пётр", "lastName": "Приёмов"},
+        )
+    ).json()["id"]
+    doctor = await _add_doctor(client, headers)
+    service = (
+        await client.post(
+            f"{API}/clinic/services",
+            headers=headers,
+            json={"name": "Лечение 45", "price": 3000, "duration": 45},
+        )
+    ).json()["id"]
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=headers,
+        json={
+            "patientId": pid,
+            "doctorMembershipId": doctor,
+            "serviceId": service,
+            "scheduledAt": "2026-07-20T09:00:00+06:00",
+            "durationMin": 45,
+            "teeth": [{"tooth": 46}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["id"])
+
+
+async def _appointment_card(
+    client: AsyncClient, headers: dict[str, str], aid: str
+) -> dict[str, Any]:
+    resp = await client.get(f"{API}/clinic/appointments/{aid}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return dict(resp.json())
+
+
+@pytest.mark.parametrize("field", ["scheduledAt", "status", "appointmentType", "durationMin"])
+async def test_appointment_patch_null_into_not_null_is_rejected_and_row_intact(
+    client: AsyncClient, clinic: dict[str, str], field: str
+) -> None:
+    """null в NOT NULL-поле приёма → 422, карточка приёма не изменилась побайтово."""
+    aid = await _create_appointment(client, clinic)
+    before = await _appointment_card(client, clinic, aid)
+
+    resp = await client.patch(
+        f"{API}/clinic/appointments/{aid}", headers=clinic, json={field: None}
+    )
+    assert resp.status_code == 422, f"{field}: {resp.text}"
+
+    after = await _appointment_card(client, clinic, aid)
+    assert after == before, f"{field}: карточка приёма изменилась после отклонённого запроса"
+
+
+@pytest.mark.parametrize("field", ["scheduled_at", "appointment_type", "duration_min"])
+async def test_appointment_patch_null_via_snake_case_is_also_rejected(
+    client: AsyncClient, clinic: dict[str, str], field: str
+) -> None:
+    """CamelModel принимает snake_case → null snake-именем тоже 422, а не мимо валидатора."""
+    aid = await _create_appointment(client, clinic)
+    resp = await client.patch(
+        f"{API}/clinic/appointments/{aid}", headers=clinic, json={field: None}
+    )
+    assert resp.status_code == 422, f"{field}: {resp.text}"
+
+
+async def test_appointment_nullable_fields_still_accept_null(
+    client: AsyncClient, clinic: dict[str, str]
+) -> None:
+    """Запрет null не задел NULLABLE-колонки приёма: комментарий/врач/услуга снимаются."""
+    aid = await _create_appointment(client, clinic)
+    resp = await client.patch(
+        f"{API}/clinic/appointments/{aid}",
+        headers=clinic,
+        json={"comment": None, "doctorMembershipId": None, "serviceId": None},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["doctorName"] is None
+    assert body["serviceId"] is None
+
+
+async def test_appointment_clearing_service_keeps_duration(
+    client: AsyncClient, clinic: dict[str, str]
+) -> None:
+    """Снятие услуги (serviceId: null) не сбрасывает durationMin в дефолтные 30."""
+    aid = await _create_appointment(client, clinic)
+    resp = await client.patch(
+        f"{API}/clinic/appointments/{aid}", headers=clinic, json={"serviceId": None}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["durationMin"] == 45

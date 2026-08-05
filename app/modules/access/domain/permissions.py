@@ -48,6 +48,9 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef("appointments.create", "appointments", "Создание приёма"),
     PermissionDef("appointments.edit", "appointments", "Редактирование приёма"),
     PermissionDef("appointments.complete_pay", "appointments", "Завершить и оплатить"),
+    PermissionDef(
+        "appointments.status_rollback", "appointments", "Откат статуса приёма назад"
+    ),
     # Касса
     PermissionDef("cash.view_own", "cash", "Касса: свои платежи"),
     PermissionDef("cash.view_all", "cash", "Касса: платежи всей клиники"),
@@ -100,6 +103,9 @@ DEFAULT_ROLES: list[RoleDef] = [
             "appointments.create",
             "appointments.edit",
             "appointments.complete_pay",
+            # Откат статуса — операция администратора: врачу не даём, чтобы
+            # исправление ошибок оставалось видимым решением, а не рутиной.
+            "appointments.status_rollback",
             "cash.view_all",
             "cash.operate",
             "price.view",
