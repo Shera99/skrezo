@@ -344,7 +344,7 @@ erDiagram
 | `subscription_status` | `trial`, `awaiting_card`, `active`, `past_due`, `blocked`, `cancelled` | subscription(_event) |
 | `tooth_status` | `healthy`, `caries`, `filling`, `crown`, `implant`, `missing`, `broken`, `root`, `under_treatment` | patient_tooth |
 | `appointment_type` | `consultation`, `treatment`, `operation`, `cleaning`, `xray` | appointment |
-| `appointment_status` | `draft`, `scheduled`, `confirmed`, `in_progress`, `completed`, `cancelled`, `no_show` | appointment |
+| `appointment_status` | `draft`, `scheduled`, `confirmed`, `arrived`, `in_progress`, `completed`, `cancelled`, `no_show` | appointment |
 | `appointment_tooth_status` | `planned`, `started`, `completed`, `cancelled` | appointment_tooth |
 | `payment_method` | `cash`, `card`, `transfer` | cash_payment |
 | `payment_kind` | `payment`, `refund` | cash_payment |

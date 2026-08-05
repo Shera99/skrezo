@@ -67,6 +67,7 @@ class AppointmentsBlockOut(CamelModel):
     total: int
     scheduled: int
     confirmed: int
+    arrived: int
     in_progress: int
     completed: int
     cancelled: int
@@ -78,6 +79,7 @@ class AppointmentsBlockOut(CamelModel):
             total=a.total,
             scheduled=a.scheduled,
             confirmed=a.confirmed,
+            arrived=a.arrived,
             in_progress=a.in_progress,
             completed=a.completed,
             cancelled=a.cancelled,

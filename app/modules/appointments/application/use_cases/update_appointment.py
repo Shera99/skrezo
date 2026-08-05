@@ -8,9 +8,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError, ValidationAppError
+from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.modules.appointments.application.services.booking import booking_guard
 from app.modules.appointments.domain.models import AppointmentDetail
+from app.modules.appointments.domain.transitions import is_transition_allowed
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
@@ -43,14 +44,41 @@ def _affects_booking(appointment: Appointment, fields: dict[str, Any]) -> bool:
     return was_free and new_status != appointment.status
 
 
-def _ensure_date_for_status(appointment: Appointment, fields: dict[str, Any]) -> None:
-    """Дата обязательна для любого статуса, кроме черновика.
+def _ensure_transition_allowed(appointment: Appointment, fields: dict[str, Any]) -> None:
+    """Проверить, что смена статуса разрешена жизненным циклом приёма."""
+    target = fields.get("status")
+    if target is not None and not is_transition_allowed(appointment.status, target):
+        raise ConflictError(
+            f"Недопустимый переход статуса: {appointment.status.value} → {target.value}",
+            code="invalid_status_transition",
+        )
 
-    Так «доведение» черновика до записи (``status`` из ``draft`` в рабочий) без
+
+def _apply_cancel_reason(appointment: Appointment, fields: dict[str, Any]) -> None:
+    """Причина отмены живёт только у отменённого приёма.
+
+    Указана без отмены — ошибка (иначе причина повисла бы на рабочем приёме);
+    при снятии отмены поле очищается, чтобы не осталось следа от прошлого решения.
+    """
+    target = fields.get("status", appointment.status)
+    if fields.get("cancel_reason") is not None and target is not AppointmentStatus.CANCELLED:
+        raise ValidationAppError(
+            "Причину отмены можно указать только вместе со статусом cancelled",
+            code="cancel_reason_without_cancel",
+        )
+    if target is not AppointmentStatus.CANCELLED and appointment.cancel_reason is not None:
+        fields["cancel_reason"] = None
+
+
+def _ensure_date_for_status(appointment: Appointment, fields: dict[str, Any]) -> None:
+    """Дата обязательна везде, кроме приёмов, которые так и не состоялись.
+
+    Исключения — черновик и отмена: передумавшего пациента закрывают отменой,
+    и даты у него не появилось. Так «доведение» черновика до записи без
     ``scheduledAt`` отвергается понятной ошибкой, а не нарушением CHECK в БД.
     """
     new_status = fields.get("status", appointment.status)
-    if new_status is AppointmentStatus.DRAFT:
+    if new_status in (AppointmentStatus.DRAFT, AppointmentStatus.CANCELLED):
         return
     if fields.get("scheduled_at", appointment.scheduled_at) is None:
         raise ValidationAppError(
@@ -80,6 +108,8 @@ class UpdateAppointmentUseCase:
         fields = dict(fields)
         await self._validate_refs(clinic_id, fields)
         await self._resolve_duration(clinic_id, fields)
+        _ensure_transition_allowed(appointment, fields)
+        _apply_cancel_reason(appointment, fields)
         _ensure_date_for_status(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields)
 

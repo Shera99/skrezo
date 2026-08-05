@@ -42,6 +42,7 @@ class AppointmentsBlock:
     total: int
     scheduled: int
     confirmed: int
+    arrived: int
     in_progress: int
     completed: int
     cancelled: int

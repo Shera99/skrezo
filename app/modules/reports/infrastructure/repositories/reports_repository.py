@@ -195,6 +195,7 @@ class ReportsRepository:
             total=sum(counts.values()),
             scheduled=counts.get(AppointmentStatus.SCHEDULED, 0),
             confirmed=counts.get(AppointmentStatus.CONFIRMED, 0),
+            arrived=counts.get(AppointmentStatus.ARRIVED, 0),
             in_progress=counts.get(AppointmentStatus.IN_PROGRESS, 0),
             completed=counts.get(AppointmentStatus.COMPLETED, 0),
             cancelled=counts.get(AppointmentStatus.CANCELLED, 0),

@@ -155,6 +155,9 @@ class AppointmentDetailResponse(CamelModel):
     status: AppointmentStatus
     price_total: int
     comment: str | None = None
+    cancel_reason: str | None = Field(
+        default=None, description="Причина отмены; null у неотменённого приёма"
+    )
     teeth: list[AppointmentToothOut]
 
     @classmethod
@@ -172,6 +175,7 @@ class AppointmentDetailResponse(CamelModel):
             status=a.status,
             price_total=a.price_total,
             comment=a.comment,
+            cancel_reason=a.cancel_reason,
             teeth=[AppointmentToothOut.from_row(t) for t in d.teeth],
         )
 
@@ -201,6 +205,15 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
         examples=[45],
     )
     comment: str | None = None
+    cancel_reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Причина отмены — только вместе со `status: cancelled` (иначе 422). "
+            "При снятии отмены очищается автоматически"
+        ),
+        examples=["Пациент перенёс на следующую неделю"],
+    )
     doctor_membership_id: uuid.UUID | None = None
     service_id: uuid.UUID | None = Field(
         default=None, description="Основная услуга приёма; null — снять услугу"

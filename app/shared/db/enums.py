@@ -69,12 +69,25 @@ class AppointmentStatus(enum.StrEnum):
     # статус, при котором ``scheduled_at`` пуст (гарантирует CHECK в БД): такой
     # приём не занимает слот врача и не попадает в ленту дня и отчёты периода.
     DRAFT = "draft"
-    SCHEDULED = "scheduled"
-    CONFIRMED = "confirmed"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    NO_SHOW = "no_show"
+    SCHEDULED = "scheduled"  # запись создана, пациент ещё не подтвердил
+    CONFIRMED = "confirmed"  # пациент подтвердил (напр. ответом в WhatsApp)
+    ARRIVED = "arrived"  # пришёл в клинику, ждёт врача
+    IN_PROGRESS = "in_progress"  # идёт приём (пациент в кресле)
+    COMPLETED = "completed"  # завершён (и оплачен, если платёж проведён)
+    CANCELLED = "cancelled"  # отменён; причина — в ``cancel_reason``
+    NO_SHOW = "no_show"  # не пришёл
+
+
+# Статусы «приём в работе»: между ними можно двигаться свободно, они занимают
+# слот врача и участвуют в проверке пересечений.
+ACTIVE_APPOINTMENT_STATUSES: frozenset[AppointmentStatus] = frozenset(
+    {
+        AppointmentStatus.SCHEDULED,
+        AppointmentStatus.CONFIRMED,
+        AppointmentStatus.ARRIVED,
+        AppointmentStatus.IN_PROGRESS,
+    }
+)
 
 
 class AppointmentToothStatus(enum.StrEnum):

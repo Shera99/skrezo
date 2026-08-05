@@ -38,6 +38,7 @@ _UPDATABLE_FIELDS = frozenset(
         "scheduled_at",
         "duration_min",
         "comment",
+        "cancel_reason",
         "doctor_membership_id",
         "service_id",
     }
