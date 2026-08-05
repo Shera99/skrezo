@@ -20,6 +20,7 @@ from app.modules.appointments.domain.models import (
     AppointmentRow,
     ItemInput,
 )
+from app.modules.appointments.domain.pricing import apply_discount
 from app.shared.db.enums import AppointmentItemStatus, AppointmentStatus, AppointmentType
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
@@ -44,9 +45,12 @@ _UPDATABLE_FIELDS = frozenset(
         "cancel_comment",
         "no_charge",
         "no_charge_comment",
-        # Клиент цену не присылает (её нет в схеме PATCH) — её ставит прикладной
-        # слой: отмена обнуляет итог, снятие отмены пересчитывает из позиций.
+        # Клиент цену и скидку не присылает (их нет в схеме PATCH) — их ставит
+        # прикладной слой: отмена обнуляет итог, снятие отмены пересчитывает из
+        # позиций, скидка приходит через свою ручку с проверкой потолка роли.
         "price_total_tiyin",
+        "discount_percent",
+        "discount_tiyin",
         "doctor_membership_id",
         "service_id",
     }
@@ -60,6 +64,8 @@ _NOT_NULL_FIELDS = frozenset(
         "duration_min",
         "no_charge",
         "price_total_tiyin",
+        "discount_percent",
+        "discount_tiyin",
     }
 )
 
@@ -158,7 +164,11 @@ class AppointmentRepository:
         items: list[ItemInput],
         service_prices: dict[uuid.UUID, int],
     ) -> None:
-        """Записать позиции с привязкой к зубам и проставить итог приёма."""
+        """Записать позиции с привязкой к зубам и пересчитать итог приёма.
+
+        Скидка пересчитывается вместе с позициями: процент задан у приёма, и
+        после правки чека он обязан относиться к новой сумме, а не к прежней.
+        """
         total = 0
         for item in items:
             price = item.price_tiyin
@@ -185,7 +195,9 @@ class AppointmentRepository:
                 self._session.add(
                     AppointmentItemTooth(item_id=row.id, patient_tooth_id=patient_tooth.id)
                 )
-        appointment.price_total_tiyin = total
+        discount, payable = apply_discount(total, appointment.discount_percent)
+        appointment.discount_tiyin = discount
+        appointment.price_total_tiyin = payable
         await self._session.flush()
 
     async def list_page(

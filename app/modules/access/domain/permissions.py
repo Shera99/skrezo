@@ -56,6 +56,7 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef("cash.view_own", "cash", "Касса: свои платежи"),
     PermissionDef("cash.view_all", "cash", "Касса: платежи всей клиники"),
     PermissionDef("cash.operate", "cash", "Проведение платежей и долгов"),
+    PermissionDef("cash.discount", "cash", "Скидка на приём (в пределах потолка роли)"),
     # Услуги / прайс
     PermissionDef("price.view", "price", "Просмотр прайса"),
     PermissionDef("price.edit", "price", "Редактирование прайса"),
@@ -86,11 +87,14 @@ class RoleDef(NamedTuple):
     is_owner: bool
     # None → все права (владелец); иначе явный набор ключей
     permissions: tuple[str, ...] | None
+    # Потолок скидки роли (%). Право ``cash.discount`` говорит «можно», это —
+    # «насколько»: у владельца 100, у администратора 20, у врача 0.
+    max_discount_percent: int = 0
 
 
 # ── Дефолтные роли (глобальные шаблоны) ─────────────────────────────────────
 DEFAULT_ROLES: list[RoleDef] = [
-    RoleDef(SystemRoleKey.OWNER, "Владелец", True, None),
+    RoleDef(SystemRoleKey.OWNER, "Владелец", True, None, 100),
     RoleDef(
         SystemRoleKey.MANAGER,
         "Менеджер",
@@ -112,6 +116,8 @@ DEFAULT_ROLES: list[RoleDef] = [
             "appointments.force_booking",
             "cash.view_all",
             "cash.operate",
+            # Скидку администратор даёт, но в пределах потолка роли (20%).
+            "cash.discount",
             "price.view",
             "reports.view_all",
             "staff.view",
@@ -120,6 +126,7 @@ DEFAULT_ROLES: list[RoleDef] = [
             "reminders.manage",
             "billing.view",
         ),
+        20,
     ),
     RoleDef(
         SystemRoleKey.WORKER,

@@ -38,7 +38,7 @@ class GetReportSummaryUseCase:
         appointments = await self._reports.appointments_by_status(
             clinic_id, bounds.start, bounds.end, own_membership_id
         )
-        charged, paid, completed = await self._reports.charged_and_paid(
+        charged, paid, completed, discounts = await self._reports.charged_and_paid(
             clinic_id, bounds.start, bounds.end, own_membership_id
         )
         total_patients, new_patients = await self._reports.patients(
@@ -56,6 +56,7 @@ class GetReportSummaryUseCase:
                 returning=total_patients - new_patients,
             ),
             charged_tiyin=charged,
+            discounts_tiyin=discounts,
             debt_tiyin=charged - paid,
             average_check_tiyin=charged // completed if completed else 0,
         )

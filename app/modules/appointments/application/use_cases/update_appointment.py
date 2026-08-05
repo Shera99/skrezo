@@ -15,6 +15,7 @@ from app.modules.appointments.application.services.closing import (
     ensure_no_charge_valid,
 )
 from app.modules.appointments.domain.models import AppointmentDetail
+from app.modules.appointments.domain.pricing import apply_discount
 from app.modules.appointments.domain.transitions import TransitionKind, classify_transition
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
@@ -271,15 +272,21 @@ class UpdateAppointmentUseCase:
         Позиции при отмене сохраняются: что успели сделать — часть истории зуба.
         Но денег за несостоявшийся приём не берут, иначе такие случаи закрывают
         как ``completed`` с нулём — то есть врут отчёту. Снятая отмена
-        возвращает итог из фактических позиций, а не из запомненного числа.
+        возвращает итог из фактических позиций (и из процента скидки), а не из
+        запомненного числа. Сам процент скидки при отмене сохраняется — это
+        решение по приёму, а не сумма.
         """
         target = fields.get("status")
         if target is None or target is appointment.status:
             return
         if target is AppointmentStatus.CANCELLED:
             fields["price_total_tiyin"] = 0
+            fields["discount_tiyin"] = 0
         elif appointment.status is AppointmentStatus.CANCELLED:
-            fields["price_total_tiyin"] = await self._appointments.items_total(appointment.id)
+            subtotal = await self._appointments.items_total(appointment.id)
+            discount, payable = apply_discount(subtotal, appointment.discount_percent)
+            fields["discount_tiyin"] = discount
+            fields["price_total_tiyin"] = payable
 
     async def _validate_refs(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> None:
         """Врач и услуга обязаны быть из этой клиники — иначе IDOR."""

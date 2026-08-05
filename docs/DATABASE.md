@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0029** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0030** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -118,6 +118,7 @@ erDiagram
         text name
         bool is_system
         bool is_owner
+        int max_discount_percent "потолок скидки роли, 0..100"
     }
     PERMISSION {
         uuid id PK
@@ -257,7 +258,9 @@ erDiagram
         timestamptz scheduled_at "nullable только у draft/cancelled"
         int duration_min "длительность, мин"
         enum status
-        int price_total_tiyin "тыйыны; отмена обнуляет"
+        int price_total_tiyin "итог К ОПЛАТЕ: позиции минус скидка; отмена обнуляет"
+        int discount_percent "скидка, 0..100"
+        int discount_tiyin "сумма скидки"
         text comment "nullable"
         enum cancel_reason "nullable, только у cancelled"
         text cancel_comment "nullable, обязателен при other"
@@ -342,6 +345,12 @@ erDiagram
 > параллельных возврата увидели бы один остаток. Частичный индекс
 > `ix_cash_payment_refunds_payment` (0028) обслуживает агрегат «сколько
 > возвращено», который подмешивается к каждой строке журнала.
+>
+> **Скидка.** Хранится процентом (`discount_percent`) — так её ограничивает
+> потолок роли (`role.max_discount_percent`), — и суммой (`discount_tiyin`), без
+> которой чек не сходится с кассой в целых тыйынах. Обе величины пересчитывает
+> прикладной слой при любой правке позиций; `price_total_tiyin` остаётся итогом
+> **к оплате**, поэтому долг считается по нему без изменений.
 >
 > **CHECK'и приёма.** `ck_appointment_scheduled_at_required`: дата обязательна
 > у всех статусов, кроме `draft` и `cancelled` — приём, который не состоялся, до

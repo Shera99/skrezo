@@ -1573,7 +1573,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\",\n  \"roleId\": \"00000000-0000-0000-0000-000000000000\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1608,7 +1608,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\",\n  \"roleId\": \"00000000-0000-0000-0000-000000000000\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1712,7 +1712,7 @@
                 "description": "Своя роль клиники с произвольным набором прав из каталога.\n\nНазвание уникально в пределах клиники (без учёта регистра). Неизвестный ключ\nправа отвергает запрос целиком — роль не создаётся.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Администратор ресепшена\",\n  \"permissions\": [\n    \"string\"\n  ]\n}",
+                  "raw": "{\n  \"name\": \"Администратор ресепшена\",\n  \"permissions\": [\n    \"string\"\n  ],\n  \"maxDiscountPercent\": 20\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1769,7 +1769,7 @@
                 "description": "Переименовать роль и/или заменить её набор прав.\n\n``permissions`` заменяет набор **целиком** (не добавляет). Права системных\nролей настраиваются пер-клиника — это штатный сценарий; переименовать их\nнельзя (название приходит из каталога по ``key``). Роль владельца не\nредактируется вовсе. Изменение применяется сразу — кеш прав сбрасывается.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"string\",\n  \"permissions\": [\n    \"string\"\n  ]\n}",
+                  "raw": "{\n  \"name\": \"string\",\n  \"permissions\": [\n    \"string\"\n  ],\n  \"maxDiscountPercent\": 10\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2587,6 +2587,43 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"items\": [\n    {\n      \"serviceId\": \"00000000-0000-0000-0000-000000000000\",\n      \"priceTiyin\": 150000,\n      \"quantity\": 2,\n      \"teeth\": [\n        36,\n        37\n      ],\n      \"comment\": \"string\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Скидка на приём",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/appointments/{{appointment_id}}/discount",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "appointments",
+                    "{{appointment_id}}",
+                    "discount"
+                  ]
+                },
+                "description": "Поставить приёму скидку процентом; `0` — снять.\n\nСкидка — единственная операция, где сотрудник в одиночку уменьшает выручку,\nпоэтому она разведена на два уровня: право ``cash.discount`` разрешает её\nвообще, а потолок роли (`maxDiscountPercent`: владелец 100, администратор 20,\nврач 0) ограничивает размер. Сверх потолка — 403, попытка попадает в аудит\nтолько при успехе: сама операция логируется как `appointment.discount`.\n\nИтог к оплате = сумма позиций − скидка, долг кассы считается по нему. Опустить\nитог ниже уже оплаченного нельзя (422) — сначала возврат. Завершённый приём\n→ 409, отменённый → 422.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"percent\": 10\n}",
                   "options": {
                     "raw": {
                       "language": "json"

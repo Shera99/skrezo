@@ -113,6 +113,14 @@ class StaffRepository:
     async def get_role(self, role_id: uuid.UUID) -> Role | None:
         return await self._session.get(Role, role_id)
 
+    async def role_in_clinic(self, clinic_id: uuid.UUID, role_id: uuid.UUID) -> Role | None:
+        """Роль ЭТОЙ клиники по id — назначить чужую роль нельзя (IDOR)."""
+        return (
+            await self._session.execute(
+                select(Role).where(Role.id == role_id, Role.clinic_id == clinic_id)
+            )
+        ).scalar_one_or_none()
+
     async def list_members(self, clinic_id: uuid.UUID) -> list[StaffMember]:
         rows = (
             await self._session.execute(

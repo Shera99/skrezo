@@ -73,6 +73,10 @@ async def update_role(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     row = await use_case.execute(
-        context.clinic_id, role_id, name=body.name, permission_keys=body.permissions
+        context.clinic_id,
+        role_id,
+        name=body.name,
+        permission_keys=body.permissions,
+        max_discount_percent=body.max_discount_percent,
     )
     return RoleItem.from_row(row)

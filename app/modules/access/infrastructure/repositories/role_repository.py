@@ -16,8 +16,10 @@ class RoleRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_permission_keys(self, role_id: uuid.UUID) -> tuple[bool, list[str]] | None:
-        """Вернуть (is_owner, ключи прав) роли или None, если роли нет."""
+    async def get_permission_keys(
+        self, role_id: uuid.UUID
+    ) -> tuple[bool, list[str], int] | None:
+        """Вернуть (is_owner, ключи прав, потолок скидки) роли или None, если роли нет."""
         role = await self._session.get(Role, role_id)
         if role is None:
             return None
@@ -32,4 +34,4 @@ class RoleRepository:
             .scalars()
             .all()
         )
-        return role.is_owner, list(keys)
+        return role.is_owner, list(keys), role.max_discount_percent

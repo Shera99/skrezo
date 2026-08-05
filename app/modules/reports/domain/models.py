@@ -68,7 +68,8 @@ class ReportSummary:
     revenue: RevenueBlock
     appointments: AppointmentsBlock
     patients: PatientsBlock
-    charged_tiyin: int  # начислено по завершённым приёмам периода
+    charged_tiyin: int  # начислено по завершённым приёмам периода (уже со скидкой)
+    discounts_tiyin: int  # сколько скидок дано по этим приёмам
     debt_tiyin: int  # остаток по завершённым приёмам периода
     average_check_tiyin: int  # начислено / число завершённых приёмов
 

@@ -6,6 +6,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.appointments.application.use_cases.apply_discount import ApplyDiscountUseCase
 from app.modules.appointments.application.use_cases.complete_appointment import (
     CompleteAppointmentUseCase,
 )
@@ -83,6 +84,15 @@ def get_replace_items_use_case(
     cash: CashService = Depends(get_cash_service),
 ) -> ReplaceItemsUseCase:
     return ReplaceItemsUseCase(session, appointments, cash)
+
+
+def get_apply_discount_use_case(
+    session: AsyncSession = Depends(get_session),
+    appointments: AppointmentRepository = Depends(get_appointment_repository),
+    cash: CashService = Depends(get_cash_service),
+    audit: AuditService = Depends(get_audit_service),
+) -> ApplyDiscountUseCase:
+    return ApplyDiscountUseCase(session, appointments, cash, audit)
 
 
 def get_complete_appointment_use_case(

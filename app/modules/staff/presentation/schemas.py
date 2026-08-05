@@ -43,12 +43,23 @@ class AddStaffRequest(CamelModel):
     full_name: str = Field(min_length=2, description="ФИО врача")
     phone: str = Field(description="Телефон (= логин)")
     specialization_id: uuid.UUID = Field(description="Специализация (обязательна)")
+    role_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Роль клиники из `GET /clinic/roles`; по умолчанию — «работник». "
+            "Роль владельца назначить нельзя"
+        ),
+    )
 
 
 class UpdateStaffRequest(CamelModel):
     full_name: str | None = Field(default=None, min_length=2)
     phone: str | None = None
     specialization_id: uuid.UUID | None = None
+    role_id: uuid.UUID | None = Field(
+        default=None,
+        description="Сменить роль сотрудника (роли клиники; владелец не назначается)",
+    )
 
 
 class StaffCreatedResponse(CamelModel):

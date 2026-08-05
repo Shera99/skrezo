@@ -102,6 +102,22 @@ def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
     return _dep
 
 
+async def get_discount_ceiling(
+    context: ClientContext = Depends(get_client_context),
+    resolver: PermissionResolver = Depends(get_permission_resolver),
+) -> int:
+    """Потолок скидки текущего сотрудника (%): владелец 100, иначе — из роли.
+
+    Отдельно от ``require_permission("cash.discount")``: право отвечает на вопрос
+    «можно ли давать скидку вообще», а это число — «насколько». Врач с правом,
+    но с нулевым потолком не скинет ничего, и это осознанная настройка роли.
+    """
+    if context.role_id is None:
+        return 0
+    resolved = await resolver.resolve(context.role_id)
+    return resolved.discount_ceiling if resolved is not None else 0
+
+
 def require_permission(
     permission_key: str,
 ) -> Callable[..., Awaitable[ClientContext]]:

@@ -202,8 +202,8 @@ make run           # uvicorn с автоперезагрузкой
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` · `POST` | `/clinic/staff` | Список / добавить работника (`staff.view` / `staff.manage`) |
-| `PUT` · `DELETE` | `/clinic/staff/{id}` | Правка / удаление работника (`staff.manage`) |
+| `GET` · `POST` | `/clinic/staff` | Список / добавить сотрудника, опционально сразу с ролью (`roleId`) (`staff.view` / `staff.manage`) |
+| `PUT` · `DELETE` | `/clinic/staff/{id}` | Правка (ФИО, телефон, специализация, **роль**) / удаление (`staff.manage`) |
 | `POST` | `/clinic/staff/{id}/reset-password` | Сброс пароля работника → `tempPassword` (`staff.manage`) |
 
 **Расписание (клиент-сайд + RBAC).** Экран «Сегодня»: колонки — врачи, строки —
@@ -269,6 +269,7 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` · `POST` | `/clinic/appointments` | Приёмы клиники (фильтр `status`) / создать со списком позиций (`items`), `serviceId`+`durationMin`; `status=draft` — черновик без даты, `force` — вне графика (`patients.view_medical`/`appointments.create`) |
 | `GET` · `PATCH` | `/clinic/appointments/{id}` | Детали / обновить статус, перенести (`force`), пометить бесплатным (`noCharge`) (`patients.view_medical`/`appointments.edit`) |
 | `PUT` | `/clinic/appointments/{id}/items` | Заменить позиции чека целиком и пересчитать итог (`appointments.edit`) |
+| `PUT` | `/clinic/appointments/{id}/discount` | Скидка на приём процентом в пределах потолка роли (`cash.discount`) |
 | `POST` | `/clinic/appointments/{id}/complete` | Завершить приём и опционально оплатить (одна транзакция; переплата откатывает); без позиций — только `noCharge` (`appointments.complete_pay`) |
 
 > **Черновик приёма (`status=draft`).** Пациент заведён в клинику, но дату и
@@ -310,6 +311,25 @@ make run           # uvicorn с автоперезагрузкой
 >
 > **Привязка к зубам** живёт в связке «позиция ↔ зуб», поэтому одна работа на
 > несколько зубов попадает в сквозную историю **каждого** из них.
+
+**Скидка — право + потолок роли.** Скидка единственная операция, где сотрудник в
+одиночку уменьшает выручку, поэтому «можно» и «сколько» разведены:
+
+| Уровень | Что задаёт | Где |
+|---|---|---|
+| Право `cash.discount` | можно ли давать скидку вообще | набор прав роли |
+| `maxDiscountPercent` | насколько (владелец 100, администратор 20, врач 0) | поле роли, правится в `PATCH /clinic/roles/{id}` |
+
+> `PUT /clinic/appointments/{id}/discount` c `{"percent": 10}`; `0` снимает
+> скидку. Сверх потолка → 403 `discount_limit_exceeded` с полем
+> `maxDiscountPercent`. Каждая скидка пишется в аудит (`appointment.discount`).
+>
+> В чеке видно всё: `subtotalTiyin` (сумма позиций), `discountPercent`,
+> `discountTiyin` и `priceTotalTiyin` — **итог к оплате**, по нему же считается
+> долг кассы. Скидка пересчитывается при правке позиций: процент относится к
+> текущей сумме, а не к той, что была. Опустить итог ниже уже оплаченного нельзя
+> (422 `total_below_paid`), завершённому приёму скидку не дают (409). Сколько
+> клиника раздала за период — `discountsTiyin` в `GET /clinic/reports/summary`.
 
 **Жизненный цикл приёма.** Восемь статусов:
 
@@ -419,7 +439,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `GET` | `/clinic/roles` | Роли клиники с правами, числом сотрудников и флагами `editablePermissions`/`deletable` |
 | `GET` | `/clinic/permissions` | Каталог прав (ключ, `groupKey`, описание) — чекбоксы конструктора роли |
 | `POST` | `/clinic/roles` | Создать кастомную роль (название + набор прав) |
-| `PATCH` | `/clinic/roles/{id}` | Переименовать и/или **заменить набор прав целиком** |
+| `PATCH` | `/clinic/roles/{id}` | Переименовать, **заменить набор прав целиком** и/или задать потолок скидки |
 | `DELETE` | `/clinic/roles/{id}` | Удалить кастомную роль |
 
 > **Инварианты.** Роль владельца не редактируется (полный доступ всегда) → 409
@@ -427,7 +447,10 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 > переименование (`system_role_rename`) и удаление (`system_role_delete`)
 > закрыты. Роль с активными сотрудниками не удалить → 409 `role_has_members`.
 > Изменение прав применяется **сразу** — кеш `PermissionResolver` сбрасывается.
-> По умолчанию `roles.manage` есть только у владельца.
+> По умолчанию `roles.manage` есть только у владельца. Роль сотрудника
+> назначается при найме (`roleId` в `POST /clinic/staff`) или меняется потом
+> (`PUT /clinic/staff/{id}`); роль владельца не назначается — он в клинике один.
+> У каждой роли есть `maxDiscountPercent` — потолок скидки (см. ниже).
 
 **Отчёты клиники (клиент-сайд + RBAC).** Операционная аналитика поверх кассы и
 приёмов. Период — пресет `period=7d|1m|3m|all` (по умолчанию `1m`) либо произвольный
@@ -436,7 +459,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/reports/summary` | Всё для экрана: выручка (+ по способам), приёмы по статусам, пациенты новые/повторные, начислено, долг, средний чек |
+| `GET` | `/clinic/reports/summary` | Всё для экрана: выручка (+ по способам), приёмы по статусам, пациенты новые/повторные, начислено, **скидки**, долг, средний чек |
 | `GET` | `/clinic/reports/revenue?groupBy=day\|month` | Динамика выручки |
 | `GET` | `/clinic/reports/doctors` | По врачам: приёмы, завершено/отменено, начислено, оплачено, долг, средний чек |
 | `GET` | `/clinic/reports/services` | Топ услуг: сколько раз оказана (с учётом количества) и выручка |

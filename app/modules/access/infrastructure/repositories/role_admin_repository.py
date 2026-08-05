@@ -71,6 +71,8 @@ class RoleAdminRepository:
                 is_owner=role.is_owner,
                 permissions=sorted(keys_by_role.get(role.id, [])),
                 members_count=members_by_role.get(role.id, 0),
+                # У владельца потолок всегда полный — как и набор прав.
+                max_discount_percent=100 if role.is_owner else role.max_discount_percent,
             )
             for role in roles
         ]
@@ -130,9 +132,18 @@ class RoleAdminRepository:
         return {r[0]: r[1] for r in rows}
 
     # ── Запись ─────────────────────────────────────────────────────────────
-    async def create_role(self, clinic_id: uuid.UUID, name: str) -> Role:
+    async def create_role(
+        self, clinic_id: uuid.UUID, name: str, max_discount_percent: int = 0
+    ) -> Role:
         """Создать кастомную роль клиники (не системная, не владелец)."""
-        role = Role(clinic_id=clinic_id, key=None, name=name, is_system=False, is_owner=False)
+        role = Role(
+            clinic_id=clinic_id,
+            key=None,
+            name=name,
+            is_system=False,
+            is_owner=False,
+            max_discount_percent=max_discount_percent,
+        )
         self._session.add(role)
         await self._session.flush()
         return role

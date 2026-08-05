@@ -34,6 +34,8 @@ class RoleProvisioningRepository:
             name=template.name,
             is_system=True,
             is_owner=template.is_owner,
+            # Потолок скидки — часть шаблона роли, а не отдельная настройка.
+            max_discount_percent=template.max_discount_percent,
         )
         self._session.add(role)
         await self._session.flush()

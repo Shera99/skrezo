@@ -88,13 +88,17 @@ class _RoleWriteBase:
 
 class CreateRoleUseCase(_RoleWriteBase):
     async def execute(
-        self, clinic_id: uuid.UUID, name: str, permission_keys: Sequence[str]
+        self,
+        clinic_id: uuid.UUID,
+        name: str,
+        permission_keys: Sequence[str],
+        max_discount_percent: int = 0,
     ) -> RoleRow:
-        """Создать кастомную роль клиники с заданным набором прав."""
+        """Создать кастомную роль клиники с заданным набором прав и потолком скидки."""
         await self._ensure_name_free(clinic_id, name)
         permission_ids = await self._resolve_permission_ids(permission_keys)
 
-        role = await self._roles.create_role(clinic_id, name)
+        role = await self._roles.create_role(clinic_id, name, max_discount_percent)
         await self._roles.replace_permissions(role.id, permission_ids)
         await self._session.commit()
         return await _row_of(self._roles, clinic_id, role.id)
@@ -108,11 +112,13 @@ class UpdateRoleUseCase(_RoleWriteBase):
         *,
         name: str | None,
         permission_keys: Sequence[str] | None,
+        max_discount_percent: int | None = None,
     ) -> RoleRow:
-        """Переименовать роль и/или заменить её набор прав.
+        """Переименовать роль, заменить её набор прав и/или потолок скидки.
 
         Системные роли переименовать нельзя (название берётся из каталога по
-        ``key``), но их права настраиваются пер-клиника — это и есть смысл RBAC.
+        ``key``), но их права и потолок скидки настраиваются пер-клиника — это и
+        есть смысл RBAC: «администратору у нас можно 10%, а не 20».
         """
         role = await self._get_editable(clinic_id, role_id)
 
@@ -127,6 +133,9 @@ class UpdateRoleUseCase(_RoleWriteBase):
         if permission_keys is not None:
             permission_ids = await self._resolve_permission_ids(permission_keys)
             await self._roles.replace_permissions(role_id, permission_ids)
+
+        if max_discount_percent is not None:
+            role.max_discount_percent = max_discount_percent
 
         await self._session.commit()
         # Права роли изменились — сбрасываем кеш, иначе доступ поедет по старым.

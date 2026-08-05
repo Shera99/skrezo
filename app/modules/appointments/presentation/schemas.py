@@ -95,6 +95,20 @@ class ItemInputSchema(CamelModel):
     comment: str | None = None
 
 
+class ApplyDiscountRequest(CamelModel):
+    """Скидка на приём процентом (0 — снять)."""
+
+    percent: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "Размер скидки, %. Ограничен потолком роли (`maxDiscountPercent`); "
+            "сверх него — 403. `0` снимает скидку"
+        ),
+        examples=[10],
+    )
+
+
 class ReplaceItemsRequest(CamelModel):
     """Новый список позиций приёма — заменяет прежний целиком."""
 
@@ -213,7 +227,14 @@ class AppointmentDetailResponse(CamelModel):
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     service_id: uuid.UUID | None = None
     status: AppointmentStatus
-    price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
+    price_total_tiyin: int = Field(
+        description="Итог К ОПЛАТЕ в тыйынах: сумма позиций минус скидка", examples=[382500]
+    )
+    subtotal_tiyin: int = Field(
+        description="Сумма позиций до скидки, тыйыны", examples=[425000]
+    )
+    discount_percent: int = Field(description="Скидка, %", examples=[10])
+    discount_tiyin: int = Field(description="Сумма скидки в тыйынах", examples=[42500])
     comment: str | None = None
     cancel_reason: CancelReason | None = Field(
         default=None, description="Причина отмены; null у неотменённого приёма"
@@ -241,6 +262,9 @@ class AppointmentDetailResponse(CamelModel):
             service_id=a.service_id,
             status=a.status,
             price_total_tiyin=a.price_total_tiyin,
+            subtotal_tiyin=a.price_total_tiyin + a.discount_tiyin,
+            discount_percent=a.discount_percent,
+            discount_tiyin=a.discount_tiyin,
             comment=a.comment,
             cancel_reason=a.cancel_reason,
             cancel_comment=a.cancel_comment,

@@ -312,6 +312,94 @@ async def test_unknown_role_is_404(admin_client: AsyncClient, client: AsyncClien
     assert resp.status_code == 404, resp.text
 
 
+# ── Назначение роли сотруднику ──────────────────────────────────────────────
+
+
+async def _add_staff(
+    client: AsyncClient, headers: dict[str, str], name: str, **extra: Any
+) -> dict[str, Any]:
+    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
+    resp = await client.post(
+        f"{API}/clinic/staff",
+        headers=headers,
+        json={"fullName": name, "phone": _phone(), "specializationId": spec, **extra},
+    )
+    assert resp.status_code == 201, resp.text
+    body: dict[str, Any] = resp.json()
+    return body
+
+
+async def test_staff_role_can_be_assigned_and_changed(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Роль сотрудника назначается при найме и меняется потом.
+
+    Без этого настройка ролей бессмысленна: все оставались бы «работниками», а
+    роль «менеджер» — недостижимой.
+    """
+    headers = await _clinic(admin_client, client, "Роли назначение")
+    roles = await _roles(client, headers)
+    manager, worker = _by_key(roles, "manager"), _by_key(roles, "worker")
+
+    hired = await _add_staff(client, headers, "Администратор", roleId=manager["id"])
+    membership_id = hired["membershipId"]
+
+    listing = await client.get(f"{API}/clinic/staff", headers=headers)
+    assigned = next(m for m in listing.json() if m["membershipId"] == membership_id)
+    assert assigned["roleId"] == manager["id"]
+
+    moved = await client.put(
+        f"{API}/clinic/staff/{membership_id}", headers=headers, json={"roleId": worker["id"]}
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["roleId"] == worker["id"]
+
+
+async def test_owner_role_cannot_be_assigned(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Владелец в клинике один — его роль через найм не выдаётся."""
+    headers = await _clinic(admin_client, client, "Роли владелец")
+    owner = next(r for r in await _roles(client, headers) if r["isOwner"])
+    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
+
+    resp = await client.post(
+        f"{API}/clinic/staff",
+        headers=headers,
+        json={
+            "fullName": "Самозванец",
+            "phone": _phone(),
+            "specializationId": spec,
+            "roleId": owner["id"],
+        },
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"] == "cannot_assign_owner_role"
+
+
+async def test_role_of_other_clinic_is_not_assignable(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Чужая роль не назначается — скоуп по клинике из токена."""
+    headers_a = await _clinic(admin_client, client, "Роли A")
+    headers_b = await _clinic(admin_client, client, "Роли B")
+    role_b = _by_key(await _roles(client, headers_b), "manager")
+    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
+
+    resp = await client.post(
+        f"{API}/clinic/staff",
+        headers=headers_a,
+        json={
+            "fullName": "Чужая роль",
+            "phone": _phone(),
+            "specializationId": spec,
+            "roleId": role_b["id"],
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "role_not_found"
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [

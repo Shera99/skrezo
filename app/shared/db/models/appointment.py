@@ -14,7 +14,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -33,6 +42,9 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     __table_args__ = (
         # Под выборку «приёмы клиники за день» («лента дня»).
         Index("ix_appointment_clinic_scheduled_at", "clinic_id", "scheduled_at"),
+        CheckConstraint(
+            "discount_percent BETWEEN 0 AND 100", name="ck_appointment_discount_percent"
+        ),
     )
 
     clinic_id: Mapped[uuid.UUID] = mapped_column(
@@ -67,8 +79,16 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     status: Mapped[AppointmentStatus] = mapped_column(
         AppointmentStatusType, nullable=False, default=AppointmentStatus.SCHEDULED
     )
-    # Тыйыны (1/100 сома): в целых сомах не выражается результат обычной скидки.
+    # Итог К ОПЛАТЕ в тыйынах (1/100 сома): сумма позиций МИНУС скидка. Именно от
+    # него считается долг приёма, поэтому семантика «сколько должны» не меняется.
     price_total_tiyin: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Скидка процентом — так её ограничивает потолок роли (``role.max_discount_percent``).
+    # Сумма скидки хранится рядом: её показывает чек и по ней считается, сколько
+    # клиника раздала за период. Обе величины пересчитываются при правке позиций.
+    discount_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    discount_tiyin: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Причина отмены — справочником (иначе отмены нечем считать); комментарий
     # обязателен при ``other``. Заполняются вместе со статусом ``cancelled`` и

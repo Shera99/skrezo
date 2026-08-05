@@ -1,4 +1,4 @@
-"""Use-case: правка работника (ФИО, телефон, специализация).
+"""Use-case: правка сотрудника (ФИО, телефон, специализация, роль).
 
 Смену телефона работника делает владелец/менеджер (право staff.manage) — сам
 работник свой номер менять не может. Владельца через этот флоу править нельзя.
@@ -11,6 +11,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
+from app.modules.staff.application.services.roles import resolve_assignable_role
 from app.modules.staff.domain.models import StaffMember
 from app.modules.staff.infrastructure.repositories.staff_repository import StaffRepository
 from app.shared.domain.value_objects import normalize_phone
@@ -29,6 +30,7 @@ class UpdateStaffUseCase:
         full_name: str | None = None,
         phone_raw: str | None = None,
         specialization_id: uuid.UUID | None = None,
+        role_id: uuid.UUID | None = None,
     ) -> StaffMember:
         membership = await self._staff.get_membership(clinic_id, membership_id)
         if membership is None:
@@ -55,6 +57,10 @@ class UpdateStaffUseCase:
                     "Специализация не найдена", code="specialization_not_found"
                 )
             membership.specialization_id = specialization_id
+        if role_id is not None:
+            # Роль — это права и потолок скидки сотрудника; кеш прав привязан к
+            # роли, а не к членству, поэтому сбрасывать его здесь нечего.
+            membership.role_id = await resolve_assignable_role(clinic_id, role_id, self._staff)
 
         await self._session.commit()
         members = await self._staff.list_members(clinic_id)

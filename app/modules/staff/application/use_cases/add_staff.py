@@ -1,7 +1,8 @@
-"""Use-case: добавить работника (владелец/менеджер).
+"""Use-case: добавить сотрудника (владелец/менеджер).
 
-Работник = роль «работник» клиники + специализация. Проверки: клиника не соло,
-специализация существует, лимит мест, дедуп телефона.
+По умолчанию — роль «работник» клиники + специализация; можно сразу выдать
+другую роль клиники (``role_id``), например «менеджер». Проверки: клиника не
+соло, специализация существует, лимит мест, дедуп телефона.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError, ValidationAppError
 from app.core.security import generate_temp_password, hash_password
+from app.modules.staff.application.services.roles import resolve_assignable_role
 from app.modules.staff.application.services.staff_notification_service import (
     StaffNotificationService,
 )
@@ -46,6 +48,7 @@ class AddStaffUseCase:
         full_name: str,
         phone_raw: str,
         specialization_id: uuid.UUID,
+        role_id: uuid.UUID | None = None,
     ) -> AddStaffResult:
         clinic = await self._staff.get_clinic(clinic_id)
         if clinic is None:
@@ -64,9 +67,13 @@ class AddStaffUseCase:
         if await self._staff.account_by_phone(phone) is not None:
             raise ConflictError("Этот номер уже используется", code="phone_already_used")
 
-        worker_role_id = await self._staff.worker_role_id(clinic_id)
-        if worker_role_id is None:
-            raise NotFoundError("У клиники нет роли «работник»", code="worker_role_missing")
+        if role_id is not None:
+            assigned_role_id = await resolve_assignable_role(clinic_id, role_id, self._staff)
+        else:
+            worker_role_id = await self._staff.worker_role_id(clinic_id)
+            if worker_role_id is None:
+                raise NotFoundError("У клиники нет роли «работник»", code="worker_role_missing")
+            assigned_role_id = worker_role_id
 
         temp_password = generate_temp_password()
         account = await self._staff.create_account(
@@ -75,7 +82,7 @@ class AddStaffUseCase:
         membership = await self._staff.create_membership(
             clinic_id=clinic_id,
             account_id=account.id,
-            role_id=worker_role_id,
+            role_id=assigned_role_id,
             specialization_id=specialization_id,
         )
         await self._session.commit()

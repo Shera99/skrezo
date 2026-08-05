@@ -218,11 +218,13 @@ class ReportsRepository:
         start: datetime | None,
         end: datetime,
         own_membership_id: uuid.UUID | None,
-    ) -> tuple[int, int, int]:
-        """Начислено и оплачено по ЗАВЕРШЁННЫМ приёмам периода + их число.
+    ) -> tuple[int, int, int, int]:
+        """Начислено, оплачено, число завершённых приёмов периода и сумма скидок.
 
         Оплата берётся по всем платежам этих приёмов независимо от даты платежа —
         иначе «начислено − оплачено» не сходилось бы с реальным долгом приёма.
+        Скидки видны отдельной строкой: это единственная операция, где выручку
+        уменьшает сотрудник, и владелец должен видеть её объём.
         """
         conditions = [
             *self._appointment_filters(clinic_id, start, end, own_membership_id),
@@ -231,12 +233,15 @@ class ReportsRepository:
         charged_row = (
             await self._session.execute(
                 select(
-                    func.coalesce(func.sum(Appointment.price_total_tiyin), 0), func.count()
+                    func.coalesce(func.sum(Appointment.price_total_tiyin), 0),
+                    func.count(),
+                    func.coalesce(func.sum(Appointment.discount_tiyin), 0),
                 ).where(*conditions)
             )
         ).first()
         charged = int(charged_row[0]) if charged_row else 0
         completed = int(charged_row[1]) if charged_row else 0
+        discounts = int(charged_row[2]) if charged_row else 0
 
         completed_ids = select(Appointment.id).where(*conditions)
         paid = (
@@ -246,7 +251,7 @@ class ReportsRepository:
                 )
             )
         ).scalar_one()
-        return charged, int(paid), completed
+        return charged, int(paid), completed, discounts
 
     # ── Пациенты ───────────────────────────────────────────────────────────
     async def patients(

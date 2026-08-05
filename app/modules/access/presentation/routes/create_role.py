@@ -60,5 +60,7 @@ async def create_role(
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    row = await use_case.execute(context.clinic_id, body.name, body.permissions)
+    row = await use_case.execute(
+        context.clinic_id, body.name, body.permissions, body.max_discount_percent
+    )
     return RoleItem.from_row(row)

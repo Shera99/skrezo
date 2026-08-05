@@ -113,7 +113,12 @@ class ReportSummaryResponse(CamelModel):
     revenue: RevenueBlockOut
     appointments: AppointmentsBlockOut
     patients: PatientsBlockOut
-    charged_tiyin: int = Field(description="Начислено по завершённым приёмам периода, сомы")
+    charged_tiyin: int = Field(
+        description="Начислено по завершённым приёмам периода (уже со скидкой), тыйыны"
+    )
+    discounts_tiyin: int = Field(
+        description="Сумма скидок по этим приёмам, тыйыны", examples=[42500]
+    )
     debt_tiyin: int = Field(description="Остаток по завершённым приёмам периода, сомы")
     average_check_tiyin: int = Field(description="Начислено / число завершённых приёмов")
 
@@ -127,6 +132,7 @@ class ReportSummaryResponse(CamelModel):
             appointments=AppointmentsBlockOut.from_domain(s.appointments),
             patients=PatientsBlockOut.from_domain(s.patients),
             charged_tiyin=s.charged_tiyin,
+            discounts_tiyin=s.discounts_tiyin,
             debt_tiyin=s.debt_tiyin,
             average_check_tiyin=s.average_check_tiyin,
         )

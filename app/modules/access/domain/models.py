@@ -17,6 +17,7 @@ class RoleRow:
     is_owner: bool
     permissions: list[str]
     members_count: int
+    max_discount_percent: int = 0
 
     @property
     def editable_permissions(self) -> bool:

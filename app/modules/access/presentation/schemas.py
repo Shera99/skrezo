@@ -77,6 +77,9 @@ class RoleItem(CamelModel):
     is_system: bool = Field(description="Системная роль (владелец/менеджер/работник)")
     is_owner: bool = Field(description="Роль владельца — полный доступ, не редактируется")
     permissions: list[str] = Field(description="Ключи прав роли")
+    max_discount_percent: int = Field(
+        description="Потолок скидки роли, % (у владельца всегда 100)", examples=[20]
+    )
     members_count: int = Field(description="Сотрудников на этой роли")
     editable_permissions: bool = Field(description="Можно ли менять права роли")
     deletable: bool = Field(description="Можно ли удалить роль")
@@ -90,6 +93,7 @@ class RoleItem(CamelModel):
             is_system=r.is_system,
             is_owner=r.is_owner,
             permissions=r.permissions,
+            max_discount_percent=r.max_discount_percent,
             members_count=r.members_count,
             editable_permissions=r.editable_permissions,
             deletable=r.deletable,
@@ -109,6 +113,16 @@ class CreateRoleRequest(CamelModel):
     permissions: list[str] = Field(
         default_factory=list, description="Ключи прав из GET /clinic/permissions"
     )
+    max_discount_percent: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description=(
+            "Потолок скидки роли, %. Право `cash.discount` разрешает скидку, "
+            "это число ограничивает её размер"
+        ),
+        examples=[20],
+    )
 
 
 class UpdateRoleRequest(CamelModel):
@@ -120,6 +134,9 @@ class UpdateRoleRequest(CamelModel):
 
     name: str | None = Field(default=None, min_length=2, max_length=100)
     permissions: list[str] | None = Field(default=None, description="Полный новый набор прав")
+    max_discount_percent: int | None = Field(
+        default=None, ge=0, le=100, description="Потолок скидки роли, %", examples=[10]
+    )
 
 
 class RoleDeletedResponse(CamelModel):

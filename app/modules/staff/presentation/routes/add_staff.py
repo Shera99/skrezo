@@ -50,6 +50,7 @@ async def add_staff(
         full_name=body.full_name,
         phone_raw=body.phone,
         specialization_id=body.specialization_id,
+        role_id=body.role_id,
     )
     return StaffCreatedResponse(
         membership_id=result.membership.id, temp_password=result.temp_password
