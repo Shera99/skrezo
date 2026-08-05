@@ -33,7 +33,7 @@ from app.shared.db.updates import apply_updates
 # это ключ дедупликации пациента на всю платформу, его правка увела бы карту
 # и сквозную историю лечения к чужому человеку.
 _UPDATABLE_FIELDS = frozenset(
-    {"first_name", "last_name", "middle_name", "gender", "birth_date", "email"}
+    {"first_name", "last_name", "middle_name", "gender", "birth_date", "email", "note"}
 )
 # Из них — NOT NULL в БД.
 _NOT_NULL_FIELDS = frozenset({"first_name"})

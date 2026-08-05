@@ -40,12 +40,26 @@ _UPDATABLE_FIELDS = frozenset(
         "comment",
         "cancel_reason",
         "cancel_comment",
+        "no_charge",
+        "no_charge_comment",
+        # Клиент цену не присылает (её нет в схеме PATCH) — её ставит прикладной
+        # слой: отмена обнуляет итог, снятие отмены пересчитывает из позиций.
+        "price_total_tiyin",
         "doctor_membership_id",
         "service_id",
     }
 )
 # Из них — NOT NULL в БД: NULL сюда необратимо ломает выборки расписания.
-_NOT_NULL_FIELDS = frozenset({"status", "appointment_type", "scheduled_at", "duration_min"})
+_NOT_NULL_FIELDS = frozenset(
+    {
+        "status",
+        "appointment_type",
+        "scheduled_at",
+        "duration_min",
+        "no_charge",
+        "price_total_tiyin",
+    }
+)
 
 
 class AppointmentRepository:
@@ -260,6 +274,26 @@ class AppointmentRepository:
             )
             for r in rows
         ]
+
+    async def has_teeth(self, appointment_id: uuid.UUID) -> bool:
+        """Есть ли у приёма хотя бы одна позиция (манипуляция по зубу)."""
+        return (
+            await self._session.execute(
+                select(AppointmentTooth.id)
+                .where(AppointmentTooth.appointment_id == appointment_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
+
+    async def teeth_total(self, appointment_id: uuid.UUID) -> int:
+        """Сумма цен по позициям приёма — итог, пересчитанный из фактических работ."""
+        return (
+            await self._session.execute(
+                select(func.coalesce(func.sum(AppointmentTooth.price_tiyin), 0)).where(
+                    AppointmentTooth.appointment_id == appointment_id
+                )
+            )
+        ).scalar_one()
 
     async def service_prices(
         self, service_ids: list[uuid.UUID]

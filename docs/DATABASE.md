@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0019** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0027** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -197,8 +197,8 @@ erDiagram
         uuid id PK
         enum type "solo|clinic"
         int version "по типу, от 1"
-        int price "nullable (solo)"
-        int over_price "nullable (clinic Сеть)"
+        int price_tiyin "nullable (solo)"
+        int over_price_tiyin "nullable (clinic Сеть)"
         uuid created_by FK
         timestamptz created_at
     }
@@ -207,7 +207,7 @@ erDiagram
         uuid tariff_version_id FK
         text name
         int up_to "граница мест"
-        int price
+        int price_tiyin
     }
     AUDIT_LOG {
         uuid id PK
@@ -228,6 +228,7 @@ erDiagram
         date birth_date "nullable"
         text email "nullable"
         text avatar "nullable"
+        text note "nullable, заметка о пациенте"
     }
     PATIENT_TOOTH {
         uuid id PK
@@ -241,7 +242,7 @@ erDiagram
         uuid clinic_id FK
         text name
         text description "nullable"
-        int price "сомы"
+        int price_tiyin "тыйыны"
         int duration "nullable, мин"
         bool active
     }
@@ -252,11 +253,15 @@ erDiagram
         uuid doctor_membership_id FK "nullable"
         uuid service_id FK "nullable, основная услуга"
         enum appointment_type
-        timestamptz scheduled_at
+        timestamptz scheduled_at "nullable только у draft/cancelled"
         int duration_min "длительность, мин"
         enum status
-        int price_total
+        int price_total_tiyin "тыйыны; отмена обнуляет"
         text comment "nullable"
+        enum cancel_reason "nullable, только у cancelled"
+        text cancel_comment "nullable, обязателен при other"
+        bool no_charge "приём закрыт как бесплатный"
+        text no_charge_comment "nullable, обязателен при no_charge"
     }
     APPOINTMENT_TOOTH {
         uuid id PK
@@ -265,7 +270,7 @@ erDiagram
         uuid service_id FK "nullable"
         uuid doctor_membership_id FK "nullable"
         enum status "appointment_tooth_status"
-        int price
+        int price_tiyin
         text comment "nullable"
         timestamptz created_at
     }
@@ -301,7 +306,7 @@ erDiagram
         uuid clinic_id FK
         uuid appointment_id FK "приём"
         uuid patient_id FK "плательщик"
-        int amount "сомы, > 0"
+        int amount_tiyin "тыйыны, > 0"
         enum method "cash|card|transfer"
         enum kind "payment|refund"
         uuid recorded_by_membership_id FK "кассир, nullable"
@@ -325,6 +330,12 @@ erDiagram
 > сложение завёрнуто в IMMUTABLE-функцию `appointment_tstzrange` (чистые минуты через
 > `make_interval(mins => ...)` от таймзоны не зависят). Клиника хранит IANA-таймзону
 > (`clinic.timezone`) — в ней считаются границы дня.
+>
+> **CHECK'и приёма.** `ck_appointment_scheduled_at_required`: дата обязательна
+> у всех статусов, кроме `draft` и `cancelled` — приём, который не состоялся, до
+> даты так и не дошёл. `ck_appointment_no_charge_comment` (0027): флаг
+> `no_charge` без пояснения запрещён — иначе «бесплатно» снова превращается в
+> нулевой чек, только с галочкой.
 >
 > Миграция 0020 закрывает дрейф схемы 0019: `appointment.scheduled_at` и метки
 > `created_at`/`updated_at` клинических таблиц объявлены в ORM как NOT NULL, но

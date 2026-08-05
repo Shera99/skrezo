@@ -147,6 +147,56 @@ async def test_patient_appointment_and_odontogram(
     assert bad.json()["error"] == "invalid_tooth"
 
 
+async def test_patient_note_is_stored_and_editable(
+    client: AsyncClient, clinic_a: dict[str, str]
+) -> None:
+    """Заметка о пациенте сохраняется, правится и снимается.
+
+    Фронт её уже собирает — поле, которое молча теряется, показывать нельзя.
+    """
+    sid = (
+        await client.post(
+            f"{API}/clinic/services", headers=clinic_a, json={"name": "Осмотр", "priceTiyin": 500}
+        )
+    ).json()["id"]
+    created = await client.post(
+        f"{API}/clinic/patients",
+        headers=clinic_a,
+        json={
+            "phone": "0700403001",
+            "firstName": "Заметка",
+            "note": "Аллергия на лидокаин",
+        },
+    )
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    # Карта видна клинике только при наличии приёма.
+    await client.post(
+        f"{API}/clinic/appointments",
+        headers=clinic_a,
+        json={"patientId": pid, "teeth": [{"tooth": 11, "serviceId": sid}]},
+    )
+
+    card = await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)
+    assert card.status_code == 200, card.text
+    assert card.json()["note"] == "Аллергия на лидокаин"
+
+    # PATCH отдаёт «личность» пациента без медицинских полей — заметку читаем из карты.
+    updated = await client.patch(
+        f"{API}/clinic/patients/{pid}", headers=clinic_a, json={"note": "Боится бормашины"}
+    )
+    assert updated.status_code == 200, updated.text
+    card = await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)
+    assert card.json()["note"] == "Боится бормашины"
+
+    cleared = await client.patch(
+        f"{API}/clinic/patients/{pid}", headers=clinic_a, json={"note": None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    card = await client.get(f"{API}/clinic/patients/{pid}", headers=clinic_a)
+    assert card.json()["note"] is None
+
+
 async def test_shared_history_across_clinics(
     client: AsyncClient, admin_client: AsyncClient, clinic_a: dict[str, str]
 ) -> None:

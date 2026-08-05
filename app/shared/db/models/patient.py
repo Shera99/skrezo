@@ -25,3 +25,8 @@ class Patient(Base, UUIDPKMixin, TimestampMixin):
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Заметка о пациенте (аллергии, особенности приёма). Пациент глобальный, и
+    # заметка вместе с ним: её видит любая клиника, куда он придёт, — как и
+    # сквозную историю зуба. Клинические предупреждения важнее, чем изоляция
+    # заметок; для внутриклинических пометок нужна отдельная сущность.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

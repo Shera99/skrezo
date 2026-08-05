@@ -33,12 +33,18 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     422: {
-        "description": "Отменённый приём нельзя завершить, либо переплата по оплате",
+        "description": (
+            "Приём без позиций (и без `noCharge`), отменённый приём "
+            "либо переплата по оплате"
+        ),
         "content": {
             "application/json": {
                 "example": {
-                    "error": "cannot_complete_cancelled",
-                    "message": "Отменённый приём нельзя завершить",
+                    "error": "appointment_without_items",
+                    "message": (
+                        "Приём без позиций закрыть нельзя: добавьте услуги "
+                        "либо закройте как бесплатный (noCharge с пояснением)"
+                    ),
                 }
             }
         },
@@ -64,6 +70,10 @@ async def complete_appointment(
     Смена статуса и платёж атомарны: не прошла оплата (переплата/нет остатка) —
     завершение откатывается. Без блока ``payment`` приём закрывается, а остаток
     становится долгом (виден в ``GET /clinic/cash/debts``).
+
+    Приём без единой позиции закрыть нельзя (→ 422 ``appointment_without_items``):
+    иначе нулевые чеки копятся и портят среднюю выручку. Бесплатный приём
+    оформляется явно — ``noCharge: true`` с ``noChargeComment``.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -75,6 +85,11 @@ async def complete_appointment(
             comment=body.payment.comment,
         )
     detail = await use_case.execute(
-        context.clinic_id, context.account_id, appointment_id, payment
+        context.clinic_id,
+        context.account_id,
+        appointment_id,
+        payment,
+        no_charge=body.no_charge if body is not None else False,
+        no_charge_comment=body.no_charge_comment if body is not None else None,
     )
     return AppointmentDetailResponse.from_detail(detail)

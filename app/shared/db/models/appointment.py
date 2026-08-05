@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -75,3 +75,11 @@ class Appointment(Base, UUIDPKMixin, TimestampMixin):
     # очищаются при снятии отмены, чтобы у активного приёма не висел старый повод.
     cancel_reason: Mapped[CancelReason | None] = mapped_column(CancelReasonType, nullable=True)
     cancel_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Приём без позиций закрыть нельзя — кроме явного «бесплатно» с пояснением
+    # (``ck_appointment_no_charge_comment``). Бесплатный приём бывает, но должен
+    # быть решением, а не следствием незаполненной формы: иначе нулевые чеки
+    # копятся и портят среднюю выручку.
+    no_charge: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    no_charge_comment: Mapped[str | None] = mapped_column(Text, nullable=True)

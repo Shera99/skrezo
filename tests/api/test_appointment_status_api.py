@@ -10,7 +10,11 @@
   приёма текущего дня, с комментарием и записью в аудит. Иначе появляется способ
   тихо править статистику прошедших дней;
 * причина отмены обязательна и из справочника — иначе отмены нечем считать;
-* причина не должна оставаться висеть на приёме, у которого отмену сняли.
+* причина не должна оставаться висеть на приёме, у которого отмену сняли;
+* отмена не должна оставлять сумму: иначе прерванный приём закроют как
+  ``completed`` с нулём, и отчёту нельзя верить;
+* приём без позиций не должен закрываться ни ручкой завершения, ни PATCH —
+  нулевые чеки копятся и портят среднюю выручку.
 """
 
 from __future__ import annotations
@@ -66,6 +70,7 @@ class ClinicCtx:
     headers: dict[str, str]
     patient_id: str
     worker_headers: dict[str, str]  # врач: правит приёмы, но откатывать не может
+    service_id: str  # услуга на 3000 тыйынов — позиция приёма
 
 
 async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
@@ -101,6 +106,10 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         json={"phone": _phone(), "firstName": "Пациент", "lastName": "Статусов"},
     )
     assert patient.status_code == 201, patient.text
+    service = await client.post(
+        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
+    )
+    assert service.status_code == 201, service.text
 
     spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
     worker_phone = _phone()
@@ -116,11 +125,18 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         headers=headers,
         patient_id=str(patient.json()["id"]),
         worker_headers=worker_headers,
+        service_id=str(service.json()["id"]),
     )
 
 
 async def _book(client: AsyncClient, ctx: ClinicCtx, **extra: Any) -> str:
-    body: dict[str, Any] = {"patientId": ctx.patient_id, "scheduledAt": _slot(), **extra}
+    """Приём с одной позицией (зуб 46 по услуге) — без позиций его не закрыть."""
+    body: dict[str, Any] = {
+        "patientId": ctx.patient_id,
+        "scheduledAt": _slot(),
+        "teeth": [{"tooth": 46, "serviceId": ctx.service_id}],
+        **extra,
+    }
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
     assert resp.status_code == 201, resp.text
     return str(resp.json()["id"])
@@ -399,7 +415,133 @@ async def test_cancel_from_in_progress(client: AsyncClient, ctx: ClinicCtx) -> N
     assert resp.json()["status"] == "cancelled"
 
 
-# ── 6. Отчёты ───────────────────────────────────────────────────────────────
+# ── 6. Отмена обнуляет сумму, позиции остаются ──────────────────────────────
+
+
+async def test_cancel_zeroes_total_but_keeps_items(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Прерванный приём не тарифицируется, но что успели сделать — остаётся в истории.
+
+    Иначе такие случаи закрывают как completed с нулём — то есть врут отчёту.
+    """
+    appointment_id = await _book(client, ctx)
+    await _patch(client, ctx, appointment_id, status="in_progress")
+
+    resp = await _patch(
+        client, ctx, appointment_id, status="cancelled", cancelReason="patient_illness"
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["priceTotalTiyin"] == 0
+    assert len(resp.json()["teeth"]) == 1
+
+
+async def test_uncancel_restores_total_from_items(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Снятие отмены возвращает сумму — и считает её из позиций, а не «помнит»."""
+    appointment_id = await _book(client, ctx)
+    await _patch(client, ctx, appointment_id, status="cancelled", cancelReason="duplicate")
+
+    restored = await _patch(
+        client, ctx, appointment_id, status="scheduled", rollbackComment="Ошиблись приёмом"
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["priceTotalTiyin"] == 3000
+
+
+# ── 7. Закрытие приёма: позиции или явное «бесплатно» ───────────────────────
+
+
+async def _book_empty(client: AsyncClient, ctx: ClinicCtx) -> str:
+    """Приём без позиций — тот самый «нулевой чек из незаполненной формы»."""
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.headers,
+        json={"patientId": ctx.patient_id, "scheduledAt": _slot()},
+    )
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["id"])
+
+
+async def _complete(client: AsyncClient, ctx: ClinicCtx, appointment_id: str, **body: Any) -> Any:
+    return await client.post(
+        f"{API}/clinic/appointments/{appointment_id}/complete",
+        headers=ctx.headers,
+        json=body or None,
+    )
+
+
+async def test_complete_without_items_is_rejected(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Приём без позиций не закрывается: нулевые чеки портят среднюю выручку."""
+    resp = await _complete(client, ctx, await _book_empty(client, ctx))
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "appointment_without_items"
+
+
+async def test_no_charge_requires_comment(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Голый флаг «бесплатно» — тот же нулевой чек, только с галочкой."""
+    resp = await _complete(client, ctx, await _book_empty(client, ctx), noCharge=True)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "no_charge_comment_required"
+
+
+async def test_no_charge_closes_empty_appointment(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Бесплатный приём бывает — но он решение с пояснением."""
+    resp = await _complete(
+        client,
+        ctx,
+        await _book_empty(client, ctx),
+        noCharge=True,
+        noChargeComment="Гарантийный осмотр",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "completed"
+    assert body["noCharge"] is True
+    assert body["noChargeComment"] == "Гарантийный осмотр"
+    assert body["priceTotalTiyin"] == 0
+
+
+async def test_no_charge_with_items_is_rejected(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Приём с позициями флагом не обнуляется — это была бы скидка 100% мимо права."""
+    resp = await _complete(
+        client, ctx, await _book(client, ctx), noCharge=True, noChargeComment="Бесплатно"
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "no_charge_with_items"
+
+
+async def test_patch_to_completed_without_items_is_rejected(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """PATCH — не дыра в обход правила: закрыть пустой приём им тоже нельзя."""
+    resp = await _patch(client, ctx, await _book_empty(client, ctx), status="completed")
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "appointment_without_items"
+
+
+async def test_no_charge_set_earlier_lets_complete_pass(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Флаг можно проставить заранее — тогда повторять его в завершении не нужно."""
+    appointment_id = await _book_empty(client, ctx)
+    marked = await _patch(
+        client, ctx, appointment_id, noCharge=True, noChargeComment="Консультация без назначений"
+    )
+    assert marked.status_code == 200, marked.text
+
+    resp = await _complete(client, ctx, appointment_id)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "completed"
+
+
+async def test_no_charge_comment_without_flag_is_422(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Пояснение живёт только вместе с флагом — как и причина отмены."""
+    resp = await _patch(
+        client, ctx, await _book_empty(client, ctx), noChargeComment="Просто так"
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "no_charge_comment_without_flag"
+
+
+# ── 8. Отчёты ───────────────────────────────────────────────────────────────
 
 
 async def test_arrived_counted_in_reports(client: AsyncClient, ctx: ClinicCtx) -> None:

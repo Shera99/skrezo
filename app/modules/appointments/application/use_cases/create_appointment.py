@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError, ValidationAppError
+from app.core.errors import ForbiddenError, NotFoundError, ValidationAppError
 from app.modules.appointments.application.services.booking import booking_guard
 from app.modules.appointments.domain.models import ToothInput
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
@@ -34,6 +34,8 @@ class CreateAppointmentInput:
     comment: str | None
     teeth: list[ToothInput]
     status: AppointmentStatus = AppointmentStatus.SCHEDULED
+    # Записать вне рабочих часов врача (право ``appointments.force_booking``).
+    force: bool = False
 
 
 class CreateAppointmentUseCase:
@@ -47,7 +49,13 @@ class CreateAppointmentUseCase:
         self._appointments = appointments
         self._availability = availability
 
-    async def execute(self, clinic_id: uuid.UUID, data: CreateAppointmentInput) -> Appointment:
+    async def execute(
+        self, clinic_id: uuid.UUID, data: CreateAppointmentInput, *, can_force: bool = False
+    ) -> Appointment:
+        if data.force and not can_force:
+            raise ForbiddenError(
+                "Нужно право на запись вне графика врача", code="force_booking_forbidden"
+            )
         if not await self._appointments.patient_exists(data.patient_id):
             raise NotFoundError("Пациент не найден", code="patient_not_found")
 
@@ -80,7 +88,7 @@ class CreateAppointmentUseCase:
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
         if doctor_id is not None and scheduled_at is not None:
             await self._availability.ensure_bookable(
-                clinic_id, doctor_id, span_of(scheduled_at, duration_min)
+                clinic_id, doctor_id, span_of(scheduled_at, duration_min), force=data.force
             )
 
         service_ids = [t.service_id for t in data.teeth if t.service_id is not None]

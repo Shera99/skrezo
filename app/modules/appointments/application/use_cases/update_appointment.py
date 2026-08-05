@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
 from app.modules.appointments.application.services.booking import booking_guard
+from app.modules.appointments.application.services.closing import (
+    ensure_closable,
+    ensure_no_charge_valid,
+)
 from app.modules.appointments.domain.models import AppointmentDetail
 from app.modules.appointments.domain.transitions import TransitionKind, classify_transition
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
@@ -117,7 +121,13 @@ class UpdateAppointmentUseCase:
         actor_id: uuid.UUID,
         can_rollback: bool = False,
         rollback_comment: str | None = None,
+        can_force: bool = False,
+        force: bool = False,
     ) -> AppointmentDetail:
+        if force and not can_force:
+            raise ForbiddenError(
+                "Нужно право на запись вне графика врача", code="force_booking_forbidden"
+            )
         appointment = await self._appointments.get(clinic_id, appointment_id)
         if appointment is None:
             raise NotFoundError("Приём не найден", code="appointment_not_found")
@@ -130,7 +140,9 @@ class UpdateAppointmentUseCase:
         )
         _apply_cancel_reason(appointment, fields)
         _ensure_date_for_status(appointment, fields)
-        await self._ensure_bookable(clinic_id, appointment, fields)
+        await self._apply_no_charge(appointment, fields)
+        await self._apply_price(appointment, fields)
+        await self._ensure_bookable(clinic_id, appointment, fields, force=force)
 
         # Гвард накрывает и update() (внутри флашит UPDATE — там и срабатывает
         # констрейнт), и commit(): ловить только коммит недостаточно.
@@ -220,6 +232,55 @@ class UpdateAppointmentUseCase:
                 code="rollback_not_today",
             )
 
+    async def _apply_no_charge(self, appointment: Appointment, fields: dict[str, Any]) -> None:
+        """Флаг «бесплатно» и закрытие приёма через PATCH.
+
+        Закрыть приём можно и правкой (``status: completed``), поэтому правило
+        «без позиций закрывать нельзя» проверяется и здесь — иначе PATCH стал бы
+        дырой в обход ручки завершения. Пояснение живёт только вместе с флагом:
+        как и причина отмены, при снятии оно очищается.
+        """
+        no_charge: bool = fields.get("no_charge", appointment.no_charge)
+        comment: str | None = fields.get("no_charge_comment", appointment.no_charge_comment)
+        if not no_charge:
+            if fields.get("no_charge_comment") is not None:
+                raise ValidationAppError(
+                    "Пояснение можно указать только вместе с noCharge: true",
+                    code="no_charge_comment_without_flag",
+                )
+            if "no_charge" in fields and appointment.no_charge_comment is not None:
+                fields["no_charge_comment"] = None
+                comment = None
+
+        closing = (
+            fields.get("status") is AppointmentStatus.COMPLETED
+            and appointment.status is not AppointmentStatus.COMPLETED
+        )
+        if not closing and "no_charge" not in fields and "no_charge_comment" not in fields:
+            return
+
+        has_items = await self._appointments.has_teeth(appointment.id)
+        if closing:
+            ensure_closable(has_items=has_items, no_charge=no_charge, comment=comment)
+        else:
+            ensure_no_charge_valid(has_items=has_items, no_charge=no_charge, comment=comment)
+
+    async def _apply_price(self, appointment: Appointment, fields: dict[str, Any]) -> None:
+        """Отмена обнуляет итог приёма; снятие отмены — пересчитывает из позиций.
+
+        Позиции при отмене сохраняются: что успели сделать — часть истории зуба.
+        Но денег за несостоявшийся приём не берут, иначе такие случаи закрывают
+        как ``completed`` с нулём — то есть врут отчёту. Снятая отмена
+        возвращает итог из фактических позиций, а не из запомненного числа.
+        """
+        target = fields.get("status")
+        if target is None or target is appointment.status:
+            return
+        if target is AppointmentStatus.CANCELLED:
+            fields["price_total_tiyin"] = 0
+        elif appointment.status is AppointmentStatus.CANCELLED:
+            fields["price_total_tiyin"] = await self._appointments.teeth_total(appointment.id)
+
     async def _validate_refs(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> None:
         """Врач и услуга обязаны быть из этой клиники — иначе IDOR."""
         doctor_id = fields.get("doctor_membership_id")
@@ -248,7 +309,12 @@ class UpdateAppointmentUseCase:
         )
 
     async def _ensure_bookable(
-        self, clinic_id: uuid.UUID, appointment: Appointment, fields: dict[str, Any]
+        self,
+        clinic_id: uuid.UUID,
+        appointment: Appointment,
+        fields: dict[str, Any],
+        *,
+        force: bool = False,
     ) -> None:
         """Перепроверить слот, если поменялось что-то влияющее на занятость."""
         if not _affects_booking(appointment, fields):
@@ -267,4 +333,5 @@ class UpdateAppointmentUseCase:
             doctor_id,
             span_of(scheduled_at, duration_min),
             exclude_appointment_id=appointment.id,
+            force=force,
         )

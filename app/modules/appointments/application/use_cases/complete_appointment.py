@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
+from app.modules.appointments.application.services.closing import ensure_closable
 from app.modules.appointments.domain.models import AppointmentDetail
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
@@ -39,12 +41,17 @@ class CompleteAppointmentUseCase:
         account_id: uuid.UUID,
         appointment_id: uuid.UUID,
         payment: CompletePayment | None,
+        *,
+        no_charge: bool = False,
+        no_charge_comment: str | None = None,
     ) -> AppointmentDetail:
         """Перевести приём в ``completed`` и, если передана оплата, провести её.
 
         Смена статуса и платёж — в одной транзакции: если оплата не проходит
         (переплата/нет остатка), завершение откатывается. Отменённый приём
         завершить нельзя (422), уже завершённый — 409 (нет двойного завершения).
+        Приём без позиций закрывается только как бесплатный: ``no_charge`` с
+        пояснением (см. ``services/closing``).
         """
         appointment = await self._appointments.get(clinic_id, appointment_id)
         if appointment is None:
@@ -61,7 +68,21 @@ class CompleteAppointmentUseCase:
                 code="cannot_complete_draft",
             )
 
-        await self._appointments.update(appointment, {"status": AppointmentStatus.COMPLETED})
+        # Флаг «бесплатно» мог быть проставлен раньше (PATCH) — тогда его не
+        # обязательно повторять в теле завершения.
+        no_charge = no_charge or appointment.no_charge
+        comment = no_charge_comment or appointment.no_charge_comment
+        ensure_closable(
+            has_items=await self._appointments.has_teeth(appointment_id),
+            no_charge=no_charge,
+            comment=comment,
+        )
+
+        fields: dict[str, Any] = {"status": AppointmentStatus.COMPLETED}
+        if no_charge:
+            fields["no_charge"] = True
+            fields["no_charge_comment"] = comment
+        await self._appointments.update(appointment, fields)
         if payment is not None:
             await self._cash.record_payment(
                 clinic_id=clinic_id,

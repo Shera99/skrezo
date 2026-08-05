@@ -92,6 +92,11 @@ class PatientCardResponse(CamelModel):
     birth_date: date | None = None
     email: str | None = None
     avatar: str | None = None
+    note: str | None = Field(
+        default=None,
+        description="Заметка о пациенте (аллергии, особенности приёма)",
+        examples=["Аллергия на лидокаин"],
+    )
     created_at: datetime
     appointments_count: int
     odontogram: list[OdontogramToothOut]
@@ -109,6 +114,7 @@ class PatientCardResponse(CamelModel):
             birth_date=p.birth_date,
             email=p.email,
             avatar=p.avatar,
+            note=p.note,
             created_at=p.created_at,
             appointments_count=card.appointments_count,
             odontogram=[OdontogramToothOut.from_orm_tooth(t) for t in card.odontogram],
@@ -123,6 +129,15 @@ class CreatePatientRequest(CamelModel):
     gender: str | None = Field(default=None, description="male|female|other")
     birth_date: date | None = None
     email: str | None = None
+    note: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "Заметка о пациенте (аллергии, особенности приёма). Пациент глобальный — "
+            "заметку видит любая клиника, где он лечится"
+        ),
+        examples=["Аллергия на лидокаин"],
+    )
 
 
 class PatientCreatedResponse(CamelModel):
@@ -145,6 +160,12 @@ class UpdatePatientRequest(NotNullFieldsModel):
     gender: str | None = None
     birth_date: date | None = None
     email: str | None = None
+    note: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Заметка о пациенте; `null` — снять заметку",
+        examples=["Аллергия на лидокаин"],
+    )
 
 
 class ToothStateInput(CamelModel):

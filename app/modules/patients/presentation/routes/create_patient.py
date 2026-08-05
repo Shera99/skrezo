@@ -39,5 +39,6 @@ async def create_patient(
         gender=body.gender,
         birth_date=body.birth_date,
         email=body.email,
+        note=body.note,
     )
     return PatientCreatedResponse(id=patient.id)

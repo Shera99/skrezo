@@ -110,23 +110,31 @@ class AvailabilityService:
         wanted: TimeSpan,
         *,
         exclude_appointment_id: uuid.UUID | None = None,
+        force: bool = False,
     ) -> None:
         """Проверить, что врача можно записать на ``wanted``.
 
         Нерабочее время (вне окна, обед, отсутствие) → 422; занятый слот → 409.
         Констрейнт ``ex_appointment_doctor_overlap`` страхует от гонки, но
         человекочитаемую ошибку даёт этот метод.
+
+        ``force`` снимает **только** проверку рабочих часов и обеда: клиники
+        принимают вне графика постоянно, и жёсткий запрет приводит лишь к тому,
+        что такой приём не заведут в системе вовсе. Пересечение приёмов и отпуск
+        врача не обходятся никогда — это не неудобное правило, а двойная запись
+        и работа в отсутствие врача.
         """
         tz = await self.clinic_timezone(clinic_id)
         day = wanted.start.astimezone(tz).date()
-        context = await self.day_context(clinic_id, membership_id, day, tz)
 
-        if not fits_window(context.window, wanted):
-            raise ValidationAppError(
-                "Время вне рабочего окна врача", code="outside_working_hours"
-            )
-        if context.break_at is not None and context.break_at.overlaps(wanted):
-            raise ValidationAppError("Время попадает на обед", code="break_time")
+        if not force:
+            context = await self.day_context(clinic_id, membership_id, day, tz)
+            if not fits_window(context.window, wanted):
+                raise ValidationAppError(
+                    "Время вне рабочего окна врача", code="outside_working_hours"
+                )
+            if context.break_at is not None and context.break_at.overlaps(wanted):
+                raise ValidationAppError("Время попадает на обед", code="break_time")
 
         time_off = await self._schedule.time_off(clinic_id, [membership_id], wanted)
         if any(span.overlaps(wanted) for span in time_off.get(membership_id, [])):

@@ -22,6 +22,17 @@ from app.shared.auth import ClientContext
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
+    403: {
+        "description": "Нет права на откат статуса или на запись вне графика",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "force_booking_forbidden",
+                    "message": "Нужно право на запись вне графика врача",
+                }
+            }
+        },
+    },
     404: {"description": "Приём не найден"},
     409: {
         "description": "Слот врача занят другим приёмом",
@@ -35,7 +46,10 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     422: {
-        "description": "Врач/услуга не из этой клиники либо нерабочее время",
+        "description": (
+            "Врач/услуга не из этой клиники, нерабочее время "
+            "либо закрытие приёма без позиций"
+        ),
         "content": {
             "application/json": {
                 "example": {
@@ -60,6 +74,7 @@ async def update_appointment(
     body: UpdateAppointmentRequest,
     context: ClientContext = Depends(require_permission("appointments.edit")),
     can_rollback: bool = Depends(has_permission("appointments.status_rollback")),
+    can_force: bool = Depends(has_permission("appointments.force_booking")),
     use_case: UpdateAppointmentUseCase = Depends(get_update_appointment_use_case),
 ) -> AppointmentDetailResponse:
     """Изменить приём (передаются только правимые поля).
@@ -68,13 +83,21 @@ async def update_appointment(
     рабочее окно (→ 422) и пересечение с другими приёмами врача (→ 409); сам приём
     из проверки исключается. Смена ``serviceId`` без явного ``durationMin``
     подтягивает длительность новой услуги. Отмена (``status=cancelled``) слот
-    освобождает и в проверках не участвует.
+    освобождает, в проверках не участвует и обнуляет итог приёма — позиции при
+    этом сохраняются, а снятие отмены пересчитывает сумму из них.
+
+    Закрытие приёма (``status: completed``) подчиняется тому же правилу, что и
+    ручка завершения: без позиций — только как бесплатный (``noCharge`` с
+    ``noChargeComment``), иначе 422. ``force: true`` (право
+    ``appointments.force_booking``) снимает только проверку рабочих часов.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     fields = body.model_dump(exclude_unset=True)
     # Комментарий к откату — не поле приёма: он уходит в аудит.
     rollback_comment = fields.pop("rollback_comment", None)
+    # force — модификатор проверки занятости, а не колонка приёма.
+    force = bool(fields.pop("force", False))
     detail = await use_case.execute(
         context.clinic_id,
         appointment_id,
@@ -82,5 +105,7 @@ async def update_appointment(
         actor_id=context.account_id,
         can_rollback=can_rollback,
         rollback_comment=rollback_comment,
+        can_force=can_force,
+        force=force,
     )
     return AppointmentDetailResponse.from_detail(detail)

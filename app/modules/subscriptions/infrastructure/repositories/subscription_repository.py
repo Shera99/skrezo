@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.enums import SubscriptionStatus
@@ -15,6 +16,14 @@ from app.shared.db.models.subscription_event import SubscriptionEvent
 class SubscriptionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def by_clinic(self, clinic_id: uuid.UUID) -> Subscription | None:
+        """Подписка клиники (одна активная запись на клинику)."""
+        return (
+            await self._session.execute(
+                select(Subscription).where(Subscription.clinic_id == clinic_id)
+            )
+        ).scalar_one_or_none()
 
     async def create(
         self,

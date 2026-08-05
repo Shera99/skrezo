@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, status
 
 from app.core.errors import ForbiddenError
-from app.modules.access.presentation.deps import require_permission
+from app.modules.access.presentation.deps import has_permission, require_permission
 from app.modules.appointments.application.use_cases.create_appointment import (
     CreateAppointmentInput,
     CreateAppointmentUseCase,
@@ -23,6 +23,17 @@ from app.shared.auth import ClientContext
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
+    403: {
+        "description": "Нет права на запись вне графика (`force: true`)",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "force_booking_forbidden",
+                    "message": "Нужно право на запись вне графика врача",
+                }
+            }
+        },
+    },
     404: {"description": "Пациент не найден"},
     409: {
         "description": "Слот врача занят другим приёмом",
@@ -60,6 +71,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 async def create_appointment(
     body: CreateAppointmentRequest,
     context: ClientContext = Depends(require_permission("appointments.create")),
+    can_force: bool = Depends(has_permission("appointments.force_booking")),
     use_case: CreateAppointmentUseCase = Depends(get_create_appointment_use_case),
 ) -> AppointmentCreatedResponse:
     """Записать пациента на приём.
@@ -69,6 +81,10 @@ async def create_appointment(
     (часы клиники ∩ график врача, мимо обеда и отсутствий → 422) и не пересекаться
     с другими его приёмами (→ 409). Пересечение дополнительно запрещено
     EXCLUDE-констрейнтом в БД, что закрывает гонку параллельных записей.
+
+    ``force: true`` (право ``appointments.force_booking``) снимает только проверку
+    рабочих часов и обеда — клиники принимают вне графика постоянно. Пересечение
+    приёмов и отпуск врача не обходятся никогда.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -90,6 +106,7 @@ async def create_appointment(
             for t in body.teeth
         ],
         status=body.status,
+        force=body.force,
     )
-    appt = await use_case.execute(context.clinic_id, data)
+    appt = await use_case.execute(context.clinic_id, data, can_force=can_force)
     return AppointmentCreatedResponse(id=appt.id, price_total_tiyin=appt.price_total_tiyin)

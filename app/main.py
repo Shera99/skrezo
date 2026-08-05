@@ -42,6 +42,7 @@ from app.modules.reports.presentation.routes import router as reports_router
 from app.modules.schedule.presentation.routes import router as schedule_router
 from app.modules.services.presentation.routes import router as services_router
 from app.modules.staff.presentation.routes import router as staff_router
+from app.modules.subscriptions.presentation.routes import router as subscription_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
 
 OPENAPI_DESCRIPTION = """
@@ -141,6 +142,14 @@ OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "subscription",
+        "x-displayName": "Подписка клиники",
+        "description": (
+            "Подписка своей клиники: статус, срок триала или оплаченного периода "
+            "и остаток дней (право `billing.view`)."
+        ),
+    },
+    {
         "name": "payments",
         "x-displayName": "Платежи",
         "description": "Платежи Skrezo: журнал и сводка (v1 — заглушка).",
@@ -202,7 +211,7 @@ OPENAPI_TAG_GROUPS = [
         "name": "Рабочее приложение клиники",
         "tags": [
             "staff", "roles", "schedule", "patients", "services", "appointments", "cash",
-            "reports",
+            "reports", "subscription",
         ],
     },
     {
@@ -267,6 +276,7 @@ def create_app() -> FastAPI:
     app.include_router(appointments_router, prefix=settings.api_v1_prefix)
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
+    app.include_router(subscription_router, prefix=settings.api_v1_prefix)
     app.include_router(roles_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)

@@ -51,6 +51,7 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef(
         "appointments.status_rollback", "appointments", "Откат статуса приёма назад"
     ),
+    PermissionDef("appointments.force_booking", "appointments", "Запись вне графика врача"),
     # Касса
     PermissionDef("cash.view_own", "cash", "Касса: свои платежи"),
     PermissionDef("cash.view_all", "cash", "Касса: платежи всей клиники"),
@@ -106,6 +107,9 @@ DEFAULT_ROLES: list[RoleDef] = [
             # Откат статуса — операция администратора: врачу не даём, чтобы
             # исправление ошибок оставалось видимым решением, а не рутиной.
             "appointments.status_rollback",
+            # Запись вне графика — тоже решение администратора: врач не должен
+            # сам себе ставить приёмы мимо собственных рабочих часов.
+            "appointments.force_booking",
             "cash.view_all",
             "cash.operate",
             "price.view",

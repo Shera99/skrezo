@@ -27,6 +27,7 @@ class CreatePatientUseCase:
         gender: str | None,
         birth_date: date | None,
         email: str | None,
+        note: str | None = None,
     ) -> Patient:
         normalized = normalize_phone(phone)
         existing = await self._patients.find_by_phone(normalized)
@@ -45,6 +46,7 @@ class CreatePatientUseCase:
             gender=gender,
             birth_date=birth_date,
             email=email,
+            note=note,
         )
         await self._session.commit()
         return patient

@@ -209,9 +209,13 @@ async def _book(
     duration: int | None = None,
     doctor: str | None | bool = True,
     service_id: str | None = None,
+    force: bool = False,
+    headers: dict[str, str] | None = None,
 ) -> Any:
     """POST /clinic/appointments со скидкой на дефолты фикстуры."""
     body: dict[str, Any] = {"patientId": ctx.patient_id}
+    if force:
+        body["force"] = True
     if doctor is True:
         body["doctorMembershipId"] = ctx.doctor_id
     elif isinstance(doctor, str):
@@ -222,7 +226,9 @@ async def _book(
         body["durationMin"] = duration
     if service_id is not None:
         body["serviceId"] = service_id
-    return await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
+    return await client.post(
+        f"{API}/clinic/appointments", headers=headers or ctx.headers, json=body
+    )
 
 
 async def _set_timezone(res: Resources, clinic_id: str, tz: str) -> None:
@@ -1312,11 +1318,15 @@ async def test_completing_appointment_outside_current_hours_is_not_blocked(
     rejected = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30)
     assert rejected.status_code == 422, rejected.text
 
-    # …но старый приём завершается штатно.
+    # …но старый приём завершается штатно (позиций нет — закрываем как бесплатный).
     completed = await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
         headers=clinic_a.headers,
-        json={"status": "completed"},
+        json={
+            "status": "completed",
+            "noCharge": True,
+            "noChargeComment": "Осмотр без назначений",
+        },
     )
     assert completed.status_code == 200, completed.text
     assert completed.json()["status"] == "completed"
@@ -1944,3 +1954,86 @@ async def test_time_off_endpoints_without_token_return_401(
     """Ручки отсутствий закрыты авторизацией."""
     resp = await client.request(method, f"{API}{path}", json={})
     assert resp.status_code == 401, resp.text
+
+
+# ── 11. Запись вне графика (force) ──────────────────────────────────────────
+#
+# Клиники принимают вне графика постоянно: жёсткий запрет приводит не к порядку,
+# а к тому, что приём уедет в тетрадь. Поэтому право снимает проверку рабочих
+# часов — и только её: пересечение приёмов и отпуск врача не обходятся никогда.
+
+
+async def test_force_books_outside_working_hours(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Воскресенье — выходной клиники, но с правом и флагом запись проходит."""
+    rejected = await _book(client, clinic_a, start=at(SUNDAY, "10:00"), duration=30)
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["error"] == "outside_working_hours"
+
+    forced = await _book(client, clinic_a, start=at(SUNDAY, "10:00"), duration=30, force=True)
+    assert forced.status_code == 201, forced.text
+
+
+async def test_force_does_not_bypass_overlap(client: AsyncClient, clinic_a: ClinicCtx) -> None:
+    """Двойная запись остаётся запрещённой: флаг про часы, а не про занятость."""
+    booked = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30)
+    assert booked.status_code == 201, booked.text
+
+    forced = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30, force=True)
+    assert forced.status_code == 409, forced.text
+    assert forced.json()["error"] == "slot_taken"
+
+
+async def test_force_does_not_bypass_time_off(
+    _resources: Resources, client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Отпуск врача флагом не обходится — врача в клинике попросту нет."""
+    await _add_time_off(
+        _resources, clinic_a.clinic_id, clinic_a.doctor_id, at(MONDAY, "09:00"), at(MONDAY, "11:00")
+    )
+    forced = await _book(client, clinic_a, start=at(MONDAY, "10:00"), duration=30, force=True)
+    assert forced.status_code == 422, forced.text
+    assert forced.json()["error"] == "doctor_time_off"
+
+
+async def test_force_needs_permission(client: AsyncClient, clinic_a: ClinicCtx) -> None:
+    """У врача есть appointments.create, но записывать вне графика он не может."""
+    membership_id, phone, password = await _add_doctor(client, clinic_a.headers, "Врач Форс")
+    worker = await _login(client, phone, password)
+
+    resp = await _book(
+        client,
+        clinic_a,
+        start=at(SUNDAY, "10:00"),
+        duration=30,
+        doctor=membership_id,
+        force=True,
+        headers=worker,
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"] == "force_booking_forbidden"
+
+
+async def test_force_moves_appointment_outside_hours(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Перенос вне графика — та же операция: без флага 422, с флагом проходит."""
+    booked = await _book(client, clinic_a, start=at(MONDAY, "10:00"), duration=30)
+    assert booked.status_code == 201, booked.text
+    appointment_id = booked.json()["id"]
+
+    rejected = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=clinic_a.headers,
+        json={"scheduledAt": at(SUNDAY, "10:00")},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["error"] == "outside_working_hours"
+
+    forced = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=clinic_a.headers,
+        json={"scheduledAt": at(SUNDAY, "10:00"), "force": True},
+    )
+    assert forced.status_code == 200, forced.text

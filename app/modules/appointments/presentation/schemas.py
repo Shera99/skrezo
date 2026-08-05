@@ -110,6 +110,15 @@ class CreateAppointmentRequest(CamelModel):
     )
     comment: str | None = None
     teeth: list[ToothInputSchema] = Field(default_factory=list, description="Манипуляции по зубам")
+    force: bool = Field(
+        default=False,
+        description=(
+            "Записать вне рабочих часов врача (право `appointments.force_booking`). "
+            "Снимает только проверку графика и обеда: пересечение с другим приёмом "
+            "и отпуск врача не обходятся никогда"
+        ),
+        examples=[True],
+    )
 
     @model_validator(mode="after")
     def _check_draft(self) -> CreateAppointmentRequest:
@@ -162,6 +171,12 @@ class AppointmentDetailResponse(CamelModel):
         default=None, description="Причина отмены; null у неотменённого приёма"
     )
     cancel_comment: str | None = Field(default=None, description="Пояснение к отмене")
+    no_charge: bool = Field(
+        default=False, description="Приём закрыт как бесплатный (без позиций)"
+    )
+    no_charge_comment: str | None = Field(
+        default=None, description="Пояснение к бесплатному приёму"
+    )
     teeth: list[AppointmentToothOut]
 
     @classmethod
@@ -181,6 +196,8 @@ class AppointmentDetailResponse(CamelModel):
             comment=a.comment,
             cancel_reason=a.cancel_reason,
             cancel_comment=a.cancel_comment,
+            no_charge=a.no_charge,
+            no_charge_comment=a.no_charge_comment,
             teeth=[AppointmentToothOut.from_row(t) for t in d.teeth],
         )
 
@@ -193,7 +210,7 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
     доезжал до слепого ``setattr`` и записывал NULL в NOT NULL-колонку.
     """
 
-    NOT_NULL_FIELDS = ("status", "appointmentType", "scheduledAt", "durationMin")
+    NOT_NULL_FIELDS = ("status", "appointmentType", "scheduledAt", "durationMin", "noCharge")
 
     status: AppointmentStatus | None = None
     appointment_type: AppointmentType | None = None
@@ -233,9 +250,33 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
         ),
         examples=["Пациент опоздал, но пришёл"],
     )
+    no_charge: bool | None = Field(
+        default=None,
+        description=(
+            "Пометить приём бесплатным — единственный способ закрыть приём без "
+            "позиций (`status: completed`). Требует `noChargeComment`; при "
+            "`false` пояснение очищается"
+        ),
+        examples=[True],
+    )
+    no_charge_comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Пояснение к бесплатному приёму; обязательно при `noCharge: true`",
+        examples=["Гарантийный осмотр после лечения"],
+    )
     doctor_membership_id: uuid.UUID | None = None
     service_id: uuid.UUID | None = Field(
         default=None, description="Основная услуга приёма; null — снять услугу"
+    )
+    force: bool = Field(
+        default=False,
+        description=(
+            "Перенести вне рабочих часов врача (право `appointments.force_booking`). "
+            "Снимает только проверку графика и обеда: пересечение с другим приёмом "
+            "и отпуск врача не обходятся никогда"
+        ),
+        examples=[True],
     )
 
 
@@ -257,3 +298,17 @@ class CompleteAppointmentRequest(CamelModel):
     """
 
     payment: CompletePaymentInput | None = None
+    no_charge: bool = Field(
+        default=False,
+        description=(
+            "Закрыть приём как бесплатный — единственный способ закрыть приём "
+            "без позиций. Требует `noChargeComment` и запрещён, если позиции есть"
+        ),
+        examples=[True],
+    )
+    no_charge_comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Пояснение к бесплатному приёму; обязательно при `noCharge: true`",
+        examples=["Гарантийный осмотр после лечения"],
+    )
