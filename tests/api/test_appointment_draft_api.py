@@ -280,6 +280,50 @@ async def test_promoting_into_taken_slot_is_409(
     assert resp.json()["error"] == "slot_taken"
 
 
+async def test_create_without_date_is_rejected(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Обычная запись без даты — 422, а не приём «на сейчас».
+
+    Регресс прод-инцидента: фронт слал `startAt` вместо `scheduledAt`, поле
+    молча игнорировалось, дефолт ставил текущий момент — и приёмы заводились
+    один за другим «на сейчас», пока повторный запрос не упёрся в 409
+    «слот занят». Ошибка про чужую подсистему вместо «нет даты».
+    """
+    ctx = await _clinic(admin_client, client, "Черновик Без даты")
+    patient_id = await _patient(client, ctx, "Безымянный")
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.headers,
+        json={
+            "patientId": patient_id,
+            "startAt": "2026-08-10T21:30:00+06:00",  # неизвестное поле — игнорируется
+            "durationMin": 30,
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "scheduled_at_required"
+
+
+async def test_draft_is_the_only_appointment_without_date(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Исключение ровно одно: черновик заводится без даты и слот не занимает."""
+    ctx = await _clinic(admin_client, client, "Черновик Исключение")
+    patient_id = await _patient(client, ctx, "Черновиков")
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.headers,
+        json={"patientId": patient_id, "status": "draft"},
+    )
+    assert resp.status_code == 201, resp.text
+    card = await client.get(
+        f"{API}/clinic/appointments/{resp.json()['id']}", headers=ctx.headers
+    )
+    assert card.json()["scheduledAt"] is None
+    assert card.json()["status"] == "draft"
+
+
 async def test_draft_cannot_be_completed(
     admin_client: AsyncClient, client: AsyncClient
 ) -> None:

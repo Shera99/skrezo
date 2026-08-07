@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, working_slot
 
 
 async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> str:
@@ -120,7 +120,7 @@ async def _create_patient_with_appointment(
     appt = await client.post(
         f"{API}/clinic/appointments",
         headers=headers,
-        json={"patientId": pid, "items": [{"teeth": [46]}]},
+        json={"patientId": pid, "scheduledAt": working_slot(), "items": [{"teeth": [46]}]},
     )
     assert appt.status_code == 201, appt.text
     return str(pid)

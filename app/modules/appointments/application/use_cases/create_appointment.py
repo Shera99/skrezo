@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,9 +77,20 @@ class CreateAppointmentUseCase:
             clinic_id, data.service_id, data.duration_min
         )
         # Черновик — пациент заведён, но дата ещё не выбрана: слот не занимается,
-        # проверять нечего. У обычной записи пустая дата означает «сейчас».
+        # проверять нечего. Это ЕДИНСТВЕННЫЙ приём без даты.
+        #
+        # Прежде пустая дата у обычной записи означала «сейчас», и это подводило:
+        # опечатка в имени поля (``startAt`` вместо ``scheduledAt``) молча
+        # записывала приём на текущий момент, а на повторной попытке приходил
+        # 409 «слот занят» — ошибка про чужую подсистему вместо «нет даты».
+        # Запись «прямо сейчас» никуда не делась: время просто передаётся явно.
         is_draft = data.status is AppointmentStatus.DRAFT
-        scheduled_at = None if is_draft else (data.scheduled_at or datetime.now(UTC))
+        if not is_draft and data.scheduled_at is None:
+            raise ValidationAppError(
+                "Укажите дату приёма: без неё запись возможна только как черновик",
+                code="scheduled_at_required",
+            )
+        scheduled_at = None if is_draft else data.scheduled_at
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
         if doctor_id is not None and scheduled_at is not None:
             await self._availability.ensure_bookable(

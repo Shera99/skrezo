@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -89,12 +89,15 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
     )
 
 
-async def _book(client: AsyncClient, ctx: ClinicCtx, quantity: int = 1) -> str:
+async def _book(
+    client: AsyncClient, ctx: ClinicCtx, quantity: int = 1, *, when: str | None = None
+) -> str:
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "scheduledAt": when or working_slot(),
             "items": [{"serviceId": ctx.service_id, "teeth": [46], "quantity": quantity}],
         },
     )
@@ -289,7 +292,8 @@ async def test_percent_over_hundred_is_422(client: AsyncClient, ctx: ClinicCtx) 
 
 async def test_discounts_visible_in_summary(client: AsyncClient, ctx: ClinicCtx) -> None:
     """Сколько клиника раздала скидками — видно в отчёте."""
-    appointment_id = await _book(client, ctx)
+    # Отчёт за период: приём должен попасть в него, поэтому дата — сегодняшняя.
+    appointment_id = await _book(client, ctx, when=today_slot())
     await _discount(client, ctx, appointment_id, 10)
     await client.post(f"{API}/clinic/appointments/{appointment_id}/complete", headers=ctx.headers)
 

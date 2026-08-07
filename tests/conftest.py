@@ -8,12 +8,14 @@ Alembic (схема + сиды справочников/ролей), подме�
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,37 @@ except Exception:  # pragma: no cover
 
 API = "/api/v1"
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Часы клиники по умолчанию: пн–сб 09:00–18:00, обед 12:00–13:00 (Asia/Bishkek).
+# Слоты берём с шагом в час и мимо обеда, чтобы приём любой разумной длительности
+# попадал в рабочее окно и не пересекался с соседним.
+_SAFE_HOURS = (9, 10, 11, 13, 14, 15, 16, 17)
+_slot_seq = itertools.count()
+
+
+def working_slot() -> str:
+    """Уникальный слот в рабочем окне клиники — для ``scheduledAt``.
+
+    Дата у приёма обязательна (дефолта «сейчас» нет: он превращал опечатку в
+    имени поля в тихую запись «на текущий момент»), а часы клиники в
+    большинстве тестов дефолтные. Хелпер выдаёт заведомо рабочее время, каждый
+    раз новое, — чтобы тесты не зависели ни от времени запуска, ни друг от друга.
+    """
+    index = next(_slot_seq)
+    day = date.today() + timedelta(days=1 + index // len(_SAFE_HOURS))
+    if day.weekday() == 6:  # воскресенье — выходной по умолчанию
+        day += timedelta(days=1)
+    hour = _SAFE_HOURS[index % len(_SAFE_HOURS)]
+    return f"{day.isoformat()}T{hour:02d}:00:00+06:00"
+
+
+def today_slot(hour: int = 10) -> str:
+    """Слот СЕГОДНЯ — для отчётов: пресет периода кончается концом текущего дня.
+
+    Приём на завтра в отчёт за период не попадёт, поэтому там, где проверяется
+    именно отчёт, дата должна быть сегодняшней.
+    """
+    return f"{date.today().isoformat()}T{hour:02d}:00:00+06:00"
 
 # Мутируемые таблицы — чистятся между тестами (в FK-безопасном порядке,
 # дети → родители). Справочники и шаблоны ролей (clinic_id IS NULL) остаются.

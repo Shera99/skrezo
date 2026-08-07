@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -85,11 +85,17 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
     )
 
 
-async def _book(client: AsyncClient, ctx: ClinicCtx, items: list[dict[str, Any]]) -> str:
+async def _book(
+    client: AsyncClient, ctx: ClinicCtx, items: list[dict[str, Any]], *, when: str | None = None
+) -> str:
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": ctx.patient_id, "items": items},
+        json={
+            "patientId": ctx.patient_id,
+            "scheduledAt": when or working_slot(),
+            "items": items,
+        },
     )
     assert resp.status_code == 201, resp.text
     return str(resp.json()["id"])
@@ -170,7 +176,11 @@ async def test_invalid_tooth_in_item_is_422(client: AsyncClient, ctx: ClinicCtx)
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": ctx.patient_id, "items": [{"teeth": [99]}]},
+        json={
+            "patientId": ctx.patient_id,
+            "scheduledAt": working_slot(),
+            "items": [{"teeth": [99]}],
+        },
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["error"] == "invalid_tooth"
@@ -183,6 +193,7 @@ async def test_zero_quantity_is_rejected(client: AsyncClient, ctx: ClinicCtx) ->
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "scheduledAt": working_slot(),
             "items": [{"serviceId": ctx.filling_id, "quantity": 0}],
         },
     )
@@ -337,7 +348,8 @@ async def test_replace_items_of_other_clinic_is_404(
 
 async def test_services_report_counts_quantity(client: AsyncClient, ctx: ClinicCtx) -> None:
     """«Снимок ×3» — три оказанные услуги, а не одна строка отчёта."""
-    await _book(client, ctx, [{"serviceId": ctx.cleaning_id, "quantity": 3}])
+    # Отчёт за период: приём должен попасть в него, поэтому дата — сегодняшняя.
+    await _book(client, ctx, [{"serviceId": ctx.cleaning_id, "quantity": 3}], when=today_slot())
 
     report = await client.get(f"{API}/clinic/reports/services", headers=ctx.headers)
     assert report.status_code == 200, report.text

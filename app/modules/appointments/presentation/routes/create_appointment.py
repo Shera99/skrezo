@@ -47,12 +47,18 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     422: {
-        "description": "Некорректный зуб/услуга/врач либо нерабочее время",
+        "description": (
+            "Нет даты приёма (и это не черновик), некорректный зуб/услуга/врач "
+            "либо нерабочее время"
+        ),
         "content": {
             "application/json": {
                 "example": {
-                    "error": "outside_working_hours",
-                    "message": "Время вне рабочего окна врача",
+                    "error": "scheduled_at_required",
+                    "message": (
+                        "Укажите дату приёма: без неё запись возможна только "
+                        "как черновик"
+                    ),
                 }
             }
         },
@@ -75,6 +81,11 @@ async def create_appointment(
     use_case: CreateAppointmentUseCase = Depends(get_create_appointment_use_case),
 ) -> AppointmentCreatedResponse:
     """Записать пациента на приём.
+
+    ``scheduledAt`` обязателен: приём без даты бывает только черновиком
+    (``status: draft``), иначе 422 ``scheduled_at_required``. Дефолта «сейчас»
+    нет — запись на текущий момент передаётся явным временем, чтобы опечатка в
+    имени поля не заводила приём молча и «куда попало».
 
     Длительность приёма — ``durationMin``, иначе длительность услуги ``serviceId``,
     иначе 30 минут. Если врач назначен, приём обязан попадать в его рабочее окно

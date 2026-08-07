@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -100,6 +100,7 @@ async def _appointment(
     """Приём с ценой 3000 (одна услуга по зубу). Возвращает id."""
     body: dict[str, Any] = {
         "patientId": ctx.patient_id,
+        "scheduledAt": working_slot(),
         "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
     }
     if doctor is not None:
