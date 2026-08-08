@@ -160,6 +160,28 @@ async def test_item_with_several_teeth_lands_in_every_tooth_history(
         assert [r["serviceName"] for r in hist.json()["records"]] == ["Пломба"]
 
 
+async def test_items_keep_the_order_they_were_sent(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Чек — упорядоченный список: позиции возвращаются в присланном порядке.
+
+    Раньше порядок держался на `created_at`, а он у строк одного приёма
+    одинаков (время транзакции) — и позиции произвольно менялись местами.
+    """
+    appointment_id = await _book(
+        client,
+        ctx,
+        [
+            {"serviceId": ctx.cleaning_id},
+            {"serviceId": ctx.filling_id, "teeth": [36]},
+            {"serviceId": ctx.filling_id, "teeth": [37]},
+        ],
+    )
+    for _ in range(3):  # порядок не должен «плавать» между запросами
+        card = await _card(client, ctx, appointment_id)
+        assert [i["teeth"] for i in card["items"]] == [[], [36], [37]]
+
+
 async def test_duplicate_tooth_in_item_is_stored_once(
     client: AsyncClient, ctx: ClinicCtx
 ) -> None:

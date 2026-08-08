@@ -158,6 +158,7 @@ class UpdateAppointmentUseCase:
             await self._appointments.update(appointment, fields)
             if closing:
                 await self._appointments.mark_items_done(appointment_id)
+                await self._appointments.sync_odontogram(appointment_id)
             await self._session.commit()
 
         if rollback_from is not None:

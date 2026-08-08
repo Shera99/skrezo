@@ -7,6 +7,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.services.infrastructure.repositories.service_repository import ServiceRepository
+from app.shared.db.enums import ToothStatus
 from app.shared.db.models.service import Service
 
 
@@ -23,6 +24,7 @@ class CreateServiceUseCase:
         description: str | None,
         price_tiyin: int,
         duration: int | None,
+        tooth_outcome: ToothStatus | None = None,
     ) -> Service:
         service = await self._services.create(
             clinic_id,
@@ -30,6 +32,7 @@ class CreateServiceUseCase:
             description=description,
             price_tiyin=price_tiyin,
             duration=duration,
+            tooth_outcome=tooth_outcome,
         )
         await self._session.commit()
         return service

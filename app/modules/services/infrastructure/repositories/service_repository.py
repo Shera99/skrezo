@@ -14,7 +14,9 @@ from app.shared.db.updates import apply_updates
 
 # Колонки услуги, которые разрешено править через PATCH. Здесь нет clinic_id:
 # иначе тело запроса уводит услугу в чужую клинику.
-_UPDATABLE_FIELDS = frozenset({"name", "description", "price_tiyin", "duration", "active"})
+_UPDATABLE_FIELDS = frozenset(
+    {"name", "description", "price_tiyin", "duration", "active", "tooth_outcome"}
+)
 # Из них — NOT NULL в БД.
 _NOT_NULL_FIELDS = frozenset({"name", "price_tiyin", "active"})
 

@@ -52,7 +52,8 @@ class CompleteAppointmentUseCase:
         завершить нельзя (422), уже завершённый — 409 (нет двойного завершения).
         Приём без позиций закрывается только как бесплатный: ``no_charge`` с
         пояснением (см. ``services/closing``). Закрытие доводит незакрытые
-        позиции чека до ``completed`` — отменённые не трогает.
+        позиции чека до ``completed`` (отменённые не трогает) и обновляет
+        одонтограмму по исходам услуг.
         """
         appointment = await self._appointments.get(clinic_id, appointment_id)
         if appointment is None:
@@ -87,6 +88,8 @@ class CompleteAppointmentUseCase:
         # Приём закрыт — значит запланированное сделано. Отменённые позиции
         # остаются отменёнными: врач уже сказал, что их не делал.
         await self._appointments.mark_items_done(appointment_id)
+        # Карта зубов догоняет историю: вылеченный зуб перестаёт числиться больным.
+        await self._appointments.sync_odontogram(appointment_id)
         if payment is not None:
             await self._cash.record_payment(
                 clinic_id=clinic_id,

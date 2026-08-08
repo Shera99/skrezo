@@ -49,6 +49,10 @@ class AppointmentItem(Base, UUIDPKMixin):
     # Цена за ЕДИНИЦУ на момент оказания (тыйыны), а не итог строки.
     price_tiyin: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    # Порядок позиции в чеке (с нуля). Нужен именно колонкой: ``created_at`` у всех
+    # строк одного приёма одинаков (время транзакции), и без него порядок выдачи
+    # и ответ на вопрос «какая работа по зубу последняя» зависели бы от плана запроса.
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

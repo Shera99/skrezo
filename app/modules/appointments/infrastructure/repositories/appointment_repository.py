@@ -170,7 +170,7 @@ class AppointmentRepository:
         после правки чека он обязан относиться к новой сумме, а не к прежней.
         """
         total = 0
-        for item in items:
+        for index, item in enumerate(items):
             price = item.price_tiyin
             if price is None and item.service_id is not None:
                 price = service_prices.get(item.service_id, 0)
@@ -184,6 +184,7 @@ class AppointmentRepository:
                 price_tiyin=price,
                 quantity=item.quantity,
                 comment=item.comment,
+                position=index,
             )
             self._session.add(row)
             await self._session.flush()
@@ -314,7 +315,7 @@ class AppointmentRepository:
                 .outerjoin(PatientTooth, PatientTooth.id == AppointmentItemTooth.patient_tooth_id)
                 .where(AppointmentItem.appointment_id == appointment_id)
                 .group_by(AppointmentItem.id, Service.name)
-                .order_by(AppointmentItem.created_at, AppointmentItem.id)
+                .order_by(AppointmentItem.position, AppointmentItem.id)
             )
         ).all()
         return [
@@ -350,6 +351,52 @@ class AppointmentRepository:
             .values(status=AppointmentItemStatus.COMPLETED)
         )
         await self._session.flush()
+
+    async def sync_odontogram(self, appointment_id: uuid.UUID) -> int:
+        """Обновить состояние зубов пациента по сделанным позициям приёма.
+
+        Источник истины — ``service.tooth_outcome``: «Пломба» → ``filling``,
+        «Коронка» → ``crown``, «Удаление» → ``missing``. Услуги без исхода
+        (чистка, консультация) карту не трогают, как и отменённые позиции: врач
+        уже сказал, что их не делал.
+
+        ``DISTINCT ON`` — не украшение: если в одном приёме зуб сначала
+        запломбировали, а потом удалили, побеждает **последняя** позиция чека
+        (по ``position``). Без явного порядка Postgres взял бы произвольную
+        строку: ``created_at`` у позиций одного приёма одинаков — это время
+        транзакции.
+        """
+        outcome = (
+            select(
+                AppointmentItemTooth.patient_tooth_id.label("patient_tooth_id"),
+                Service.tooth_outcome.label("outcome"),
+            )
+            .join(AppointmentItem, AppointmentItem.id == AppointmentItemTooth.item_id)
+            .join(Service, Service.id == AppointmentItem.service_id)
+            .where(
+                AppointmentItem.appointment_id == appointment_id,
+                AppointmentItem.status == AppointmentItemStatus.COMPLETED,
+                Service.tooth_outcome.is_not(None),
+            )
+            .distinct(AppointmentItemTooth.patient_tooth_id)
+            .order_by(
+                AppointmentItemTooth.patient_tooth_id,
+                AppointmentItem.position.desc(),
+                AppointmentItem.id.desc(),
+            )
+            .subquery()
+        )
+        updated = (
+            await self._session.execute(
+                update(PatientTooth)
+                .where(PatientTooth.id == outcome.c.patient_tooth_id)
+                .values(status=outcome.c.outcome)
+                .returning(PatientTooth.id)
+                .execution_options(synchronize_session=False)
+            )
+        ).scalars()
+        await self._session.flush()
+        return len(list(updated))
 
     async def has_items(self, appointment_id: uuid.UUID) -> bool:
         """Есть ли у приёма хотя бы одна позиция."""

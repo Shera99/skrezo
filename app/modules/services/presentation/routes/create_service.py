@@ -33,5 +33,6 @@ async def create_service(
         description=body.description,
         price_tiyin=body.price_tiyin,
         duration=body.duration,
+        tooth_outcome=body.tooth_outcome,
     )
     return ServiceOut.from_orm_service(service)

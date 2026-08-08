@@ -2365,7 +2365,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 425000,\n  \"duration\": 0\n}",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 425000,\n  \"duration\": 0,\n  \"toothOutcome\": \"filling\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2400,7 +2400,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 0,\n  \"duration\": 0,\n  \"active\": true\n}",
+                  "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"priceTiyin\": 0,\n  \"duration\": 0,\n  \"active\": true,\n  \"toothOutcome\": \"healthy\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

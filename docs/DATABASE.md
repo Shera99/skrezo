@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0031** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0033** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -246,6 +246,7 @@ erDiagram
         text description "nullable"
         int price_tiyin "тыйыны"
         int duration "nullable, мин"
+        enum tooth_outcome "nullable: в какое состояние приводит зуб"
         bool active
     }
     APPOINTMENT {
@@ -275,6 +276,7 @@ erDiagram
         enum status "appointment_item_status"
         int price_tiyin "цена ЗА ЕДИНИЦУ на момент оказания"
         int quantity "CHECK > 0"
+        int position "порядок в чеке, с нуля"
         text comment "nullable"
         timestamptz created_at
     }
@@ -345,6 +347,12 @@ erDiagram
 > параллельных возврата увидели бы один остаток. Частичный индекс
 > `ix_cash_payment_refunds_payment` (0028) обслуживает агрегат «сколько
 > возвращено», который подмешивается к каждой строке журнала.
+>
+> **Одонтограмма и приём.** `patient_tooth.status` обновляется при завершении
+> приёма по `service.tooth_outcome` сделанных позиций (NULL — услуга зуб не
+> меняет). Если по зубу в одном приёме несколько работ, побеждает последняя по
+> `appointment_item.position`: `created_at` у строк одного приёма одинаков —
+> это время транзакции, и без явного порядка выбор был бы за планом запроса.
 >
 > **Скидка.** Хранится процентом (`discount_percent`) — так её ограничивает
 > потолок роли (`role.max_discount_percent`), — и суммой (`discount_tiyin`), без
