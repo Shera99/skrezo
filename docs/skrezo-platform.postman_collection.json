@@ -222,6 +222,78 @@
               "response": []
             },
             {
+              "name": "Запросить код на смену забытого пароля",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/password/forgot",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "password",
+                    "forgot"
+                  ]
+                },
+                "description": "Шаг 1: выслать код подтверждения на телефон аккаунта.\n\nДальше — ``POST /auth/password/reset`` с этим кодом и новым паролём. Код\nгодится **только** на смену пароля: войти им нельзя, как и сменить пароль\nкодом, выпущенным на вход.\n\nОтвет не раскрывает, зарегистрирован ли номер: он одинаков и для чужого\nномера. Каналы и dev-режим — те же, что у ``/auth/otp/request``.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Сменить забытый пароль по коду",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/password/reset",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "password",
+                    "reset"
+                  ]
+                },
+                "description": "Шаг 2: проверить код из ``/auth/password/forgot`` и поставить новый пароль.\n\nПосле успеха все refresh-сессии аккаунта отозваны — входить нужно заново, уже\nновым паролём. Ранее выданные access-токены доживают свой короткий срок.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"string\",\n  \"code\": \"string\",\n  \"newPassword\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
               "name": "Выбрать активную клинику",
               "request": {
                 "method": "POST",

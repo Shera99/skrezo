@@ -34,7 +34,7 @@ async def _ticket(client: AsyncClient, res: Resources, phone: str) -> str:
     """Пройти шаги 1–2 (запрос кода + подтверждение) и получить билет."""
     requested = await client.post(f"{API}/auth/otp/request", json={"phone": phone})
     assert requested.status_code == 200, requested.text
-    code: str | None = await res.fake.get(f"auth:otp:code:{normalize_phone(phone)}")
+    code: str | None = await res.fake.get(f"auth:otp:code:login:{normalize_phone(phone)}")
     assert code is not None
     verify = await client.post(f"{API}/auth/otp/verify", json={"phone": phone, "code": code})
     assert verify.status_code == 200, verify.text

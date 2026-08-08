@@ -9,6 +9,7 @@ from app.modules.identity.application.services.client_token_service import Clien
 from app.modules.identity.application.services.otp_service import OtpService
 from app.modules.identity.application.services.session_factory import issue_session
 from app.modules.identity.application.use_cases.login import LoginResult
+from app.modules.identity.domain.models import OtpPurpose
 from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
 from app.modules.identity.infrastructure.repositories.membership_repository import (
     MembershipRepository,
@@ -50,7 +51,7 @@ class VerifyOtpUseCase:
           паролю, OTP его не логинит (иначе OTP обошёл бы пароль).
         """
         phone = normalize_phone(phone_raw)
-        if not await self._otp.verify_code(phone, code):
+        if not await self._otp.verify_code(phone, code, OtpPurpose.LOGIN):
             raise BadRequestError("Неверный или истёкший код", code="invalid_otp")
 
         account = await self._accounts.get_by_phone(phone)

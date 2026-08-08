@@ -30,8 +30,8 @@ def _phone() -> str:
 
 
 async def _code(res: Resources, phone: str) -> str:
-    """Прочитать выпущенный OTP-код из fakeredis (доставка заглушена)."""
-    code: str | None = await res.fake.get(f"auth:otp:code:{normalize_phone(phone)}")
+    """Прочитать выпущенный OTP-код входа из fakeredis (доставка заглушена)."""
+    code: str | None = await res.fake.get(f"auth:otp:code:login:{normalize_phone(phone)}")
     assert code is not None, "код не выпущен"
     return code
 

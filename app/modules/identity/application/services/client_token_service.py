@@ -3,6 +3,15 @@
 Один токен для всех: команда Skrezo (claim ``platform_admin``) и сотрудники клиник
 (claims ``clinic_id`` + ``role_id`` — контекст активной клиники, когда выбрана).
 Refresh-``jti`` — в allowlist Redis (отзыв через logout).
+
+Рядом с allowlist ведётся набор ``jti`` **по аккаунту**: без него «выкинуть все
+сессии» (смена пароля по OTP) пришлось бы делать перебором ключей Redis. Набор
+живёт столько же, сколько refresh-токен, и чистится вместе с ним.
+
+⚠️ Отзыв касается только refresh-токенов: access-подписанный JWT нигде не
+хранится и доживает свой короткий TTL. Полный мгновенный отзыв потребовал бы
+версии токена в аккаунте и проверки на каждом запросе — для смены пароля это
+цена без выигрыша: злоумышленник и так теряет доступ через минуты.
 """
 
 from __future__ import annotations
@@ -19,6 +28,7 @@ from app.core.errors import UnauthorizedError
 from app.core.security import TokenType, create_token, decode_token
 
 _REFRESH_PREFIX = "auth:refresh:"
+_ACCOUNT_SESSIONS_KEY = "auth:sessions:{}"
 
 
 @dataclass(slots=True)
@@ -68,6 +78,11 @@ class ClientTokenService:
         await self._redis.set(
             _REFRESH_PREFIX + jti, account_id, ex=settings.refresh_token_ttl_seconds
         )
+        sessions_key = _ACCOUNT_SESSIONS_KEY.format(account_id)
+        await self._redis.sadd(sessions_key, jti)  # type: ignore[misc]
+        # TTL набора продлевается на каждой новой сессии: набор должен пережить
+        # самый свежий refresh-токен, иначе отзыв «всех сессий» пропустит часть.
+        await self._redis.expire(sessions_key, settings.refresh_token_ttl_seconds)
         return IssuedClientTokens(access, refresh, settings.access_token_ttl_seconds)
 
     async def refresh_access(self, refresh_token: str) -> tuple[str, int]:
@@ -96,8 +111,25 @@ class ClientTokenService:
         except UnauthorizedError:
             return
         jti = payload.get("jti")
-        if jti:
-            await self._redis.delete(_REFRESH_PREFIX + jti)
+        if not jti:
+            return
+        await self._redis.delete(_REFRESH_PREFIX + jti)
+        subject = payload.get("sub")
+        if subject:
+            await self._redis.srem(_ACCOUNT_SESSIONS_KEY.format(subject), jti)  # type: ignore[misc]
+
+    async def revoke_all(self, account_id: str) -> int:
+        """Отозвать все refresh-сессии аккаунта; вернуть их число.
+
+        Нужен после смены пароля: сессия, открытая до сброса, переживала бы его
+        и оставляла доступ тому, из-за кого пароль и меняют.
+        """
+        sessions_key = _ACCOUNT_SESSIONS_KEY.format(account_id)
+        jtis: set[str] = await self._redis.smembers(sessions_key)  # type: ignore[misc]
+        if jtis:
+            await self._redis.delete(*[_REFRESH_PREFIX + jti for jti in jtis])
+        await self._redis.delete(sessions_key)
+        return len(jtis)
 
     @staticmethod
     def _decode(token: str) -> dict[str, Any]:

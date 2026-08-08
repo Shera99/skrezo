@@ -26,6 +26,7 @@ from app.modules.identity.application.use_cases.logout import LogoutUseCase
 from app.modules.identity.application.use_cases.refresh_token import RefreshTokenUseCase
 from app.modules.identity.application.use_cases.register_solo import RegisterSoloUseCase
 from app.modules.identity.application.use_cases.request_otp import RequestOtpUseCase
+from app.modules.identity.application.use_cases.reset_password import ResetPasswordUseCase
 from app.modules.identity.application.use_cases.select_clinic import SelectClinicUseCase
 from app.modules.identity.application.use_cases.verify_otp import VerifyOtpUseCase
 from app.modules.identity.infrastructure.otp.channels import OtpChannel
@@ -102,6 +103,15 @@ def get_change_password_use_case(
     accounts: AccountRepository = Depends(get_account_repository),
 ) -> ChangePasswordUseCase:
     return ChangePasswordUseCase(session, accounts)
+
+
+def get_reset_password_use_case(
+    session: AsyncSession = Depends(get_session),
+    otp: OtpService = Depends(get_otp_service),
+    accounts: AccountRepository = Depends(get_account_repository),
+    tokens: ClientTokenService = Depends(get_client_token_service),
+) -> ResetPasswordUseCase:
+    return ResetPasswordUseCase(session, otp, accounts, tokens)
 
 
 def get_refresh_token_use_case(

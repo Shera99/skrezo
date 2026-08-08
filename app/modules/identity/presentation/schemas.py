@@ -104,6 +104,20 @@ class OtpRequestResponse(CamelModel):
     )
 
 
+class ForgotPasswordRequest(CamelModel):
+    """Шаг 1 восстановления доступа: код на телефон аккаунта."""
+
+    phone: str = Field(description="Телефон аккаунта, любой формат — нормализуется в E.164")
+
+
+class ResetPasswordRequest(CamelModel):
+    """Шаг 2 восстановления доступа: код из сообщения + новый пароль."""
+
+    phone: str = Field(description="Тот же телефон, что в запросе кода")
+    code: str = Field(min_length=4, max_length=8, description="Код из сообщения")
+    new_password: str = Field(min_length=8, max_length=128, description="Новый пароль (мин. 8)")
+
+
 class OtpVerifyRequest(CamelModel):
     """Шаг 2: подтверждение кода."""
 

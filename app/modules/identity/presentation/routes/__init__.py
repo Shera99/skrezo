@@ -11,6 +11,8 @@ from app.modules.identity.presentation.routes import (
     me,
     otp_request,
     otp_verify,
+    password_forgot,
+    password_reset,
     refresh,
     select_clinic,
     solo_register,
@@ -22,6 +24,8 @@ router.include_router(otp_request.router)
 router.include_router(otp_verify.router)
 router.include_router(solo_register.router)
 router.include_router(change_password.router)
+router.include_router(password_forgot.router)
+router.include_router(password_reset.router)
 router.include_router(select_clinic.router)
 router.include_router(refresh.router)
 router.include_router(logout.router)
