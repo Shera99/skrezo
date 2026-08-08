@@ -112,6 +112,11 @@ make run           # uvicorn с автоперезагрузкой
 | `ACCESS_TOKEN_TTL_SECONDS` | срок жизни access-токена | `900` |
 | `REFRESH_TOKEN_TTL_SECONDS` | срок жизни refresh-токена | `2592000` |
 | `TELEGRAM_TEAM_BOT_TOKEN` / `TELEGRAM_TEAM_CHAT_ID` | нотификации команды о лидах | — |
+| `OTP_CHANNELS` | каналы доставки кода по приоритету: `telegram,whatsapp,sms` | — (лог) |
+| `OTP_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру | `5` |
+| `TELEGRAM_GATEWAY_URL` / `TELEGRAM_GATEWAY_TOKEN` | Telegram Gateway (код своим шаблоном) | `https://gatewayapi.telegram.org` / — |
+| `WHATSAPP_API_URL` / `WHATSAPP_ACCOUNT_ID` | WhatsApp-бот (номер без «+») | — |
+| `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
 | `TRIAL_DAYS` / `CARD_ATTACH_DEADLINE_DAYS` | правила триала | `30` / `7` |
 
 ## Документация API
@@ -155,13 +160,25 @@ make run           # uvicorn с автоперезагрузкой
 | `POST` | `/leads` | Лид-форма «Больше одного» (публичная) |
 | `POST` | `/clinic-applications` | Заявка клиники после OTP: название, город, кол-во врачей (телефон — из билета) |
 
+> **Доставка OTP.** Каналы задаются `OTP_CHANNELS` **в порядке приоритета**:
+> `telegram,whatsapp,sms` — сначала бесплатный Telegram Gateway, при неудаче
+> WhatsApp-бот, и только потом платная SMS (SMSPRO / nikita.kg). Переход к
+> следующему каналу автоматический: у части номеров нет Telegram, и без этого
+> вход для них не работал бы. Не сработал ни один — `502 otp_delivery_failed`,
+> а не тихий «успех»: иначе пользователь ждёт код, которого не будет.
+>
+> Тексты: SMS — латиницей (кириллица переводит сообщение в UCS-2, где сегмент
+> 70 символов вместо 160 — вдвое дороже), WhatsApp — по-русски, Telegram текст
+> не принимает вовсе (свой шаблон). Каналы без заполненных настроек в цепочку
+> не попадают и пишут об этом в лог на старте. `OTP_CHANNELS` пуст — код уходит
+> в лог: так живут разработка и тесты, **в прод так выпускать нельзя**.
+>
 > **Соло по OTP.** Впервые: `otp/request` → `otp/verify` (нет аккаунта →
 > `registrationToken`) → `solo/register` (имя + профессия + город) → соло-аккаунт
 > без пароля, клиника `solo`, 30-дневный триал, сразу вход. Повторно: `otp/request`
 > → `otp/verify` → вход. Номер сотрудника клиники (с паролем) по OTP не логинится
 > (`409 use_password_login`). ⚠️ **Канал доставки OTP не выбран** — код уходит в
-> лог, при `OTP_EXPOSE_CODE=true` (dev) возвращается в `devCode`; в прод без
-> провайдера выпускать нельзя.
+> лог, при `OTP_EXPOSE_CODE=true` (dev) возвращается в `devCode`.
 >
 > **Клиника с сотрудниками** — второй путь после шага 2: вместо анкеты соло
 > клиент отправляет `POST /clinic-applications` (название компании, город,
@@ -542,7 +559,8 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 Лимиты — в переменных окружения (`LOGIN_RATE_LIMIT` и др.).
 
 > Сброс пароля инициирует Skrezo/владелец (новый временный → смена). **Самообслуживаемого
-> «забыл пароль» нет** — нужен канал доставки кода (SMS/WhatsApp, не выбран).
+> «забыл пароль» нет** — канал доставки кода уже есть (`OTP_CHANNELS`), нужен
+> сам флоу сброса.
 >
 > Отложено (зависит от биллинга): `POST /admin/billing/pay-now`, экспорт
 > платежей `GET /admin/payments/export`. Метрики `mrr`/`revenue`/`lifetimeRevenue`

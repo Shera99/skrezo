@@ -68,6 +68,24 @@ class Settings(BaseSettings):
     # true — вернуть код в ответе /auth/otp/request (dev/тесты, канал доставки не выбран).
     otp_expose_code: bool = False
 
+    # ── Доставка OTP: каналы в порядке приоритета ───────────────────────────
+    # «telegram,whatsapp,sms» — сначала бесплатный Telegram Gateway, при неудаче
+    # WhatsApp, и только потом платная SMS. Пусто (по умолчанию) — код пишется в
+    # лог: так живут локальная разработка и тесты, в прод так выпускать нельзя.
+    otp_channels: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    otp_delivery_timeout_seconds: float = 5.0
+    # Telegram Gateway (gatewayapi.telegram.org): код показывается своим шаблоном.
+    telegram_gateway_url: str = "https://gatewayapi.telegram.org"
+    telegram_gateway_token: str = ""
+    # WhatsApp-бот: номер уходит без ведущего плюса.
+    whatsapp_api_url: str = ""
+    whatsapp_account_id: str = ""
+    # SMSPRO (nikita.kg): XML-протокол, отправитель согласуется с оператором.
+    smspro_url: str = "https://smspro.nikita.kg/api/message"
+    smspro_login: str = ""
+    smspro_password: str = ""
+    smspro_sender: str = ""
+
     # ── Уведомления команды Skrezo ──────────────────────────────────────────
     telegram_team_bot_token: str = ""
     telegram_team_chat_id: str = ""
@@ -77,12 +95,12 @@ class Settings(BaseSettings):
     card_attach_deadline_days: int = 7
     default_lang: str = "ru"
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "otp_channels", mode="before")
     @classmethod
-    def _split_cors(cls, value: object) -> object:
-        """Разрешаем задавать CORS-домены строкой через запятую."""
+    def _split_csv(cls, value: object) -> object:
+        """Разрешаем задавать список строкой через запятую."""
         if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
+            return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
     @property

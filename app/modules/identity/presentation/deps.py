@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import Depends
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +28,8 @@ from app.modules.identity.application.use_cases.register_solo import RegisterSol
 from app.modules.identity.application.use_cases.request_otp import RequestOtpUseCase
 from app.modules.identity.application.use_cases.select_clinic import SelectClinicUseCase
 from app.modules.identity.application.use_cases.verify_otp import VerifyOtpUseCase
+from app.modules.identity.infrastructure.otp.channels import OtpChannel
+from app.modules.identity.infrastructure.otp.factory import build_channels
 from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
 from app.modules.identity.infrastructure.repositories.membership_repository import (
     MembershipRepository,
@@ -52,8 +56,19 @@ def get_login_use_case(
     return LoginUseCase(accounts, memberships, tokens)
 
 
+@lru_cache
+def _otp_channels() -> tuple[OtpChannel, ...]:
+    """Каналы доставки — один раз на процесс.
+
+    Сборка читает настройки и пишет предупреждения о ненастроенных провайдерах:
+    делать это на каждый запрос значило бы засорять лог и заново решать то, что
+    от запроса не зависит.
+    """
+    return tuple(build_channels())
+
+
 def get_otp_service(redis: Redis = Depends(get_redis)) -> OtpService:
-    return OtpService(redis, OtpDeliveryService())
+    return OtpService(redis, OtpDeliveryService(list(_otp_channels())))
 
 
 def get_request_otp_use_case(otp: OtpService = Depends(get_otp_service)) -> RequestOtpUseCase:

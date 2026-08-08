@@ -45,9 +45,11 @@ async def request_otp(
 ) -> OtpRequestResponse:
     """Шаг 1: выпустить 6-значный код и отправить на телефон.
 
-    Ответ не раскрывает, зарегистрирован ли номер. Канал доставки (SMS/WhatsApp)
-    пока не подключён: код уходит в лог, а при ``OTP_EXPOSE_CODE`` (dev) —
-    возвращается в поле ``devCode``.
+    Ответ не раскрывает, зарегистрирован ли номер. Код уходит по каналам из
+    ``OTP_CHANNELS`` в порядке приоритета (Telegram → WhatsApp → SMS): первый
+    сработавший останавливает цепочку. Если не справился ни один — 502
+    ``otp_delivery_failed``. Каналы не настроены — код пишется в лог, а при
+    ``OTP_EXPOSE_CODE`` (dev) возвращается в поле ``devCode``.
     """
     code = await use_case.execute(body.phone)
     return OtpRequestResponse(

@@ -94,6 +94,18 @@ class TooManyRequestsError(AppError):
     message = "Слишком много запросов"
 
 
+class UpstreamError(AppError):
+    """Отказал внешний провайдер (доставка OTP, платёжный шлюз).
+
+    502, а не 500: у нас всё работает, не ответила чужая система. Клиенту это
+    повод повторить попытку, а не сообщать об ошибке в приложении.
+    """
+
+    code = "upstream_error"
+    status_code = status.HTTP_502_BAD_GATEWAY
+    message = "Внешний сервис недоступен, попробуйте ещё раз"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Подключить обработчики ошибок к приложению."""
 
