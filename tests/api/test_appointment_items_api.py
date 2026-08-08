@@ -343,7 +343,86 @@ async def test_replace_items_of_other_clinic_is_404(
     assert resp.status_code == 404, resp.text
 
 
-# ── 3. Отчёт услуг ──────────────────────────────────────────────────────────
+# ── 3. Статус позиции ───────────────────────────────────────────────────────
+
+
+async def test_item_status_is_set_and_kept(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Статус позиции — то, что реально сделали внутри приёма, а не план целиком."""
+    appointment_id = await _book(
+        client,
+        ctx,
+        [
+            {"serviceId": ctx.filling_id, "teeth": [36], "status": "started"},
+            {"serviceId": ctx.cleaning_id, "status": "cancelled"},
+        ],
+    )
+    card = await _card(client, ctx, appointment_id)
+    statuses = {i["serviceId"]: i["status"] for i in card["items"]}
+    assert statuses[ctx.filling_id] == "started"
+    assert statuses[ctx.cleaning_id] == "cancelled"
+
+
+async def test_default_status_is_planned(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Без явного статуса позиция — план: её ещё не делали."""
+    appointment_id = await _book(client, ctx, [{"serviceId": ctx.filling_id, "teeth": [36]}])
+    assert (await _card(client, ctx, appointment_id))["items"][0]["status"] == "planned"
+
+
+async def test_completing_appointment_closes_open_items(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Закрыли приём — значит запланированное сделано; отменённое остаётся отменённым.
+
+    Иначе статус так и висел бы вечным `planned`: отдельно проставлять его
+    построчно на каждом закрытии никто не станет.
+    """
+    appointment_id = await _book(
+        client,
+        ctx,
+        [
+            {"serviceId": ctx.filling_id, "teeth": [36]},  # planned
+            {"serviceId": ctx.filling_id, "teeth": [37], "status": "started"},
+            {"serviceId": ctx.cleaning_id, "status": "cancelled"},
+        ],
+    )
+    done = await client.post(
+        f"{API}/clinic/appointments/{appointment_id}/complete", headers=ctx.headers
+    )
+    assert done.status_code == 200, done.text
+
+    statuses = sorted(i["status"] for i in done.json()["items"])
+    assert statuses == ["cancelled", "completed", "completed"]
+
+
+async def test_patch_to_completed_closes_items_too(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Закрытие через PATCH — тот же факт: позиции доводятся одинаково."""
+    appointment_id = await _book(client, ctx, [{"serviceId": ctx.filling_id, "teeth": [36]}])
+    resp = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=ctx.headers,
+        json={"status": "completed"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"][0]["status"] == "completed"
+
+
+async def test_item_status_visible_in_tooth_history(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """История зуба показывает статус работы — там он и нужен."""
+    appointment_id = await _book(client, ctx, [{"serviceId": ctx.filling_id, "teeth": [36]}])
+    await client.post(f"{API}/clinic/appointments/{appointment_id}/complete", headers=ctx.headers)
+
+    hist = await client.get(
+        f"{API}/clinic/patients/{ctx.patient_id}/teeth/36", headers=ctx.headers
+    )
+    assert hist.status_code == 200, hist.text
+    assert hist.json()["records"][0]["status"] == "completed"
+
+
+# ── 4. Отчёт услуг ──────────────────────────────────────────────────────────
 
 
 async def test_services_report_counts_quantity(client: AsyncClient, ctx: ClinicCtx) -> None:

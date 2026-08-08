@@ -32,6 +32,7 @@ from app.modules.clinic_applications.presentation.routes import (
 from app.modules.clinic_applications.presentation.routes import (
     router as clinic_applications_router,
 )
+from app.modules.clinics.presentation.routes import router as clinic_settings_router
 from app.modules.dashboard.presentation.routes import router as dashboard_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.leads.presentation.routes import router as leads_router
@@ -142,6 +143,14 @@ OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "clinic-settings",
+        "x-displayName": "Настройки клиники",
+        "description": (
+            "Клиника ведёт себя сама: название, город, контакты, язык и таймзона "
+            "(права `settings.view` / `settings.edit`). Тариф — за Skrezo."
+        ),
+    },
+    {
         "name": "subscription",
         "x-displayName": "Подписка клиники",
         "description": (
@@ -211,7 +220,7 @@ OPENAPI_TAG_GROUPS = [
         "name": "Рабочее приложение клиники",
         "tags": [
             "staff", "roles", "schedule", "patients", "services", "appointments", "cash",
-            "reports", "subscription",
+            "reports", "subscription", "clinic-settings",
         ],
     },
     {
@@ -277,6 +286,7 @@ def create_app() -> FastAPI:
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
     app.include_router(subscription_router, prefix=settings.api_v1_prefix)
+    app.include_router(clinic_settings_router, prefix=settings.api_v1_prefix)
     app.include_router(roles_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)

@@ -17,6 +17,8 @@ class ItemInput:
     ``teeth`` пуст у работ, не привязанных к зубу (чистка, консультация), и
     содержит несколько номеров, когда одна работа покрывает несколько зубов.
     ``price_tiyin`` не задан — берётся цена услуги на момент оказания.
+    ``status`` отличает запланированное от сделанного и отменённого внутри
+    одного приёма.
     """
 
     service_id: uuid.UUID | None
@@ -24,6 +26,7 @@ class ItemInput:
     quantity: int
     teeth: list[int]
     comment: str | None
+    status: AppointmentItemStatus = AppointmentItemStatus.PLANNED
 
 
 @dataclass(frozen=True, slots=True)

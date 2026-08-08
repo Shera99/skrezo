@@ -145,10 +145,19 @@ class UpdateAppointmentUseCase:
         await self._apply_price(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields, force=force)
 
+        # Закрытие через PATCH — тот же финансовый факт, что и ручка завершения,
+        # поэтому позиции доводятся одинаково (иначе статус зависел бы от пути).
+        closing = (
+            fields.get("status") is AppointmentStatus.COMPLETED
+            and appointment.status is not AppointmentStatus.COMPLETED
+        )
+
         # Гвард накрывает и update() (внутри флашит UPDATE — там и срабатывает
         # констрейнт), и commit(): ловить только коммит недостаточно.
         async with booking_guard(self._session):
             await self._appointments.update(appointment, fields)
+            if closing:
+                await self._appointments.mark_items_done(appointment_id)
             await self._session.commit()
 
         if rollback_from is not None:

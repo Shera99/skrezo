@@ -50,7 +50,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `catalog` | справочники город/специализация (i18n) | `city(+_translation)`, `specialization(+_translation)` | 1 ✅ |
 | `access` | RBAC клиники: права/роли (пер-клиника) | `permission`, `role`, `role_permission` | 2a ✅ |
 | `platform_auth` | только гвард `/admin/*` (требует `platform_admin`); собственного входа нет | — (флаг `account.is_platform_admin`) | 2a ✅ |
-| `clinics` | провижининг (ручное, командой Skrezo; владельцу — временный пароль); роутов не публикует — создание аккаунта под `/admin/clients` | `account`, `membership`, `clinic` (в shared) | 3 ✅ |
+| `clinics` | провижининг (ручное, командой Skrezo; владельцу — временный пароль) + **настройки своей клиники** `/clinic/settings` (название, город, контакты, язык, таймзона; права `settings.view`/`settings.edit`) | `account`, `membership`, `clinic` (в shared) | 3 ✅ / 14 ✅ |
 | `clients` | админ: список (offset-пагинация)/карточка/создание/правка, врачи (админ-сайд), phone-check, счётчики статусов, смена номера, архивация | clinic/account/membership/subscription (в shared) | 6 ✅ |
 | `staff` | клиент-сайд: сотрудники клиники (RBAC; работнику — временный пароль) | membership/account/role (в shared) | 6b ✅ |
 | `identity` | вход: сотрудники клиник — телефон + пароль, соло-врачи — OTP (passwordless) + self-service регистрация с триалом; смена пароля, выбор клиники | `account` (в shared) | 2b ✅ / 12 |

@@ -92,6 +92,15 @@ class ItemInputSchema(CamelModel):
         description="Номера зубов FDI; пусто — работа не привязана к зубу",
         examples=[[36, 37]],
     )
+    status: AppointmentItemStatus = Field(
+        default=AppointmentItemStatus.PLANNED,
+        description=(
+            "`planned` — запланировано, `started` — в работе, `completed` — сделано, "
+            "`cancelled` — от позиции отказались. Завершение приёма само доводит "
+            "`planned`/`started` до `completed`, отменённые не трогает"
+        ),
+        examples=["completed"],
+    )
     comment: str | None = None
 
 

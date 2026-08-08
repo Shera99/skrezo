@@ -114,6 +114,7 @@ async def create_appointment(
                 quantity=i.quantity,
                 teeth=i.teeth,
                 comment=i.comment,
+                status=i.status,
             )
             for i in body.items
         ],

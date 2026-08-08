@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.appointments.domain.models import (
@@ -180,7 +180,7 @@ class AppointmentRepository:
                 appointment_id=appointment.id,
                 service_id=item.service_id,
                 doctor_membership_id=appointment.doctor_membership_id,
-                status=AppointmentItemStatus.PLANNED,
+                status=item.status,
                 price_tiyin=price,
                 quantity=item.quantity,
                 comment=item.comment,
@@ -330,6 +330,26 @@ class AppointmentRepository:
             )
             for r in rows
         ]
+
+    async def mark_items_done(self, appointment_id: uuid.UUID) -> None:
+        """Закрытие приёма доводит незакрытые позиции до ``completed``.
+
+        Закрыли приём — значит работы сделаны; заставлять клиента отдельно
+        проставлять статус каждой строки бессмысленно, а без этого статус так и
+        остался бы вечным ``planned``. Отменённые позиции не трогаем: врач уже
+        сказал, что их не делал, и закрытие приёма это не отменяет.
+        """
+        await self._session.execute(
+            update(AppointmentItem)
+            .where(
+                AppointmentItem.appointment_id == appointment_id,
+                AppointmentItem.status.in_(
+                    (AppointmentItemStatus.PLANNED, AppointmentItemStatus.STARTED)
+                ),
+            )
+            .values(status=AppointmentItemStatus.COMPLETED)
+        )
+        await self._session.flush()
 
     async def has_items(self, appointment_id: uuid.UUID) -> bool:
         """Есть ли у приёма хотя бы одна позиция."""
