@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     smspro_password: str = ""
     smspro_sender: str = ""
 
+    # ── Уведомления пользователям (не OTP) ──────────────────────────────────
+    # «whatsapp,sms» — те же провайдеры, что у OTP, но с произвольным текстом:
+    # Telegram Gateway сюда не годится, он умеет только коды своим шаблоном.
+    # Пусто (по умолчанию) — сообщение пишется в лог (dev и тесты).
+    notify_channels: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    notify_delivery_timeout_seconds: float = 5.0
+
     # ── Уведомления команды Skrezo ──────────────────────────────────────────
     telegram_team_bot_token: str = ""
     telegram_team_chat_id: str = ""
@@ -95,7 +102,7 @@ class Settings(BaseSettings):
     card_attach_deadline_days: int = 7
     default_lang: str = "ru"
 
-    @field_validator("cors_origins", "otp_channels", mode="before")
+    @field_validator("cors_origins", "otp_channels", "notify_channels", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:
         """Разрешаем задавать список строкой через запятую."""

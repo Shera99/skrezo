@@ -14,6 +14,7 @@ import httpx
 import structlog
 
 from app.core.config import settings
+from app.modules.identity.domain.models import OtpPurpose
 from app.modules.identity.infrastructure.otp.channels import OtpDeliveryError
 
 logger = structlog.get_logger(__name__)
@@ -27,7 +28,9 @@ class TelegramGatewayChannel:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._client = client
 
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> None:
+        # Назначение здесь не используется: Gateway показывает код своим
+        # шаблоном и чужого текста не принимает.
         url = f"{settings.telegram_gateway_url.rstrip('/')}/sendVerificationMessage"
         payload = {
             "phone_number": phone,

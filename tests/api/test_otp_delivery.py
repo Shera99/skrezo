@@ -23,6 +23,7 @@ import pytest
 
 from app.core.config import settings
 from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
+from app.modules.identity.domain.models import OtpPurpose
 from app.modules.identity.infrastructure.otp.channels import OtpChannel, OtpDeliveryError
 from app.modules.identity.infrastructure.otp.smspro import SmsProChannel
 from app.modules.identity.infrastructure.otp.telegram_gateway import TelegramGatewayChannel
@@ -182,7 +183,7 @@ class _Failing:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, purpose: OtpPurpose) -> None:
         self.calls += 1
         raise OtpDeliveryError("сломан")
 
@@ -192,9 +193,11 @@ class _Working:
 
     def __init__(self) -> None:
         self.calls = 0
+        self.purposes: list[OtpPurpose] = []
 
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, purpose: OtpPurpose) -> None:
         self.calls += 1
+        self.purposes.append(purpose)
 
 
 async def test_delivery_falls_back_to_next_channel() -> None:
@@ -222,3 +225,33 @@ async def test_delivery_fails_when_all_channels_fail() -> None:
     """Ни один канал не справился — это ошибка, а не тихий успех."""
     with pytest.raises(OtpDeliveryError):
         await OtpDeliveryService([_Failing(), _Failing()]).send_code(PHONE, CODE)
+
+
+async def test_delivery_passes_purpose_to_channel() -> None:
+    """Назначение доходит до канала — от него зависит текст сообщения."""
+    channel = _Working()
+
+    await OtpDeliveryService([channel]).send_code(PHONE, CODE, OtpPurpose.PASSWORD_RESET)
+
+    assert channel.purposes == [OtpPurpose.PASSWORD_RESET]
+
+
+@pytest.mark.parametrize(
+    ("purpose", "expects_password_wording"),
+    [(OtpPurpose.LOGIN, False), (OtpPurpose.PASSWORD_RESET, True)],
+)
+async def test_message_text_names_the_purpose(
+    purpose: OtpPurpose, expects_password_wording: bool
+) -> None:
+    """Человек должен видеть, что подтверждает: вход или смену пароля."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["xml"] = request.content.decode()
+        return httpx.Response(200, text="<response><status>0</status></response>")
+
+    async with _client(handler) as client:
+        await SmsProChannel(client).send(PHONE, CODE, purpose)
+
+    assert ("parolya" in seen["xml"]) is expects_password_wording
+    assert seen["xml"].isascii()  # текст сброса тоже латиницей

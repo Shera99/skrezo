@@ -1,17 +1,25 @@
-"""Уведомление добавленного врача (WhatsApp «войдите по телефону и паролю»).
+"""Уведомление добавленного сотрудника: данные для входа сообщением.
 
-v1 — заглушка (провайдер не выбран): логируем факт. Временный пароль работнику
-передаёт добавивший его владелец/менеджер (возвращается в ответе API).
+Отправка идёт фоном (см. :class:`Notifier`): недоставка не отменяет добавление,
+а ответ владельцу не ждёт провайдера. Временный пароль по-прежнему возвращается
+в ответе API — сообщение его дублирует, а не заменяет.
 """
 
 from __future__ import annotations
 
-import structlog
-
-logger = structlog.get_logger(__name__)
+from app.modules.staff.domain.messages import staff_added_text
+from app.shared.notifications.notifier import Notifier
 
 
 class StaffNotificationService:
-    async def notify_staff_added(self, *, phone: str, clinic_name: str) -> None:
-        # TODO(phase позже): WhatsApp «Вас добавили в {clinic_name}, войдите по паролю».
-        logger.info("staff_added", phone=phone, clinic=clinic_name)
+    def __init__(self, notifier: Notifier) -> None:
+        self._notifier = notifier
+
+    async def notify_staff_added(
+        self, *, phone: str, clinic_name: str, temp_password: str
+    ) -> None:
+        self._notifier.notify_phone(
+            phone,
+            staff_added_text(clinic_name=clinic_name, phone=phone, temp_password=temp_password),
+            event="staff_added",
+        )

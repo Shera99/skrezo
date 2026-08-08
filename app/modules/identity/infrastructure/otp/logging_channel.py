@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import structlog
 
+from app.modules.identity.domain.models import OtpPurpose
+
 logger = structlog.get_logger(__name__)
 
 
@@ -22,5 +24,5 @@ class LoggingChannel:
 
     name = "log"
 
-    async def send(self, phone: str, code: str) -> None:
-        logger.info("otp_code_issued", phone=phone, code=code)
+    async def send(self, phone: str, code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> None:
+        logger.info("otp_code_issued", phone=phone, code=code, purpose=purpose.value)

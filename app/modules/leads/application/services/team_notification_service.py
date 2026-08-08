@@ -1,28 +1,20 @@
-"""Уведомление команды Skrezo о новом лиде (Telegram-чат).
+"""Уведомление команды Skrezo о новом лиде — в общий чат Telegram.
 
-v1 — заглушка (бот-токен/чат не настроены): логируем факт. Реальная отправка в
-общий чат — после настройки бота.
+Адресат внутренний, поэтому канал не цепочка на телефон, а Bot API. Отправка
+фоновая: лид уже записан, и молчащий бот не повод отвечать посетителю ошибкой.
+Чат не настроен — событие уходит в лог (dev-стенд).
 """
 
 from __future__ import annotations
 
-import structlog
-
+from app.modules.leads.domain.messages import new_lead_text
 from app.shared.db.models.lead import Lead
-
-logger = structlog.get_logger(__name__)
+from app.shared.notifications.notifier import Notifier
 
 
 class TeamNotificationService:
-    def __init__(self, bot_token: str, chat_id: str) -> None:
-        self._bot_token = bot_token
-        self._chat_id = chat_id
+    def __init__(self, notifier: Notifier) -> None:
+        self._notifier = notifier
 
     async def notify_new_lead(self, lead: Lead) -> None:
-        # TODO(phase 3+): отправка в Telegram-чат команды через Bot API.
-        logger.info(
-            "lead_created",
-            lead_id=str(lead.id),
-            clinic_name=lead.clinic_name,
-            phone=lead.phone,
-        )
+        self._notifier.notify_team(new_lead_text(lead), event="lead_created")

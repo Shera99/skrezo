@@ -15,14 +15,18 @@ from app.modules.staff.application.use_cases.remove_staff import RemoveStaffUseC
 from app.modules.staff.application.use_cases.reset_staff_password import ResetStaffPasswordUseCase
 from app.modules.staff.application.use_cases.update_staff import UpdateStaffUseCase
 from app.modules.staff.infrastructure.repositories.staff_repository import StaffRepository
+from app.shared.notifications.deps import get_notifier
+from app.shared.notifications.notifier import Notifier
 
 
 def get_staff_repository(session: AsyncSession = Depends(get_session)) -> StaffRepository:
     return StaffRepository(session)
 
 
-def get_staff_notification_service() -> StaffNotificationService:
-    return StaffNotificationService()
+def get_staff_notification_service(
+    notifier: Notifier = Depends(get_notifier),
+) -> StaffNotificationService:
+    return StaffNotificationService(notifier)
 
 
 def get_list_staff_use_case(

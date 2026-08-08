@@ -34,6 +34,8 @@ from app.modules.subscriptions.application.services.subscription_service import 
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
+from app.shared.notifications.deps import get_notifier
+from app.shared.notifications.notifier import Notifier
 
 
 def get_provisioning_service(
@@ -51,8 +53,10 @@ def get_provisioning_service(
     )
 
 
-def get_admin_notification_service() -> AdminNotificationService:
-    return AdminNotificationService()
+def get_admin_notification_service(
+    notifier: Notifier = Depends(get_notifier),
+) -> AdminNotificationService:
+    return AdminNotificationService(notifier)
 
 
 def get_create_clinic_use_case(

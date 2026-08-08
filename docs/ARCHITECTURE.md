@@ -55,7 +55,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `staff` | клиент-сайд: сотрудники клиники (RBAC; работнику — временный пароль) | membership/account/role (в shared) | 6b ✅ |
 | `identity` | вход: сотрудники клиник — телефон + пароль, соло-врачи — OTP (passwordless) + self-service регистрация с триалом; смена пароля, выбор клиники. **Доставка OTP** — цепочка каналов `infrastructure/otp` (Telegram Gateway → WhatsApp → SMSPRO) с переходом к следующему при неудаче | `account` (в shared) | 2b ✅ / 12 / 14 ✅ |
 | `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **управление ролями клиники** (`/clinic/roles`, право `roles.manage`); **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 ✅ / 13 ✅ |
-| `leads` | лид-форма «Больше одного» + Telegram-нотификация | `lead` | 3a ✅ |
+| `leads` | лид-форма «Больше одного» + нотификация команды в Telegram-чат | `lead` | 3a ✅ / 14 ✅ |
 | `clinic_applications` | заявки клиник (2-й путь регистрации после OTP): подача с подтверждённым телефоном + рассмотрение в админке (статусы pending/reviewed/rejected). Клиника заводится вручную | `clinic_application` | 12 ✅ |
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
@@ -70,7 +70,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |
 | `reports` | операционная аналитика: выручка, врачи, услуги, пациенты, долг. Два контура: клиентский (RBAC `reports.view_own`/`view_all`) и платформенный (`is_platform_admin`, свод по всем клиникам + любая клиника). Своих таблиц нет — агрегирует приёмы и кассу | читает appointment(_tooth)/cash_payment/membership | 12 ✅ |
-| `notifications` | каналы SMS/Telegram/WhatsApp | — | 2+ |
+| `notifications` (в `shared`) | транспорты сообщений: WhatsApp/SMS на телефон (`NOTIFY_CHANNELS`, цепочка с переходом) и Telegram Bot API в чат команды; фоновая отправка, недоставка не отменяет операцию. Отдельным модулем не стал — своих ручек и таблиц нет, а зовут его `staff`, `clinics` и `leads` | — | 14 ✅ |
 
 ## 4. Модель данных
 

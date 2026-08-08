@@ -117,6 +117,8 @@ make run           # uvicorn с автоперезагрузкой
 | `TELEGRAM_GATEWAY_URL` / `TELEGRAM_GATEWAY_TOKEN` | Telegram Gateway (код своим шаблоном) | `https://gatewayapi.telegram.org` / — |
 | `WHATSAPP_API_URL` / `WHATSAPP_ACCOUNT_ID` | WhatsApp-бот (номер без «+») | — |
 | `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
+| `NOTIFY_CHANNELS` | каналы уведомлений (не OTP) по приоритету: `whatsapp,sms` | — (лог) |
+| `NOTIFY_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру уведомлений | `5` |
 | `TRIAL_DAYS` / `CARD_ATTACH_DEADLINE_DAYS` | правила триала | `30` / `7` |
 
 ## Документация API
@@ -173,12 +175,20 @@ make run           # uvicorn с автоперезагрузкой
 > не попадают и пишут об этом в лог на старте. `OTP_CHANNELS` пуст — код уходит
 > в лог: так живут разработка и тесты, **в прод так выпускать нельзя**.
 >
+> **Уведомления (не OTP).** Данные для входа новому владельцу клиники и
+> добавленному сотруднику, лид — в чат команды. Каналы задаёт `NOTIFY_CHANNELS`
+> (`whatsapp,sms`) — те же провайдеры, что у кода, но с произвольным текстом,
+> поэтому Telegram Gateway сюда не годится. Отправка **фоновая**: ответ не ждёт
+> провайдера, а недоставка не отменяет операцию — сотрудник добавлен, клиника
+> создана, лид записан. Ошибка уходит в лог (`notification_failed`). Временный
+> пароль по-прежнему возвращается в ответе API — сообщение его дублирует.
+>
 > **Соло по OTP.** Впервые: `otp/request` → `otp/verify` (нет аккаунта →
 > `registrationToken`) → `solo/register` (имя + профессия + город) → соло-аккаунт
 > без пароля, клиника `solo`, 30-дневный триал, сразу вход. Повторно: `otp/request`
 > → `otp/verify` → вход. Номер сотрудника клиники (с паролем) по OTP не логинится
-> (`409 use_password_login`). ⚠️ **Канал доставки OTP не выбран** — код уходит в
-> лог, при `OTP_EXPOSE_CODE=true` (dev) возвращается в `devCode`.
+> (`409 use_password_login`). Каналы не настроены — код уходит в лог, при
+> `OTP_EXPOSE_CODE=true` (dev) возвращается в `devCode`.
 >
 > **Клиника с сотрудниками** — второй путь после шага 2: вместо анкеты соло
 > клиент отправляет `POST /clinic-applications` (название компании, город,
@@ -638,6 +648,7 @@ app/
     db/base.py|enums.py # Base, миксины, enum-типы (Lang, ClinicType)
     i18n/               # резолв языка запроса + каталог сообщений
     api/                # базовые схемы (CamelModel)
+    notifications/      # транспорты сообщений (WhatsApp, SMS, чат) + фоновая отправка
   modules/<module>/
     presentation/       # routes/ (1 эндпоинт = 1 файл), schemas.py, deps.py
     application/        # use_cases/ (1 задача = 1 use_case), services/

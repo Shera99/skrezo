@@ -86,5 +86,7 @@ class AddStaffUseCase:
             specialization_id=specialization_id,
         )
         await self._session.commit()
-        await self._notifier.notify_staff_added(phone=phone, clinic_name=clinic.name)
+        await self._notifier.notify_staff_added(
+            phone=phone, clinic_name=clinic.name, temp_password=temp_password
+        )
         return AddStaffResult(membership=membership, temp_password=temp_password)
