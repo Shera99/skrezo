@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.enums import SubscriptionStatus
@@ -44,6 +44,26 @@ class SubscriptionRepository:
         self._session.add(subscription)
         await self._session.flush()
         return subscription
+
+    async def expire_trials(self, now: datetime) -> list[uuid.UUID]:
+        """Перевести триалы с истёкшим сроком в ``trial_expired``.
+
+        Один UPDATE с ``RETURNING`` вместо «выбрать и обновить по одной»: клиник
+        может быть много, а условие ``status = 'trial'`` делает операцию
+        идемпотентной — повторный прогон ничего не найдёт.
+        """
+        rows = (
+            await self._session.execute(
+                update(Subscription)
+                .where(
+                    Subscription.status == SubscriptionStatus.TRIAL,
+                    Subscription.trial_ends_at <= now,
+                )
+                .values(status=SubscriptionStatus.TRIAL_EXPIRED)
+                .returning(Subscription.id)
+            )
+        ).scalars()
+        return list(rows)
 
     async def add_event(
         self,

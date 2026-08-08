@@ -60,7 +60,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
 | `dashboard` | сводка за период + тренды по месяцам (active/trial/риски/конверсия/отмены; заявки→клиенты; MRR ждёт биллинг) | читает clinic/subscription/lead | 7 ✅ |
-| `subscriptions` | подписка, статусы, триал; клиентская ручка `GET /clinic/subscription` — статус, срок и остаток дней (право `billing.view`) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 4 |
+| `subscriptions` | подписка, статусы, триал; клиентская ручка `GET /clinic/subscription`; **правило доступа** (`domain/access`: закрытая подписка → режим чтения) и джоба `expire_trials` (`trial` → `trial_expired`) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 14 ✅ / 4 |
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
 | `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |

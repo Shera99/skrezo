@@ -1,8 +1,10 @@
-"""Репозиторий триал-политики: набор триал-прав и статус подписки клиники."""
+"""Репозиторий политики подписки: набор триал-прав и состояние подписки клиники."""
 
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,15 @@ from app.shared.db.models.permission import Permission
 from app.shared.db.models.subscription import Subscription
 
 
-class TrialPolicyRepository:
+@dataclass(frozen=True, slots=True)
+class SubscriptionState:
+    """Минимум, по которому решается доступ: статус и конец триала."""
+
+    status: SubscriptionStatus
+    trial_ends_at: datetime
+
+
+class SubscriptionPolicyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -25,14 +35,16 @@ class TrialPolicyRepository:
         ).scalars()
         return list(rows)
 
-    async def clinic_on_trial(self, clinic_id: uuid.UUID) -> bool:
-        """Находится ли подписка клиники в статусе ``trial``."""
-        status = (
+    async def subscription_state(self, clinic_id: uuid.UUID) -> SubscriptionState | None:
+        """Статус подписки и конец триала; ``None`` — подписки нет."""
+        row = (
             await self._session.execute(
-                select(Subscription.status).where(Subscription.clinic_id == clinic_id)
+                select(Subscription.status, Subscription.trial_ends_at).where(
+                    Subscription.clinic_id == clinic_id
+                )
             )
-        ).scalar_one_or_none()
-        return status == SubscriptionStatus.TRIAL
+        ).first()
+        return None if row is None else SubscriptionState(status=row[0], trial_ends_at=row[1])
 
     async def all_permissions(self) -> list[Permission]:
         """Полный каталог прав (для админ-экрана триал-функций)."""

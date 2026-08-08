@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0030** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0031** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -374,7 +374,7 @@ erDiagram
 |---|---|---|
 | `lang_enum` | `kg`, `kz`, `ru`, `en` | account/clinic/переводы |
 | `clinic_type` | `solo`, `clinic` | clinic, tariff_version |
-| `subscription_status` | `trial`, `awaiting_card`, `active`, `past_due`, `blocked`, `cancelled` | subscription(_event) |
+| `subscription_status` | `trial`, `trial_expired`, `awaiting_card`, `active`, `past_due`, `blocked`, `cancelled` | subscription(_event) |
 | `tooth_status` | `healthy`, `caries`, `filling`, `crown`, `implant`, `missing`, `broken`, `root`, `under_treatment` | patient_tooth |
 | `appointment_type` | `consultation`, `treatment`, `operation`, `cleaning`, `xray` | appointment |
 | `appointment_status` | `draft`, `scheduled`, `confirmed`, `arrived`, `in_progress`, `completed`, `cancelled`, `no_show` | appointment |

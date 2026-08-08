@@ -21,8 +21,11 @@ from fastapi import Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.application.services.trial_policy import TrialPolicy
-from app.modules.access.presentation.deps import get_permission_resolver, get_trial_policy
+from app.modules.access.application.services.subscription_policy import (
+    DENY_MESSAGES,
+    SubscriptionPolicy,
+)
+from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
 from app.modules.schedule.infrastructure.repositories.schedule_repository import ScheduleRepository
 from app.modules.schedule.presentation.deps import get_schedule_repository
 from app.shared.auth import ClientContext, get_client_context
@@ -54,7 +57,7 @@ def _scope_guard(all_key: str, own_key: str) -> Callable[..., Awaitable[Schedule
         context: ClientContext = Depends(get_client_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
         schedule: ScheduleRepository = Depends(get_schedule_repository),
-        trial: TrialPolicy = Depends(get_trial_policy),
+        policy: SubscriptionPolicy = Depends(get_subscription_policy),
     ) -> ScheduleScope:
         if context.role_id is None or context.clinic_id is None:
             raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -66,10 +69,11 @@ def _scope_guard(all_key: str, own_key: str) -> Callable[..., Awaitable[Schedule
         allowed = unrestricted or own_key in resolved.permissions
         if not allowed:
             raise ForbiddenError("Недостаточно прав")
-        # На триале — только функции из списка админки (эффективное право контура).
+        # Триал-функции и режим чтения — по эффективному праву контура.
         effective_key = all_key if unrestricted else own_key
-        if not await trial.permits(context.clinic_id, effective_key):
-            raise ForbiddenError("Функция недоступна на триале", code="trial_restricted")
+        reason = await policy.deny_reason(context.clinic_id, effective_key)
+        if reason is not None:
+            raise ForbiddenError(DENY_MESSAGES[reason], code=reason.value)
 
         # Собственное членство нужно только own-контуру; для view_all не тратим запрос.
         own_membership_id = (

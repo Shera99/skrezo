@@ -18,7 +18,10 @@ from app.core.db import get_session
 from app.core.errors import ForbiddenError
 from app.core.redis import get_redis
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.application.services.subscription_policy import (
+    DENY_MESSAGES,
+    SubscriptionPolicy,
+)
 from app.modules.access.application.use_cases.get_trial_features import GetTrialFeaturesUseCase
 from app.modules.access.application.use_cases.manage_roles import (
     CreateRoleUseCase,
@@ -34,8 +37,8 @@ from app.modules.access.infrastructure.repositories.role_admin_repository import
     RoleAdminRepository,
 )
 from app.modules.access.infrastructure.repositories.role_repository import RoleRepository
-from app.modules.access.infrastructure.repositories.trial_policy_repository import (
-    TrialPolicyRepository,
+from app.modules.access.infrastructure.repositories.subscription_policy_repository import (
+    SubscriptionPolicyRepository,
 )
 from app.shared.auth import ClientContext, get_client_context
 
@@ -51,31 +54,31 @@ def get_permission_resolver(
     return PermissionResolver(role_repository, redis)
 
 
-def get_trial_policy_repository(
+def get_subscription_policy_repository(
     session: AsyncSession = Depends(get_session),
-) -> TrialPolicyRepository:
-    return TrialPolicyRepository(session)
+) -> SubscriptionPolicyRepository:
+    return SubscriptionPolicyRepository(session)
 
 
-def get_trial_policy(
-    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
+def get_subscription_policy(
+    repository: SubscriptionPolicyRepository = Depends(get_subscription_policy_repository),
     redis: Redis = Depends(get_redis),
-) -> TrialPolicy:
-    return TrialPolicy(repository, redis)
+) -> SubscriptionPolicy:
+    return SubscriptionPolicy(repository, redis)
 
 
 def get_get_trial_features_use_case(
-    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
+    repository: SubscriptionPolicyRepository = Depends(get_subscription_policy_repository),
 ) -> GetTrialFeaturesUseCase:
     return GetTrialFeaturesUseCase(repository)
 
 
 def get_update_trial_features_use_case(
     session: AsyncSession = Depends(get_session),
-    repository: TrialPolicyRepository = Depends(get_trial_policy_repository),
-    trial: TrialPolicy = Depends(get_trial_policy),
+    repository: SubscriptionPolicyRepository = Depends(get_subscription_policy_repository),
+    policy: SubscriptionPolicy = Depends(get_subscription_policy),
 ) -> UpdateTrialFeaturesUseCase:
-    return UpdateTrialFeaturesUseCase(session, repository, trial)
+    return UpdateTrialFeaturesUseCase(session, repository, policy)
 
 
 def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
@@ -89,7 +92,7 @@ def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
     async def _dep(
         context: ClientContext = Depends(get_client_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
-        trial: TrialPolicy = Depends(get_trial_policy),
+        policy: SubscriptionPolicy = Depends(get_subscription_policy),
     ) -> bool:
         if context.role_id is None:
             return False
@@ -97,7 +100,7 @@ def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
         if resolved is None:
             return False
         granted = resolved.is_owner or permission_key in resolved.permissions
-        return granted and await trial.permits(context.clinic_id, permission_key)
+        return granted and await policy.permits(context.clinic_id, permission_key)
 
     return _dep
 
@@ -126,7 +129,7 @@ def require_permission(
     async def _guard(
         context: ClientContext = Depends(get_client_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
-        trial: TrialPolicy = Depends(get_trial_policy),
+        policy: SubscriptionPolicy = Depends(get_subscription_policy),
     ) -> ClientContext:
         if context.role_id is None:
             raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -135,9 +138,11 @@ def require_permission(
             raise ForbiddenError("Роль не найдена")
         if not (resolved.is_owner or permission_key in resolved.permissions):
             raise ForbiddenError("Недостаточно прав")
-        # На триале доступны только функции из настраиваемого админкой списка.
-        if not await trial.permits(context.clinic_id, permission_key):
-            raise ForbiddenError("Функция недоступна на триале", code="trial_restricted")
+        # На триале доступны только функции из списка админки, а у клиники с
+        # закрытой подпиской (истёк триал, просрочка, блок) — только чтение.
+        reason = await policy.deny_reason(context.clinic_id, permission_key)
+        if reason is not None:
+            raise ForbiddenError(DENY_MESSAGES[reason], code=reason.value)
         return context
 
     return _guard

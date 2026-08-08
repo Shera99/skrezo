@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.redis import get_redis
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.application.services.trial_policy import TrialPolicy
-from app.modules.access.presentation.deps import get_permission_resolver, get_trial_policy
+from app.modules.access.application.services.subscription_policy import (
+    SubscriptionPolicy,
+)
+from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
 from app.modules.clinics.application.services.provisioning_service import build_provisioning_service
 from app.modules.identity.application.services.client_token_service import ClientTokenService
 from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
@@ -110,6 +112,6 @@ def get_get_me_use_case(
     accounts: AccountRepository = Depends(get_account_repository),
     memberships: MembershipRepository = Depends(get_membership_repository),
     resolver: PermissionResolver = Depends(get_permission_resolver),
-    trial: TrialPolicy = Depends(get_trial_policy),
+    policy: SubscriptionPolicy = Depends(get_subscription_policy),
 ) -> GetMeUseCase:
-    return GetMeUseCase(accounts, memberships, resolver, trial)
+    return GetMeUseCase(accounts, memberships, resolver, policy)

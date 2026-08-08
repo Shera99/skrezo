@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.modules.subscriptions.domain.access import ClinicAccess, clinic_access
 from app.shared.db.enums import SubscriptionStatus
 from app.shared.db.models.subscription import Subscription
 
@@ -25,6 +26,8 @@ class SubscriptionView:
     days_left: int
     #: Срок вышел (у оплаченной подписки без периода — False: даты нет).
     expired: bool
+    #: Клиника в режиме чтения — мутирующие операции закрыты.
+    writes_blocked: bool
 
 
 def expires_at(subscription: Subscription) -> datetime | None:
@@ -44,9 +47,11 @@ def days_left(deadline: datetime | None, now: datetime) -> int:
 def build_view(subscription: Subscription, now: datetime) -> SubscriptionView:
     """Собрать представление подписки на момент ``now``."""
     deadline = expires_at(subscription)
+    access = clinic_access(subscription.status, subscription.trial_ends_at, now)
     return SubscriptionView(
         subscription=subscription,
         expires_at=deadline,
         days_left=days_left(deadline, now),
         expired=deadline is not None and deadline <= now,
+        writes_blocked=access is ClinicAccess.READ_ONLY,
     )

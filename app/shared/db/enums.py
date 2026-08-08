@@ -31,6 +31,7 @@ class SubscriptionStatus(enum.StrEnum):
     """Статус подписки клиники на Skrezo."""
 
     TRIAL = "trial"  # 30 дней бесплатно
+    TRIAL_EXPIRED = "trial_expired"  # триал кончился, оплаты не было — только чтение
     AWAITING_CARD = "awaiting_card"  # карта не привязана за 7 дней — доступ закрыт
     ACTIVE = "active"
     PAST_DUE = "past_due"  # списание не прошло — доступ закрыт

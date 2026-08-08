@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from app.modules.access.infrastructure.repositories.trial_policy_repository import (
-    TrialPolicyRepository,
+from app.modules.access.infrastructure.repositories.subscription_policy_repository import (
+    SubscriptionPolicyRepository,
 )
 from app.shared.db.models.permission import Permission
 
 
 class GetTrialFeaturesUseCase:
-    def __init__(self, repository: TrialPolicyRepository) -> None:
+    def __init__(self, repository: SubscriptionPolicyRepository) -> None:
         self._repo = repository
 
     async def execute(self) -> list[Permission]:

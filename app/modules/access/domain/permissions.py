@@ -31,6 +31,12 @@ class PermissionDef(NamedTuple):
     # дальше набор триал-функций настраивается из админки (таблица ``permission``).
     # По умолчанию всё включено — триал ограничивает только то, что выключит админ.
     in_trial: bool = True
+    # Меняет ли право данные. Клиника с закрытой подпиской (истёкший триал,
+    # просрочка, блок) переходит в режим «только чтение»: такие права ей
+    # недоступны. Это свойство самой операции, а не настройка, поэтому живёт в
+    # каталоге, а не колонкой в БД. ⚠️ ``billing.manage`` намеренно НЕ мутирующее:
+    # им клиент и выходит из блокировки — закрыв его, мы заперли бы дверь изнутри.
+    is_write: bool = False
 
 
 # ── Каталог прав (расширяется по мере появления фич) ────────────────────────
@@ -38,47 +44,68 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     # Расписание / Сегодня
     PermissionDef("schedule.view_all", "schedule", "Видеть расписание всех врачей"),
     PermissionDef("schedule.view_own", "schedule", "Видеть своё расписание"),
-    PermissionDef("schedule.manage_all", "schedule", "Управлять записями всех врачей"),
-    PermissionDef("schedule.manage_own", "schedule", "Управлять своими записями"),
+    PermissionDef(
+        "schedule.manage_all", "schedule", "Управлять записями всех врачей", is_write=True
+    ),
+    PermissionDef(
+        "schedule.manage_own", "schedule", "Управлять своими записями", is_write=True
+    ),
     # Пациенты
     PermissionDef("patients.view", "patients", "Просмотр списка пациентов"),
-    PermissionDef("patients.edit", "patients", "Редактирование пациентов"),
+    PermissionDef("patients.edit", "patients", "Редактирование пациентов", is_write=True),
     PermissionDef("patients.view_medical", "patients", "Медкарта и одонтограмма"),
     # Приём
-    PermissionDef("appointments.create", "appointments", "Создание приёма"),
-    PermissionDef("appointments.edit", "appointments", "Редактирование приёма"),
-    PermissionDef("appointments.complete_pay", "appointments", "Завершить и оплатить"),
+    PermissionDef("appointments.create", "appointments", "Создание приёма", is_write=True),
+    PermissionDef("appointments.edit", "appointments", "Редактирование приёма", is_write=True),
     PermissionDef(
-        "appointments.status_rollback", "appointments", "Откат статуса приёма назад"
+        "appointments.complete_pay", "appointments", "Завершить и оплатить", is_write=True
     ),
-    PermissionDef("appointments.force_booking", "appointments", "Запись вне графика врача"),
+    PermissionDef(
+        "appointments.status_rollback",
+        "appointments",
+        "Откат статуса приёма назад",
+        is_write=True,
+    ),
+    PermissionDef(
+        "appointments.force_booking", "appointments", "Запись вне графика врача", is_write=True
+    ),
     # Касса
     PermissionDef("cash.view_own", "cash", "Касса: свои платежи"),
     PermissionDef("cash.view_all", "cash", "Касса: платежи всей клиники"),
-    PermissionDef("cash.operate", "cash", "Проведение платежей и долгов"),
-    PermissionDef("cash.discount", "cash", "Скидка на приём (в пределах потолка роли)"),
+    PermissionDef("cash.operate", "cash", "Проведение платежей и долгов", is_write=True),
+    PermissionDef(
+        "cash.discount", "cash", "Скидка на приём (в пределах потолка роли)", is_write=True
+    ),
     # Услуги / прайс
     PermissionDef("price.view", "price", "Просмотр прайса"),
-    PermissionDef("price.edit", "price", "Редактирование прайса"),
+    PermissionDef("price.edit", "price", "Редактирование прайса", is_write=True),
     # Отчёты
     PermissionDef("reports.view_own", "reports", "Отчёты по себе"),
     PermissionDef("reports.view_all", "reports", "Отчёты по всей клинике"),
     # Сотрудники
     PermissionDef("staff.view", "staff", "Просмотр сотрудников"),
-    PermissionDef("staff.manage", "staff", "Добавление/удаление сотрудников и ролей"),
+    PermissionDef(
+        "staff.manage", "staff", "Добавление/удаление сотрудников и ролей", is_write=True
+    ),
     # Настройки клиники
     PermissionDef("settings.view", "settings", "Просмотр настроек клиники"),
-    PermissionDef("settings.edit", "settings", "Редактирование настроек клиники"),
+    PermissionDef(
+        "settings.edit", "settings", "Редактирование настроек клиники", is_write=True
+    ),
     # Напоминания
-    PermissionDef("reminders.manage", "reminders", "Управление напоминаниями"),
+    PermissionDef("reminders.manage", "reminders", "Управление напоминаниями", is_write=True),
     # Подписка / оплата
     PermissionDef("billing.view", "billing", "Просмотр подписки и платежей"),
     PermissionDef("billing.manage", "billing", "Оплата и привязка карты"),
     # Роли и права
-    PermissionDef("roles.manage", "roles", "Управление ролями и правами"),
+    PermissionDef("roles.manage", "roles", "Управление ролями и правами", is_write=True),
 ]
 
 ALL_PERMISSION_KEYS: tuple[str, ...] = tuple(p.key for p in PERMISSION_CATALOG)
+#: Права, меняющие данные, — их теряет клиника с закрытой подпиской.
+WRITE_PERMISSION_KEYS: frozenset[str] = frozenset(
+    p.key for p in PERMISSION_CATALOG if p.is_write
+)
 
 
 class RoleDef(NamedTuple):

@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from app.core.errors import UnauthorizedError
 from app.modules.access.application.services.permission_resolver import PermissionResolver
-from app.modules.access.application.services.trial_policy import TrialPolicy
+from app.modules.access.application.services.subscription_policy import (
+    SubscriptionPolicy,
+)
 from app.modules.access.domain.permissions import ALL_PERMISSION_KEYS
 from app.modules.identity.domain.models import MembershipContext
 from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
@@ -32,12 +34,12 @@ class GetMeUseCase:
         accounts: AccountRepository,
         memberships: MembershipRepository,
         resolver: PermissionResolver,
-        trial: TrialPolicy,
+        policy: SubscriptionPolicy,
     ) -> None:
         self._accounts = accounts
         self._memberships = memberships
         self._resolver = resolver
-        self._trial = trial
+        self._policy = policy
 
     async def execute(self, context: ClientContext) -> MeResult:
         account = await self._accounts.get_by_id(context.account_id)
@@ -64,5 +66,5 @@ class GetMeUseCase:
                     else sorted(resolved.permissions)
                 )
                 # На триале клиент видит только доступные функции — как и enforce'ит guard.
-                permissions = await self._trial.filter_permitted(context.clinic_id, permissions)
+                permissions = await self._policy.filter_permitted(context.clinic_id, permissions)
         return MeResult(account, active, permissions, memberships, account.is_platform_admin)

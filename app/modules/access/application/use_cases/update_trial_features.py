@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ValidationAppError
-from app.modules.access.application.services.trial_policy import TrialPolicy
-from app.modules.access.infrastructure.repositories.trial_policy_repository import (
-    TrialPolicyRepository,
+from app.modules.access.application.services.subscription_policy import (
+    SubscriptionPolicy,
+)
+from app.modules.access.infrastructure.repositories.subscription_policy_repository import (
+    SubscriptionPolicyRepository,
 )
 from app.shared.db.models.permission import Permission
 
@@ -22,11 +24,14 @@ class TrialFeatureUpdate:
 
 class UpdateTrialFeaturesUseCase:
     def __init__(
-        self, session: AsyncSession, repository: TrialPolicyRepository, trial: TrialPolicy
+        self,
+        session: AsyncSession,
+        repository: SubscriptionPolicyRepository,
+        policy: SubscriptionPolicy,
     ) -> None:
         self._session = session
         self._repo = repository
-        self._trial = trial
+        self._policy = policy
 
     async def execute(self, updates: list[TrialFeatureUpdate]) -> list[Permission]:
         """Переключить ``inTrial`` у переданных прав; вернуть обновлённый каталог.
@@ -41,5 +46,5 @@ class UpdateTrialFeaturesUseCase:
                     f"Право не найдено: {update.key}", code="permission_not_found"
                 )
         await self._session.commit()
-        await self._trial.invalidate_keys()
+        await self._policy.invalidate_keys()
         return await self._repo.all_permissions()

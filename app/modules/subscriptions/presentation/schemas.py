@@ -40,6 +40,13 @@ class ClinicSubscriptionResponse(CamelModel):
     expired: bool = Field(
         description="Срок вышел — доступ пора продлевать", examples=[False]
     )
+    writes_blocked: bool = Field(
+        description=(
+            "Клиника в режиме ЧТЕНИЯ: мутирующие операции отвечают 403 "
+            "`subscription_inactive`. Фронту — прятать кнопки записи, кассы и правок"
+        ),
+        examples=[False],
+    )
     card_attached_at: datetime | None = Field(
         default=None, description="Когда привязана карта (гейт карты сейчас отключён)"
     )
@@ -58,6 +65,7 @@ class ClinicSubscriptionResponse(CamelModel):
             expires_at=view.expires_at,
             days_left=view.days_left,
             expired=view.expired,
+            writes_blocked=view.writes_blocked,
             card_attached_at=s.card_attached_at,
             current_period_start=s.current_period_start,
             current_period_end=s.current_period_end,
