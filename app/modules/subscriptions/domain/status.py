@@ -47,7 +47,12 @@ def days_left(deadline: datetime | None, now: datetime) -> int:
 def build_view(subscription: Subscription, now: datetime) -> SubscriptionView:
     """Собрать представление подписки на момент ``now``."""
     deadline = expires_at(subscription)
-    access = clinic_access(subscription.status, subscription.trial_ends_at, now)
+    access = clinic_access(
+        subscription.status,
+        now,
+        trial_ends_at=subscription.trial_ends_at,
+        current_period_end=subscription.current_period_end,
+    )
     return SubscriptionView(
         subscription=subscription,
         expires_at=deadline,

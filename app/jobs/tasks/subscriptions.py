@@ -14,6 +14,9 @@ from app.core.config import settings
 from app.core.db import session_factory
 from app.jobs.tasks.context import attempt, notifier
 from app.modules.jobs.application.services.job_recorder import JobRunRecorder
+from app.modules.subscriptions.application.use_cases.expire_paid_periods import (
+    ExpirePaidPeriodsUseCase,
+)
 from app.modules.subscriptions.application.use_cases.expire_trials import ExpireTrialsUseCase
 from app.modules.subscriptions.application.use_cases.warn_trial_ending import (
     WarnTrialEndingUseCase,
@@ -28,6 +31,18 @@ async def expire_trials(ctx: dict[str, Any]) -> int:
     async with JobRunRecorder("expire_trials", attempt(ctx)) as run:
         async with session_factory() as session:
             use_case = ExpireTrialsUseCase(
+                session, SubscriptionRepository(session), notifier(ctx)
+            )
+            count = await use_case.execute()
+        run.note(f"переведено клиник: {count}")
+        return count
+
+
+async def expire_paid_periods(ctx: dict[str, Any]) -> int:
+    """Перевести клиники с истёкшим оплаченным периодом в ``past_due``."""
+    async with JobRunRecorder("expire_paid_periods", attempt(ctx)) as run:
+        async with session_factory() as session:
+            use_case = ExpirePaidPeriodsUseCase(
                 session, SubscriptionRepository(session), notifier(ctx)
             )
             count = await use_case.execute()

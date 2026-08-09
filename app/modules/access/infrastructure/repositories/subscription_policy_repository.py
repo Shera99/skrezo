@@ -16,10 +16,16 @@ from app.shared.db.models.subscription import Subscription
 
 @dataclass(frozen=True, slots=True)
 class SubscriptionState:
-    """Минимум, по которому решается доступ: статус и конец триала."""
+    """Минимум, по которому решается доступ: статус и оба срока.
+
+    Конец оплаченного периода здесь по той же причине, что и конец триала:
+    доступ считается по датам, а не по статусу, который ставит джоба.
+    """
 
     status: SubscriptionStatus
     trial_ends_at: datetime
+    #: Конец оплаченного периода; ``None`` — клиника ещё ни разу не платила.
+    current_period_end: datetime | None = None
 
 
 class SubscriptionPolicyRepository:
@@ -36,15 +42,21 @@ class SubscriptionPolicyRepository:
         return list(rows)
 
     async def subscription_state(self, clinic_id: uuid.UUID) -> SubscriptionState | None:
-        """Статус подписки и конец триала; ``None`` — подписки нет."""
+        """Статус подписки и сроки триала/периода; ``None`` — подписки нет."""
         row = (
             await self._session.execute(
-                select(Subscription.status, Subscription.trial_ends_at).where(
-                    Subscription.clinic_id == clinic_id
-                )
+                select(
+                    Subscription.status,
+                    Subscription.trial_ends_at,
+                    Subscription.current_period_end,
+                ).where(Subscription.clinic_id == clinic_id)
             )
         ).first()
-        return None if row is None else SubscriptionState(status=row[0], trial_ends_at=row[1])
+        if row is None:
+            return None
+        return SubscriptionState(
+            status=row[0], trial_ends_at=row[1], current_period_end=row[2]
+        )
 
     async def all_permissions(self) -> list[Permission]:
         """Полный каталог прав (для админ-экрана триал-функций)."""

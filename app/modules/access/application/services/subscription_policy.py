@@ -71,16 +71,23 @@ class SubscriptionPolicy:
         return frozenset(keys)
 
     async def state(self, clinic_id: uuid.UUID) -> SubscriptionState | None:
-        """Статус подписки и конец триала (кеш с коротким TTL)."""
+        """Статус подписки и её сроки (кеш с коротким TTL)."""
         key = CLINIC_STATE_CACHE.format(clinic_id)
         cached: str | None = await self._redis.get(key)
         if cached is not None:
             data = orjson.loads(cached)
             if data is None:
                 return None
+            # ``get`` вместо ключа: записи, закешированные предыдущей версией,
+            # не знают про конец периода. TTL короткий, так что расхождение
+            # живёт секунды — но падать на нём в момент деплоя незачем.
+            period_end = data.get("current_period_end")
             return SubscriptionState(
                 status=SubscriptionStatus(data["status"]),
                 trial_ends_at=datetime.fromisoformat(data["trial_ends_at"]),
+                current_period_end=(
+                    datetime.fromisoformat(period_end) if period_end else None
+                ),
             )
 
         state = await self._repo.subscription_state(clinic_id)
@@ -90,10 +97,23 @@ class SubscriptionPolicy:
             else {
                 "status": state.status.value,
                 "trial_ends_at": state.trial_ends_at.isoformat(),
+                "current_period_end": (
+                    state.current_period_end.isoformat()
+                    if state.current_period_end is not None
+                    else None
+                ),
             }
         )
         await self._redis.set(key, orjson.dumps(payload), ex=_CLINIC_TTL)
         return state
+
+    async def invalidate_clinic(self, clinic_id: uuid.UUID) -> None:
+        """Сбросить кеш состояния подписки клиники.
+
+        Зовётся после смены статуса из админки: без этого оплативший клиент ещё
+        полминуты видит режим чтения и звонит в поддержку.
+        """
+        await self._redis.delete(CLINIC_STATE_CACHE.format(clinic_id))
 
     async def access(self, clinic_id: uuid.UUID | None) -> ClinicAccess:
         """Полный доступ или только чтение. Без подписки — полный (соло до провижининга)."""
@@ -102,7 +122,12 @@ class SubscriptionPolicy:
         state = await self.state(clinic_id)
         if state is None:
             return ClinicAccess.FULL
-        return clinic_access(state.status, state.trial_ends_at, datetime.now(UTC))
+        return clinic_access(
+            state.status,
+            datetime.now(UTC),
+            trial_ends_at=state.trial_ends_at,
+            current_period_end=state.current_period_end,
+        )
 
     async def deny_reason(
         self, clinic_id: uuid.UUID | None, permission_key: str
@@ -119,7 +144,12 @@ class SubscriptionPolicy:
         if state is None:
             return None
 
-        access = clinic_access(state.status, state.trial_ends_at, datetime.now(UTC))
+        access = clinic_access(
+            state.status,
+            datetime.now(UTC),
+            trial_ends_at=state.trial_ends_at,
+            current_period_end=state.current_period_end,
+        )
         if access is ClinicAccess.READ_ONLY:
             return (
                 DenyReason.SUBSCRIPTION_INACTIVE
@@ -151,7 +181,12 @@ class SubscriptionPolicy:
         if state is None:
             return permissions
 
-        access = clinic_access(state.status, state.trial_ends_at, datetime.now(UTC))
+        access = clinic_access(
+            state.status,
+            datetime.now(UTC),
+            trial_ends_at=state.trial_ends_at,
+            current_period_end=state.current_period_end,
+        )
         if access is ClinicAccess.READ_ONLY:
             return [p for p in permissions if p not in WRITE_PERMISSION_KEYS]
         if state.status is SubscriptionStatus.TRIAL:

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 
 from pydantic import Field
 
-from app.modules.subscriptions.domain.status import SubscriptionView
+from app.modules.subscriptions.domain.status import SubscriptionView, build_view
 from app.shared.api.schemas import CamelModel
 from app.shared.db.enums import SubscriptionStatus
+from app.shared.db.models.subscription import Subscription
 
 
 class ClinicSubscriptionResponse(CamelModel):
@@ -70,4 +72,54 @@ class ClinicSubscriptionResponse(CamelModel):
             current_period_start=s.current_period_start,
             current_period_end=s.current_period_end,
             cancelled_at=s.cancelled_at,
+        )
+
+
+class ActivateSubscriptionRequest(CamelModel):
+    """Отметка оплаты: до какой даты открыт доступ."""
+
+    paid_until: datetime = Field(
+        description="Конец оплаченного периода; по этой дате доступ и закроется",
+        examples=["2026-09-09T00:00:00+00:00"],
+    )
+    period_start: datetime | None = Field(
+        default=None,
+        description="Начало периода; по умолчанию — момент отметки оплаты",
+        examples=["2026-08-09T00:00:00+00:00"],
+    )
+
+
+class BlockSubscriptionRequest(CamelModel):
+    """Ручная блокировка клиники командой Skrezo."""
+
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Причина — попадёт в историю подписки",
+        examples=["нарушение условий"],
+    )
+
+
+class AdminSubscriptionResponse(CamelModel):
+    """Подписка после ручной операции — то же состояние, что видит клиника."""
+
+    clinic_id: uuid.UUID
+    status: SubscriptionStatus
+    trial_ends_at: datetime
+    current_period_start: datetime | None = None
+    current_period_end: datetime | None = None
+    writes_blocked: bool = Field(
+        description="Клиника в режиме чтения прямо сейчас (считается по датам, не по статусу)"
+    )
+
+    @classmethod
+    def from_subscription(cls, subscription: Subscription) -> AdminSubscriptionResponse:
+        view = build_view(subscription, datetime.now(UTC))
+        return cls(
+            clinic_id=subscription.clinic_id,
+            status=subscription.status,
+            trial_ends_at=subscription.trial_ends_at,
+            current_period_start=subscription.current_period_start,
+            current_period_end=subscription.current_period_end,
+            writes_blocked=view.writes_blocked,
         )

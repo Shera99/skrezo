@@ -35,7 +35,7 @@ from app.core.config import settings
 from app.core.jobs import SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
-from app.jobs.tasks.subscriptions import expire_trials, warn_trial_ending
+from app.jobs.tasks.subscriptions import expire_paid_periods, expire_trials, warn_trial_ending
 
 
 class WorkerSettings:
@@ -48,14 +48,16 @@ class WorkerSettings:
         func(send_notification, name=SEND_NOTIFICATION, max_tries=5, timeout=60),
         func(send_team_notification, name=SEND_TEAM_NOTIFICATION, max_tries=5, timeout=60),
         expire_trials,
+        expire_paid_periods,
         warn_trial_ending,
         cleanup_job_runs,
     ]
     cron_jobs: ClassVar[list[Any]] = [
-        # Раз в час, а не раз в сутки: триал кончается в конкретный момент, и сутки
-        # расхождения статуса заметны и клиенту, и в дашборде. Минута 5 — чтобы не
-        # совпадать с ровным часом, когда просыпается всё остальное.
+        # Раз в час, а не раз в сутки: срок кончается в конкретный момент, и сутки
+        # расхождения статуса заметны и клиенту, и в дашборде. Минуты разные, чтобы
+        # две задачи не начинали разом одну и ту же таблицу.
         cron(expire_trials, minute=5),
+        cron(expire_paid_periods, minute=10),
         # 03:15 UTC — это 09:15 по Бишкеку: предупреждение приходит утром рабочего
         # дня, а не ночью.
         cron(warn_trial_ending, hour=3, minute=15),

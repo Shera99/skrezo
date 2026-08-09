@@ -60,7 +60,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
 | `dashboard` | сводка за период + тренды по месяцам (active/trial/риски/конверсия/отмены; заявки→клиенты; MRR ждёт биллинг) | читает clinic/subscription/lead | 7 ✅ |
-| `subscriptions` | подписка, статусы, триал; клиентская ручка `GET /clinic/subscription`; **правило доступа** (`domain/access`: закрытая подписка → режим чтения); джобы `expire_trials` (`trial` → `trial_expired` + уведомление) и `warn_trial_ending` (предупреждение за N дней, однократно — отметка ставится тем же UPDATE) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 14 ✅ / 4 |
+| `subscriptions` | подписка, статусы, триал и оплаченный период; клиентская ручка `GET /clinic/subscription` + админские `POST /admin/clients/{id}/subscription/activate|block` (оплата приходит переводом, отмечает человек); **правило доступа** (`domain/access`: режим чтения считается по датам `trial_ends_at` и `current_period_end`, а не по статусу); джобы `expire_trials`, `expire_paid_periods` и `warn_trial_ending` (предупреждение однократно — отметка ставится тем же UPDATE) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 14 ✅ / 4 |
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
 | `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |
@@ -70,7 +70,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |
 | `reports` | операционная аналитика: выручка, врачи, услуги, пациенты, долг. Два контура: клиентский (RBAC `reports.view_own`/`view_all`) и платформенный (`is_platform_admin`, свод по всем клиникам + любая клиника). Своих таблиц нет — агрегирует приёмы и кассу | читает appointment(_tooth)/cash_payment/membership | 12 ✅ |
-| `jobs` | состояние фоновых задач: журнал запусков (`job_run`, пишется воркером) и `GET /admin/jobs` + `/runs` для команды Skrezo. Сами задачи живут в `app/jobs/tasks/`, а их работа — в use-case'ах модулей | `job_run` | 14 ✅ |
+| `jobs` | состояние фоновых задач: журнал запусков (`job_run`, пишется воркером) и `GET /admin/jobs` + `/runs` для команды Skrezo. Сами задачи живут в `app/jobs/worker.py`, а их работа — в use-case'ах модулей | `job_run` | 14 ✅ |
 | `notifications` (в `shared`) | транспорты сообщений: WhatsApp/SMS на телефон (`NOTIFY_CHANNELS`, цепочка с переходом) и Telegram Bot API в чат команды; фоновая отправка, недоставка не отменяет операцию. Отдельным модулем не стал — своих ручек и таблиц нет, а зовут его `staff`, `clinics` и `leads` | — | 14 ✅ |
 
 ## 4. Модель данных

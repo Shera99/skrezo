@@ -1592,6 +1592,155 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "subscription-admin",
+          "item": [
+            {
+              "name": "Отметить оплату подписки клиники",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/subscription/activate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "subscription",
+                    "activate"
+                  ]
+                },
+                "description": "Открыть клинике полный доступ до указанной даты.\n\nПлатёжного провайдера пока нет: клиники платят переводом на счёт, и отметить\nэто может только команда Skrezo. Суммы ручка не принимает — журнала платежей\nещё не существует, и класть её было бы некуда.\n\nДоступ возвращается **сразу**: кеш состояния подписки сбрасывается, иначе\nклиент до полуминуты оставался бы в режиме чтения. Конец периода — та самая\nдата, по которой доступ закроется обратно, даже если воркер не работает.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"paidUntil\": \"2026-09-09T00:00:00+00:00\",\n  \"periodStart\": \"2026-08-09T00:00:00+00:00\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Заблокировать подписку клиники",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/subscription/block",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "subscription",
+                    "block"
+                  ]
+                },
+                "description": "Закрыть клинике запись решением Skrezo (не из-за оплаты).\n\nПоследствия те же, что у просрочки, — режим чтения; отличается причина, и по\nстатусу `blocked` она видна. Снимается повторной активацией.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"нарушение условий\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "jobs",
+          "item": [
+            {
+              "name": "Состояние воркера фоновых задач",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/jobs",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "jobs"
+                  ]
+                },
+                "description": "Показать, работает ли фон и чем закончился последний запуск каждой задачи.\n\n``alive`` — воркер отмечался в последние минуты; ``false`` значит, что\nпроцесс не запущен или встал, и тогда триалы не закрываются, а сообщения\nкопятся в очереди.\n\n``lastRuns`` — по одной последней записи на задачу. Задачи, которая никогда\nне запускалась, в списке не будет вовсе: это отдельный симптом, его не\nвидно ни в логах, ни по статусу процесса."
+              },
+              "response": []
+            },
+            {
+              "name": "Журнал запусков фоновых задач",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/jobs/runs?job=string&limit=20&offset=0",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "jobs",
+                    "runs"
+                  ],
+                  "query": [
+                    {
+                      "key": "job",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Фильтр по имени задачи"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "0",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Показать запуски задач: когда, сколько заняли, чем закончились.\n\nПагинация смещением, а не курсором: журнал читают глазами с первой\nстраницы, и глубоко в него не уходят — записи старше\n``JOB_RUN_RETENTION_DAYS`` удаляет уборочная задача."
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
