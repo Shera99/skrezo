@@ -77,13 +77,18 @@ class ReportsRepository:
     def _appointment_filters(
         clinic_id: uuid.UUID,
         start: datetime | None,
-        end: datetime,
+        end: datetime | None,
         own_membership_id: uuid.UUID | None,
     ) -> list[ColumnElement[bool]]:
-        conditions: list[ColumnElement[bool]] = [
-            Appointment.clinic_id == clinic_id,
-            Appointment.scheduled_at < end,
-        ]
+        """Фильтры приёмов; ``None`` в границе означает «без неё».
+
+        Верхняя граница необязательна ради «долга за всё время»: приём,
+        назначенный на сегодня, но позже текущего часа, — такой же долг, как
+        вчерашний, и обрезать его по «сейчас» значит занижать сумму.
+        """
+        conditions: list[ColumnElement[bool]] = [Appointment.clinic_id == clinic_id]
+        if end is not None:
+            conditions.append(Appointment.scheduled_at < end)
         if start is not None:
             conditions.append(Appointment.scheduled_at >= start)
         if own_membership_id is not None:
@@ -216,7 +221,7 @@ class ReportsRepository:
         self,
         clinic_id: uuid.UUID,
         start: datetime | None,
-        end: datetime,
+        end: datetime | None,
         own_membership_id: uuid.UUID | None,
     ) -> tuple[int, int, int, int]:
         """Начислено, оплачено, число завершённых приёмов периода и сумма скидок.

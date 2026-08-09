@@ -8,7 +8,8 @@ from pydantic import Field
 
 from app.modules.identity.application.use_cases.login import LoginResult
 from app.modules.identity.domain.models import MembershipContext
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
+from app.shared.db.enums import Lang
 
 
 class LoginRequest(CamelModel):
@@ -167,3 +168,18 @@ class MeResponse(CamelModel):
     is_platform_admin: bool = Field(
         default=False, description="Сотрудник команды Skrezo (доступ к /admin/*)"
     )
+
+
+class UpdateProfileRequest(NotNullFieldsModel):
+    """Правка своего профиля: имя и язык интерфейса.
+
+    Телефона здесь нет намеренно — он же логин, и менять его себе сотрудник не
+    должен. Это делает владелец или менеджер через `PUT /clinic/staff/{id}`.
+    """
+
+    NOT_NULL_FIELDS = ("fullName", "lang")
+
+    full_name: str | None = Field(
+        default=None, min_length=2, max_length=200, description="ФИО целиком"
+    )
+    lang: Lang | None = Field(default=None, description="Язык интерфейса: kg|kz|ru|en")

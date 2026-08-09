@@ -16,6 +16,7 @@ from app.modules.identity.presentation.routes import (
     refresh,
     select_clinic,
     solo_register,
+    update_profile,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -30,3 +31,4 @@ router.include_router(select_clinic.router)
 router.include_router(refresh.router)
 router.include_router(logout.router)
 router.include_router(me.router)
+router.include_router(update_profile.router)

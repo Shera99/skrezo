@@ -15,6 +15,7 @@ from app.modules.reports.presentation.routes import (
     admin_clinic_services,
     admin_clinic_summary,
     admin_clinics,
+    day_dashboard,
     doctors,
     revenue,
     services,
@@ -22,6 +23,9 @@ from app.modules.reports.presentation.routes import (
 )
 
 router = APIRouter(tags=["reports"])
+# Сводка дня живёт здесь же: своих таблиц у неё нет, считается теми же
+# запросами и подчиняется тому же скоупу own/all.
+router.include_router(day_dashboard.router)
 router.include_router(summary.router)
 router.include_router(revenue.router)
 router.include_router(doctors.router)

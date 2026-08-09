@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from datetime import date as date_type
 
 from pydantic import Field
 
@@ -15,6 +16,7 @@ from app.modules.reports.domain.models import (
     AppointmentsBlock,
     ClinicReportRow,
     ClinicsReport,
+    DayDashboard,
     DoctorReportRow,
     DoctorsReport,
     MethodRevenue,
@@ -284,4 +286,34 @@ class ClinicsReportResponse(CamelModel):
             rows=[ClinicReportItem.from_domain(x) for x in r.rows],
             total_revenue_net_tiyin=r.total_revenue_net_tiyin,
             total_debt_tiyin=r.total_debt_tiyin,
+        )
+
+
+class DayDashboardResponse(CamelModel):
+    """Сводка текущего дня клиники — утренний экран одним запросом."""
+
+    # Аннотация через псевдоним: имя поля ``date`` иначе перекрывает тип ``date``,
+    # и pydantic не может разрешить аннотацию.
+    date: date_type = Field(description="Сегодняшняя дата В ТАЙМЗОНЕ КЛИНИКИ, а не браузера")
+    timezone: str = Field(examples=["Asia/Bishkek"])
+    appointments: AppointmentsBlockOut = Field(description="Приёмы на сегодня по статусам")
+    revenue_tiyin: int = Field(
+        description="Нетто кассы за сегодня: платежи минус возвраты, тыйыны", examples=[125000]
+    )
+    outstanding_tiyin: int = Field(
+        description=(
+            "Непогашенный долг клиники за ВСЁ время (начислено минус оплачено). "
+            "Не путать с `debtTiyin` в отчётах — там долг за выбранный период"
+        ),
+        examples=[430000],
+    )
+
+    @classmethod
+    def from_domain(cls, d: DayDashboard) -> DayDashboardResponse:
+        return cls(
+            date=d.date,
+            timezone=d.timezone,
+            appointments=AppointmentsBlockOut.from_domain(d.appointments),
+            revenue_tiyin=d.revenue_tiyin,
+            outstanding_tiyin=d.outstanding_tiyin,
         )

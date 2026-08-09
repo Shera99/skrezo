@@ -9,6 +9,9 @@ from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.reports.application.use_cases.get_day_dashboard import (
+    GetDayDashboardUseCase,
+)
 from app.modules.reports.application.use_cases.get_doctors import GetDoctorsReportUseCase
 from app.modules.reports.application.use_cases.get_revenue import GetRevenueSeriesUseCase
 from app.modules.reports.application.use_cases.get_services import GetServicesReportUseCase
@@ -79,3 +82,9 @@ def get_list_clinics_report_use_case(
     reports: ReportsRepository = Depends(get_reports_repository),
 ) -> ListClinicsReportUseCase:
     return ListClinicsReportUseCase(reports)
+
+
+def get_day_dashboard_use_case(
+    reports: ReportsRepository = Depends(get_reports_repository),
+) -> GetDayDashboardUseCase:
+    return GetDayDashboardUseCase(reports)

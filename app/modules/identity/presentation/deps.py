@@ -28,6 +28,7 @@ from app.modules.identity.application.use_cases.register_solo import RegisterSol
 from app.modules.identity.application.use_cases.request_otp import RequestOtpUseCase
 from app.modules.identity.application.use_cases.reset_password import ResetPasswordUseCase
 from app.modules.identity.application.use_cases.select_clinic import SelectClinicUseCase
+from app.modules.identity.application.use_cases.update_profile import UpdateProfileUseCase
 from app.modules.identity.application.use_cases.verify_otp import VerifyOtpUseCase
 from app.modules.identity.infrastructure.otp.channels import OtpChannel
 from app.modules.identity.infrastructure.otp.factory import build_channels
@@ -140,3 +141,10 @@ def get_get_me_use_case(
     policy: SubscriptionPolicy = Depends(get_subscription_policy),
 ) -> GetMeUseCase:
     return GetMeUseCase(accounts, memberships, resolver, policy)
+
+
+def get_update_profile_use_case(
+    session: AsyncSession = Depends(get_session),
+    accounts: AccountRepository = Depends(get_account_repository),
+) -> UpdateProfileUseCase:
+    return UpdateProfileUseCase(session, accounts)
