@@ -36,6 +36,7 @@ from app.modules.clinic_applications.presentation.routes import (
 from app.modules.clinics.presentation.routes import router as clinic_settings_router
 from app.modules.dashboard.presentation.routes import router as dashboard_router
 from app.modules.identity.presentation.routes import router as identity_router
+from app.modules.jobs.presentation.routes import router as jobs_router
 from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
@@ -200,6 +201,14 @@ OPENAPI_TAGS = [
         "x-displayName": "Аудит",
         "description": "Журнал аудита мутаций платформенной зоны.",
     },
+    {
+        "name": "jobs",
+        "x-displayName": "Фоновые задачи",
+        "description": (
+            "Состояние воркера и журнал запусков фоновых задач: закрытие триалов, "
+            "предупреждения о конце пробного периода, доставка сообщений, уборка журнала."
+        ),
+    },
 ]
 
 # ``x-tagGroups`` — расширение ReDoc: верхнеуровневые группы разделов в меню.
@@ -214,7 +223,7 @@ OPENAPI_TAG_GROUPS = [
         "name": "Админ-панель Skrezo",
         "tags": [
             "clients", "clinic-applications-admin", "tariffs", "payments", "dashboard",
-            "reports-admin", "trial-features", "audit",
+            "reports-admin", "trial-features", "audit", "jobs",
         ],
     },
     {
@@ -294,6 +303,7 @@ def create_app() -> FastAPI:
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
+    app.include_router(jobs_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
 
