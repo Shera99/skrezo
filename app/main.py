@@ -17,6 +17,7 @@ from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
 from app.core.db import engine
 from app.core.errors import register_exception_handlers
+from app.core.jobs import close_job_queue, connect_job_queue
 from app.core.logging import configure_logging
 from app.core.redis import redis_client
 from app.modules.access.presentation.routes import admin_router as access_admin_router
@@ -232,9 +233,11 @@ OPENAPI_TAG_GROUPS = [
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Жизненный цикл: настройка логов на старте, закрытие ресурсов на стопе."""
+    """Жизненный цикл: логи и очередь задач на старте, закрытие ресурсов на стопе."""
     configure_logging()
+    await connect_job_queue()
     yield
+    await close_job_queue()
     await redis_client.aclose()
     await engine.dispose()
 

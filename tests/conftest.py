@@ -96,6 +96,9 @@ _CLEAN_SQL = [
     "DELETE FROM lead",
     "DELETE FROM clinic",
     "DELETE FROM account",
+    # Журнал воркера ни на кого не ссылается, но копится между тестами и ломает
+    # проверки «в журнале ровно один запуск».
+    "DELETE FROM job_run",
 ]
 
 

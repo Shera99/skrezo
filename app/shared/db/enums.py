@@ -142,6 +142,14 @@ class ClinicApplicationStatus(enum.StrEnum):
     REJECTED = "rejected"  # отклонён
 
 
+class JobRunStatus(enum.StrEnum):
+    """Исход запуска фоновой задачи."""
+
+    RUNNING = "running"  # начата и не завершилась (в том числе зависла или упал воркер)
+    OK = "ok"
+    FAILED = "failed"  # задача бросила исключение; arq может повторить попытку
+
+
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
@@ -182,4 +190,7 @@ ClinicApplicationStatusType = SAEnum(
     ClinicApplicationStatus,
     name="clinic_application_status",
     values_callable=lambda e: [m.value for m in e],
+)
+JobRunStatusType = SAEnum(
+    JobRunStatus, name="job_run_status", values_callable=lambda e: [m.value for m in e]
 )

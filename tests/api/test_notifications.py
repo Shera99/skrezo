@@ -1,4 +1,4 @@
-"""Тесты уведомлений: транспорты, фоновая отправка и три её потребителя.
+"""Тесты уведомлений: транспорты, доставка и три её потребителя.
 
 Ключевые риски:
 
@@ -6,12 +6,11 @@
   статус в XML у SMSPRO, ``ok: false`` у Bot API) — принять это за успех значит
   молча не доставить сообщение;
 * недоставка не должна отменять сделанное: сотрудник добавлен, клиника создана,
-  лид записан — уведомление про это вторично;
-* уведомление уходит фоном, то есть **после** ответа: провайдер не имеет права
-  задерживать публичную лид-форму на два таймаута подряд.
+  лид записан — уведомление про это вторично.
 
 Сеть не трогаем: HTTP подменяется ``httpx.MockTransport``, а в API-тестах
-подменяется сам :func:`get_notifier`.
+подменяется сам :func:`get_notifier`. Постановка в очередь и работа воркера
+проверяются в ``test_jobs_api``.
 """
 
 from __future__ import annotations
@@ -21,9 +20,9 @@ import json
 
 import httpx
 import pytest
-from fastapi import BackgroundTasks
 from httpx import AsyncClient
 
+from app.core.jobs import JobQueue
 from app.main import app
 from app.modules.leads.domain.messages import new_lead_text
 from app.shared.db.models.lead import Lead
@@ -228,50 +227,42 @@ async def test_delivery_fails_when_all_channels_fail() -> None:
         await TextDeliveryService([_Recorder(fail=True), _Recorder(fail=True)]).send(PHONE, TEXT)
 
 
-# ── Notifier: фон и проглатывание ошибок ────────────────────────────────────
-
-
-async def test_notifier_defers_delivery_to_background() -> None:
-    """Отправка не происходит в момент вызова — только когда выполнится фон."""
-    recorder = _Recorder()
-    background = BackgroundTasks()
-    Notifier(background, TextDeliveryService([recorder])).notify_phone(
-        PHONE, TEXT, event="test"
-    )
-
-    assert recorder.sent == []  # ответ клиенту не ждал провайдера
-    await background()
-    assert recorder.sent == [(PHONE, TEXT)]
+# ── Notifier: проглатывание ошибок ──────────────────────────────────────────
+#
+# Постановка в очередь и работа воркера — в ``test_jobs_api``; здесь только то,
+# что видно вызывающей операции.
 
 
 async def test_notifier_swallows_delivery_error() -> None:
     """Недоставка не всплывает наружу: операция уже совершена."""
-    background = BackgroundTasks()
-    Notifier(background, TextDeliveryService([_Recorder(fail=True)])).notify_phone(
+    await Notifier(JobQueue(None), TextDeliveryService([_Recorder(fail=True)])).notify_phone(
         PHONE, TEXT, event="test"
+    )  # не должно бросить
+
+
+async def test_notifier_without_team_chat_says_nothing() -> None:
+    """Чат команды не настроен — событие в лог, без попытки отправки (dev-стенд)."""
+    chat = _ChatRecorder()
+
+    await Notifier(JobQueue(None), TextDeliveryService([_Recorder()])).notify_team(
+        "текст", event="test"
     )
 
-    await background()  # не должно бросить
-
-
-async def test_notifier_without_team_chat_does_not_queue() -> None:
-    """Чат команды не настроен — задача даже не ставится (dev-стенд)."""
-    background = BackgroundTasks()
-    Notifier(background, TextDeliveryService([_Recorder()])).notify_team("текст", event="test")
-
-    assert background.tasks == []
+    assert chat.sent == []
 
 
 # ── Три потребителя: сообщение уходит по факту операции ─────────────────────
 
 
 def _override_notifier(phones: _Recorder, chat: _ChatRecorder) -> None:
-    """Подменить отправителя на записные книжки (сбрасывает ``_resources``)."""
+    """Подменить отправителя на записные книжки (сбрасывает ``_resources``).
 
-    def _get(background: BackgroundTasks) -> Notifier:
-        return Notifier(background, TextDeliveryService([phones]), chat)
-
-    app.dependency_overrides[get_notifier] = _get
+    Очередь заведомо недоступна (``JobQueue(None)``) — значит доставка идёт на
+    месте и к моменту ответа уже случилась, а проверка не зависит от воркера.
+    """
+    app.dependency_overrides[get_notifier] = lambda: Notifier(
+        JobQueue(None), TextDeliveryService([phones]), chat
+    )
 
 
 async def test_new_clinic_owner_gets_login_message(

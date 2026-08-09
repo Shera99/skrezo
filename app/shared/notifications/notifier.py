@@ -1,26 +1,28 @@
-"""Отправка уведомлений — фоном и без права уронить операцию.
+"""Отправка уведомлений — очередью и без права уронить операцию.
 
 Два правила, из-за которых уведомления не зовут провайдера прямо в обработчике:
 
 * **Ответ не ждёт провайдера.** Цепочка каналов в худшем случае — это два
   таймаута подряд; добавлять их к добавлению сотрудника или к публичной
-  лид-форме нельзя. Отправка уходит в ``BackgroundTasks``: клиент получает
-  ответ, доставка идёт после.
+  лид-форме нельзя.
 * **Недоставка не отменяет сделанное.** Сотрудник добавлен, клиника создана,
-  лид записан — уведомление про это вторично. Ошибка канала уходит в лог с
-  событием, а наружу не выносится.
+  лид записан — уведомление про это вторично.
 
-Обратная сторона фонового режима: перезапуск процесса между ответом и отправкой
-теряет сообщение. Для временного пароля это терпимо — он остаётся в ответе API,
-и его видит тот, кто заводил сотрудника. Когда появятся джобы биллинга, отправку
-логично будет перевести на arq с ретраями.
+Отправка идёт **задачей в очередь** (arq), а не фоновой задачей запроса: у
+очереди есть ретраи и она переживает рестарт процесса. Раньше сообщение,
+попавшее между ответом и отправкой, терялось молча.
+
+Если очередь недоступна (Redis лёг, а в тестах её просто нет — lifespan там не
+запускается), сообщение уходит **на месте**: потерять уведомление хуже, чем
+задержать ответ на время таймаута. Такой путь виден в логе как
+``notification_sent_inline``.
 """
 
 from __future__ import annotations
 
 import structlog
-from fastapi import BackgroundTasks
 
+from app.core.jobs import SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION, JobQueue
 from app.shared.notifications.channels import ChatChannel, MessageDeliveryError
 from app.shared.notifications.delivery import TextDeliveryService
 
@@ -28,27 +30,30 @@ logger = structlog.get_logger(__name__)
 
 
 class Notifier:
-    """Ставит доставку в фон: на телефон (цепочка каналов) или в чат команды."""
+    """Ставит доставку в очередь: на телефон (цепочка каналов) или в чат команды."""
 
     def __init__(
         self,
-        background: BackgroundTasks,
+        queue: JobQueue,
         delivery: TextDeliveryService,
         team_chat: ChatChannel | None = None,
     ) -> None:
-        self._background = background
+        self._queue = queue
         self._delivery = delivery
         self._team_chat = team_chat
 
-    def notify_phone(self, phone: str, text: str, *, event: str) -> None:
+    async def notify_phone(self, phone: str, text: str, *, event: str) -> None:
         """Поставить в очередь сообщение на телефон; ``event`` — метка для логов."""
-        self._background.add_task(self._deliver_phone, phone, text, event)
+        if await self._queue.enqueue(SEND_NOTIFICATION, phone, text, event):
+            return
+        await self._deliver_phone_now(phone, text, event)
 
-    def notify_team(self, text: str, *, event: str) -> None:
+    async def notify_team(self, text: str, *, event: str) -> None:
         """Поставить в очередь сообщение в чат команды Skrezo.
 
         Чат не настроен (нет бот-токена) — событие просто уходит в лог: это
-        рабочее состояние на dev-стенде, а не повод падать.
+        рабочее состояние на dev-стенде, а не повод падать. Проверяем это здесь,
+        до очереди, чтобы не гонять воркер ради заведомо пустой работы.
         """
         if self._team_chat is None:
             # ⚠️ Метку кладём под именем notification, а не event: у structlog
@@ -60,18 +65,24 @@ class Notifier:
                 reason="chat_not_configured",
             )
             return
-        self._background.add_task(self._deliver_team, text, event)
+        if await self._queue.enqueue(SEND_TEAM_NOTIFICATION, text, event):
+            return
+        await self._deliver_team_now(text, event)
 
-    async def _deliver_phone(self, phone: str, text: str, event: str) -> None:
+    async def _deliver_phone_now(self, phone: str, text: str, event: str) -> None:
         try:
             await self._delivery.send(phone, text)
         except MessageDeliveryError as exc:
             logger.error("notification_failed", notification=event, phone=phone, error=str(exc))
+            return
+        logger.info("notification_sent_inline", notification=event, phone=phone)
 
-    async def _deliver_team(self, text: str, event: str) -> None:
+    async def _deliver_team_now(self, text: str, event: str) -> None:
         if self._team_chat is None:  # pragma: no cover — проверено в notify_team
             return
         try:
             await self._team_chat.send(text)
         except MessageDeliveryError as exc:
             logger.error("team_notification_failed", notification=event, error=str(exc))
+            return
+        logger.info("team_notification_sent_inline", notification=event)

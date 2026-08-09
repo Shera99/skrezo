@@ -36,7 +36,7 @@ class AdminNotificationService:
             )
             return
 
-        self._notifier.notify_phone(
+        await self._notifier.notify_phone(
             account.phone,
             clinic_created_text(
                 clinic_name=clinic.name, phone=account.phone, temp_password=temp_password

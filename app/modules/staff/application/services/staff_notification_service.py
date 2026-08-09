@@ -18,7 +18,7 @@ class StaffNotificationService:
     async def notify_staff_added(
         self, *, phone: str, clinic_name: str, temp_password: str
     ) -> None:
-        self._notifier.notify_phone(
+        await self._notifier.notify_phone(
             phone,
             staff_added_text(clinic_name=clinic_name, phone=phone, temp_password=temp_password),
             event="staff_added",

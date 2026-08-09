@@ -24,6 +24,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | RBAC (права/роли) | `permission`, `role`, `role_permission` |
 | Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
 | Аудит | `audit_log` |
+| Фоновые задачи | `job_run` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 | **Касса клиники** | `cash_payment` |
@@ -186,6 +187,7 @@ erDiagram
         timestamptz current_period_start "nullable"
         timestamptz current_period_end "nullable"
         timestamptz cancelled_at "nullable"
+        timestamptz trial_warning_sent_at "nullable: предупреждение о конце триала"
     }
     SUBSCRIPTION_EVENT {
         uuid id PK
@@ -219,6 +221,15 @@ erDiagram
         uuid entity_id "nullable"
         jsonb payload "nullable"
         timestamptz created_at
+    }
+    JOB_RUN {
+        uuid id PK
+        text job_name "expire_trials, send_notification, …"
+        enum status "running|ok|failed"
+        int attempt "номер попытки arq"
+        timestamptz started_at
+        timestamptz finished_at "nullable: запуск не завершён"
+        text detail "nullable: результат или ошибка"
     }
     PATIENT {
         uuid id PK
@@ -392,6 +403,7 @@ erDiagram
 | `doctors_count_range` | `2-5`, `6-10`, `10+` | clinic_application |
 | `clinic_application_status` | `pending`, `reviewed`, `rejected` | clinic_application |
 | `cancel_reason` | `patient_request`, `patient_illness`, `clinic_reschedule`, `doctor_unavailable`, `duplicate`, `other` | appointment |
+| `job_run_status` | `running`, `ok`, `failed` | job_run |
 
 ---
 

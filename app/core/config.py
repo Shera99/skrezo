@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     telegram_team_bot_token: str = ""
     telegram_team_chat_id: str = ""
 
+    # ── Фоновые задачи ──────────────────────────────────────────────────────
+    # За сколько дней предупредить владельца о конце пробного периода.
+    trial_warning_days: int = 3
+    # Сколько хранить журнал запусков джоб: таблица растёт с каждым сообщением.
+    job_run_retention_days: int = 30
+
     # ── Биллинг ─────────────────────────────────────────────────────────────
     trial_days: int = 30
     card_attach_deadline_days: int = 7

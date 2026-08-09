@@ -17,4 +17,4 @@ class TeamNotificationService:
         self._notifier = notifier
 
     async def notify_new_lead(self, lead: Lead) -> None:
-        self._notifier.notify_team(new_lead_text(lead), event="lead_created")
+        await self._notifier.notify_team(new_lead_text(lead), event="lead_created")

@@ -40,3 +40,10 @@ class Subscription(Base, UUIDPKMixin, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Когда владельцу отправили «триал скоро кончится». Отметка нужна для
+    # идемпотентности: джоба ходит ежедневно, а предупреждение уместно один раз.
+    # Хранится здесь, а не в subscription_event: там лог переходов СТАТУСА, а
+    # предупреждение статус не меняет.
+    trial_warning_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

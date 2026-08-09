@@ -19,6 +19,7 @@ from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
 from app.shared.db.models.doctor_schedule import DoctorSchedule
 from app.shared.db.models.doctor_time_off import DoctorTimeOff
+from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
@@ -48,6 +49,7 @@ __all__ = [
     "ClinicWorkingHours",
     "DoctorSchedule",
     "DoctorTimeOff",
+    "JobRun",
     "Lead",
     "Membership",
     "Patient",
