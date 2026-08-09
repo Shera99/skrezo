@@ -2542,6 +2542,108 @@
               "response": []
             },
             {
+              "name": "Загрузить файл в карту пациента",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/files",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "files"
+                  ]
+                },
+                "description": "Снимок или документ в карту пациента (multipart).\n\nТип определяется **по содержимому**, а не по заголовку запроса: клиент\nназывает тип сам, и `image/jpeg` с чем угодно внутри — это то, что потом\nскачает сотрудник. Поддерживаются JPEG, PNG, WebP, HEIC и PDF.\n\nИмя файла на диске генерируем мы (uuid + расширение); присланное имя\nхранится отдельно и только для показа — иначе `../` в имени уводит запись за\nпределы хранилища.\n\n⚠️ Пациент **глобальный**, поэтому файл увидят все клиники, которые его\nлечат, — как и сквозную историю зуба. Кто загрузил, видно в `clinicId`."
+              },
+              "response": []
+            },
+            {
+              "name": "Файлы пациента",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/files?appointmentId=00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "files"
+                  ],
+                  "query": [
+                    {
+                      "key": "appointmentId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Список файлов карты; ``appointmentId`` сужает до одного приёма."
+              },
+              "response": []
+            },
+            {
+              "name": "Скачать файл пациента",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/files/{{file_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "files",
+                    "{{file_id}}"
+                  ]
+                },
+                "description": "Отдать содержимое файла.\n\nЗаголовок ``Content-Disposition: attachment`` и запрет угадывания типа\n(``nosniff``) стоят намеренно: файл открывается на нашем домене, где у\nсотрудника живая сессия, и показывать его инлайн — лишний риск."
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить файл пациента",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/patients/{{patient_id}}/files/{{file_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "patients",
+                    "{{patient_id}}",
+                    "files",
+                    "{{file_id}}"
+                  ]
+                },
+                "description": "Убрать файл из карты.\n\nУдаление мягкое: запись помечается, файл на диске остаётся. Снимок — это\nклинические данные, и «случайно удалил» не должно означать «потеряли\nнавсегда»."
+              },
+              "response": []
+            },
+            {
               "name": "История зуба (сквозная по всем клиникам)",
               "request": {
                 "method": "GET",
@@ -3774,6 +3876,11 @@
     },
     {
       "key": "doctor_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "file_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

@@ -23,6 +23,7 @@ from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
+from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.permission import Permission
 from app.shared.db.models.role import Role
@@ -53,6 +54,7 @@ __all__ = [
     "Lead",
     "Membership",
     "Patient",
+    "PatientFile",
     "PatientTooth",
     "Permission",
     "Role",

@@ -9,6 +9,7 @@ from app.modules.patients.presentation.routes import (
     get_patient,
     list_patients,
     lookup_patient,
+    patient_files,
     tooth_history,
     update_patient,
     upsert_teeth,
@@ -22,4 +23,5 @@ router.include_router(lookup_patient.router)
 router.include_router(get_patient.router)
 router.include_router(update_patient.router)
 router.include_router(upsert_teeth.router)
+router.include_router(patient_files.router)
 router.include_router(tooth_history.router)

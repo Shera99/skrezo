@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0036** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0037** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -25,7 +25,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
 | Аудит | `audit_log` |
 | Фоновые задачи | `job_run` |
-| **Клиническое ядро** | `patient`, `patient_tooth`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
+| **Клиническое ядро** | `patient`, `patient_tooth`, `patient_file`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 | **Касса клиники** | `cash_payment` |
 
@@ -59,6 +59,8 @@ erDiagram
     ACCOUNT ||--o{ AUDIT_LOG : "actor"
 
     PATIENT ||--o{ PATIENT_TOOTH : "одонтограмма"
+    PATIENT ||--o{ PATIENT_FILE : "снимки и документы"
+    CLINIC ||--o{ PATIENT_FILE : "кто загрузил"
     CLINIC ||--o{ SERVICE : "прайс"
     CLINIC ||--o{ APPOINTMENT : "приёмы"
     PATIENT ||--o{ APPOINTMENT : "пациент (глобальный)"
@@ -223,6 +225,21 @@ erDiagram
         uuid entity_id "nullable"
         jsonb payload "nullable"
         timestamptz created_at
+    }
+    PATIENT_FILE {
+        uuid id PK
+        uuid patient_id FK
+        uuid clinic_id FK "кто загрузил"
+        uuid appointment_id FK "nullable"
+        enum kind "images|files"
+        text original_name "как прислали"
+        text stored_path "путь в хранилище, имя генерируем мы"
+        text mime
+        int size_bytes
+        text comment "nullable"
+        uuid uploaded_by_membership_id FK "nullable"
+        timestamptz created_at
+        timestamptz deleted_at "nullable: мягкое удаление"
     }
     JOB_RUN {
         uuid id PK
@@ -406,6 +423,7 @@ erDiagram
 | `clinic_application_status` | `pending`, `reviewed`, `rejected` | clinic_application |
 | `cancel_reason` | `patient_request`, `patient_illness`, `clinic_reschedule`, `doctor_unavailable`, `duplicate`, `other` | appointment |
 | `job_run_status` | `running`, `ok`, `failed` | job_run |
+| `file_kind` | `images`, `files` | patient_file |
 
 ---
 

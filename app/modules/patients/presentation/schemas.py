@@ -13,8 +13,9 @@ from app.modules.patients.domain.models import (
     ToothHistoryEntry,
 )
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import AppointmentItemStatus, ToothStatus
+from app.shared.db.enums import AppointmentItemStatus, FileKind, ToothStatus
 from app.shared.db.models.patient import Patient
+from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_tooth import PatientTooth
 
 
@@ -209,3 +210,43 @@ class ToothHistoryItem(CamelModel):
 class ToothHistoryResponse(CamelModel):
     tooth: int
     records: list[ToothHistoryItem]
+
+
+class PatientFileOut(CamelModel):
+    """Файл в карте пациента (метаданные; содержимое — по отдельной ручке)."""
+
+    id: uuid.UUID
+    kind: FileKind = Field(description="`images` — снимок, `files` — документ")
+    original_name: str = Field(description="Имя, под которым файл загрузили")
+    mime: str = Field(examples=["image/jpeg"])
+    size_bytes: int
+    comment: str | None = None
+    appointment_id: uuid.UUID | None = Field(
+        default=None, description="Приём, к которому относится файл (если указан)"
+    )
+    clinic_id: uuid.UUID = Field(description="Клиника, которая загрузила файл")
+    uploaded_by_membership_id: uuid.UUID | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: PatientFile) -> PatientFileOut:
+        return cls(
+            id=record.id,
+            kind=record.kind,
+            original_name=record.original_name,
+            mime=record.mime,
+            size_bytes=record.size_bytes,
+            comment=record.comment,
+            appointment_id=record.appointment_id,
+            clinic_id=record.clinic_id,
+            uploaded_by_membership_id=record.uploaded_by_membership_id,
+            created_at=record.created_at,
+        )
+
+
+class PatientFilesResponse(CamelModel):
+    items: list[PatientFileOut]
+
+
+class FileDeletedResponse(CamelModel):
+    id: uuid.UUID

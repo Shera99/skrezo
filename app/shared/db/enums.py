@@ -142,6 +142,13 @@ class ClinicApplicationStatus(enum.StrEnum):
     REJECTED = "rejected"  # отклонён
 
 
+class FileKind(enum.StrEnum):
+    """Вид загруженного файла — он же каталог в хранилище."""
+
+    IMAGE = "images"  # снимки: JPEG, PNG, WebP, HEIC
+    DOCUMENT = "files"  # документы: PDF
+
+
 class JobRunStatus(enum.StrEnum):
     """Исход запуска фоновой задачи."""
 
@@ -190,6 +197,9 @@ ClinicApplicationStatusType = SAEnum(
     ClinicApplicationStatus,
     name="clinic_application_status",
     values_callable=lambda e: [m.value for m in e],
+)
+FileKindType = SAEnum(
+    FileKind, name="file_kind", values_callable=lambda e: [m.value for m in e]
 )
 JobRunStatusType = SAEnum(
     JobRunStatus, name="job_run_status", values_callable=lambda e: [m.value for m in e]
