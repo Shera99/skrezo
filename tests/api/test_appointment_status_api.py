@@ -194,7 +194,7 @@ async def test_rollback_one_step_back_is_audited(
     assert back.status_code == 200, back.text
     assert back.json()["status"] == "confirmed"
 
-    audit = await admin_client.get(f"{API}/admin/audit")
+    audit = await client.get(f"{API}/clinic/audit", headers=ctx.headers)
     assert audit.status_code == 200, audit.text
     assert "appointment.status_rollback" in audit.text
     assert "Ошиблись кнопкой" in audit.text

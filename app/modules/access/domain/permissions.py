@@ -99,6 +99,8 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef("billing.manage", "billing", "Оплата и привязка карты"),
     # Роли и права
     PermissionDef("roles.manage", "roles", "Управление ролями и правами", is_write=True),
+    # Журнал действий
+    PermissionDef("audit.view", "audit", "Журнал действий сотрудников клиники"),
 ]
 
 ALL_PERMISSION_KEYS: tuple[str, ...] = tuple(p.key for p in PERMISSION_CATALOG)
@@ -152,6 +154,9 @@ DEFAULT_ROLES: list[RoleDef] = [
             "settings.view",
             "reminders.manage",
             "billing.view",
+            # Журнал действий — инструмент надзора: администратор разбирает
+            # спорные отмены и возвраты, поэтому право у него есть по умолчанию.
+            "audit.view",
         ),
         20,
     ),

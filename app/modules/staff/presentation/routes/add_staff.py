@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.staff.application.use_cases.add_staff import AddStaffUseCase
 from app.modules.staff.presentation.deps import get_add_staff_use_case
 from app.modules.staff.presentation.schemas import AddStaffRequest, StaffCreatedResponse
@@ -42,6 +44,7 @@ async def add_staff(
     body: AddStaffRequest,
     context: ClientContext = Depends(require_permission("staff.manage")),
     use_case: AddStaffUseCase = Depends(get_add_staff_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> StaffCreatedResponse:
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -51,6 +54,14 @@ async def add_staff(
         phone_raw=body.phone,
         specialization_id=body.specialization_id,
         role_id=body.role_id,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="staff.add",
+        entity_type="membership",
+        entity_id=result.membership.id,
+        payload={"roleId": str(result.membership.role_id)},
     )
     return StaffCreatedResponse(
         membership_id=result.membership.id, temp_password=result.temp_password

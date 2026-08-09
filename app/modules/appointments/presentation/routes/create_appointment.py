@@ -18,6 +18,8 @@ from app.modules.appointments.presentation.schemas import (
     AppointmentCreatedResponse,
     CreateAppointmentRequest,
 )
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -79,6 +81,7 @@ async def create_appointment(
     context: ClientContext = Depends(require_permission("appointments.create")),
     can_force: bool = Depends(has_permission("appointments.force_booking")),
     use_case: CreateAppointmentUseCase = Depends(get_create_appointment_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> AppointmentCreatedResponse:
     """Записать пациента на приём.
 
@@ -122,4 +125,12 @@ async def create_appointment(
         force=body.force,
     )
     appt = await use_case.execute(context.clinic_id, data, can_force=can_force)
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="appointment.create",
+        entity_type="appointment",
+        entity_id=appt.id,
+        payload={"patientId": str(body.patient_id), "status": appt.status.value},
+    )
     return AppointmentCreatedResponse(id=appt.id, price_total_tiyin=appt.price_total_tiyin)

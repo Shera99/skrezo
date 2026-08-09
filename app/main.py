@@ -23,6 +23,7 @@ from app.core.redis import redis_client
 from app.modules.access.presentation.routes import admin_router as access_admin_router
 from app.modules.access.presentation.routes import router as roles_router
 from app.modules.appointments.presentation.routes import router as appointments_router
+from app.modules.audit.presentation.routes import clinic_router as clinic_audit_router
 from app.modules.audit.presentation.routes import router as audit_router
 from app.modules.cash.presentation.routes import router as cash_router
 from app.modules.catalog.presentation.routes import router as catalog_router
@@ -213,6 +214,14 @@ OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "clinic-audit",
+        "x-displayName": "Журнал действий клиники",
+        "description": (
+            "Кто из сотрудников что сделал: отмены приёмов, скидки, платежи и "
+            "возвраты, правки пациентов и прайса (право `audit.view`)."
+        ),
+    },
+    {
         "name": "jobs",
         "x-displayName": "Фоновые задачи",
         "description": (
@@ -314,6 +323,7 @@ def create_app() -> FastAPI:
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(audit_router, prefix=settings.api_v1_prefix)
+    app.include_router(clinic_audit_router, prefix=settings.api_v1_prefix)
     app.include_router(jobs_router, prefix=settings.api_v1_prefix)
     app.include_router(subscription_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)

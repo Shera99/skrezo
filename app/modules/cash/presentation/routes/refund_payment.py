@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.cash.application.use_cases.refund_payment import RefundPaymentUseCase
 from app.modules.cash.presentation.deps import get_refund_payment_use_case
 from app.modules.cash.presentation.schemas import PaymentItem, RefundPaymentRequest
@@ -67,6 +69,7 @@ async def refund_payment(
     body: RefundPaymentRequest | None = None,
     context: ClientContext = Depends(require_permission("cash.operate")),
     use_case: RefundPaymentUseCase = Depends(get_refund_payment_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> PaymentItem:
     """Вернуть часть платежа или его остаток.
 
@@ -88,5 +91,13 @@ async def refund_payment(
         payment_id,
         amount=body.amount_tiyin if body is not None else None,
         comment=body.comment if body is not None else None,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="cash.refund",
+        entity_type="cash_payment",
+        entity_id=record.id,
+        payload={"refundsPaymentId": str(payment_id), "amountTiyin": record.amount_tiyin},
     )
     return PaymentItem.from_record(record)

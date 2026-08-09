@@ -161,19 +161,30 @@ class UpdateAppointmentUseCase:
                 await self._appointments.sync_odontogram(appointment_id)
             await self._session.commit()
 
+        # Одна запись на операцию, но разная по подробности: откат — подотчётное
+        # действие со своей причиной, обычная правка — перечень изменённых полей.
+        # Писать обе значило бы дважды рассказывать про одно и то же.
         if rollback_from is not None:
-            # Откат — подотчётная операция: кто, что и почему откатил.
-            await self._audit.record(
+            await self._audit.record_clinic(
                 actor_id=actor_id,
+                clinic_id=clinic_id,
                 action="appointment.status_rollback",
                 entity_type="appointment",
                 entity_id=appointment_id,
                 payload={
-                    "clinicId": str(clinic_id),
                     "from": rollback_from.value,
                     "to": appointment.status.value,
                     "comment": rollback_comment,
                 },
+            )
+        else:
+            await self._audit.record_clinic(
+                actor_id=actor_id,
+                clinic_id=clinic_id,
+                action="appointment.update",
+                entity_type="appointment",
+                entity_id=appointment_id,
+                payload={"fields": sorted(fields)},
             )
 
         patient_name = await self._appointments.patient_name(appointment.patient_id)

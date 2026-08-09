@@ -11,6 +11,8 @@ from app.core.errors import ForbiddenError
 from app.modules.access.application.use_cases.manage_roles import UpdateRoleUseCase
 from app.modules.access.presentation.deps import get_update_role_use_case, require_permission
 from app.modules.access.presentation.schemas import RoleItem, UpdateRoleRequest
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -62,6 +64,7 @@ async def update_role(
     body: UpdateRoleRequest,
     context: ClientContext = Depends(require_permission("roles.manage")),
     use_case: UpdateRoleUseCase = Depends(get_update_role_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> RoleItem:
     """Переименовать роль и/или заменить её набор прав.
 
@@ -78,5 +81,13 @@ async def update_role(
         name=body.name,
         permission_keys=body.permissions,
         max_discount_percent=body.max_discount_percent,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="role.update",
+        entity_type="role",
+        entity_id=role_id,
+        payload={"fields": sorted(body.model_dump(exclude_unset=True))},
     )
     return RoleItem.from_row(row)

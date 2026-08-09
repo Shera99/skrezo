@@ -63,7 +63,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `subscriptions` | подписка, статусы, триал и оплаченный период; клиентская ручка `GET /clinic/subscription` + админские `POST /admin/clients/{id}/subscription/activate|block` (оплата приходит переводом, отмечает человек); **правило доступа** (`domain/access`: режим чтения считается по датам `trial_ends_at` и `current_period_end`, а не по статусу); джобы `expire_trials`, `expire_paid_periods`, `warn_trial_ending` и `warn_period_ending` (предупреждение однократно — отметка ставится тем же UPDATE; у периода сбрасывается при продлении) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 14 ✅ / 4 |
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
-| `audit` | журнал мутаций /admin/* (запись + чтение) | `audit_log` | 7 ✅ |
+| `audit` | журнал мутаций: платформенный (`/admin/audit`, действия Skrezo) и **клиничный** (`/clinic/audit`, право `audit.view`) — все мутации клиники. Разделены колонкой `audit_log.clinic_id`: у платформенных она пуста | `audit_log` | 7 ✅ / 15 ✅ |
 | `patients` | клиническое ядро: **глобальные** пациенты, одонтограмма (FDI), сквозная история зуба (RBAC `patients.*`) | `patient`, `patient_tooth` | 9 ✅ |
 | `services` | прайс клиники (услуги, цены) (RBAC `price.*`) | `service` | 9 ✅ |
 | `appointments` | приёмы (клиника+врач=membership+пациент) и **чек списком позиций**: услуга, цена за единицу, количество, зубы (RBAC `appointments.*`) | `appointment`, `appointment_item`, `appointment_item_tooth` | 9 ✅ / 14 ✅ |

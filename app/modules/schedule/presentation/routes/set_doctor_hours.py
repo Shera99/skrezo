@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.schedule.application.use_cases.set_doctor_hours import SetDoctorHoursUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -71,6 +73,7 @@ async def set_doctor_hours(
     body: SetDoctorHoursRequest,
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: SetDoctorHoursUseCase = Depends(get_set_doctor_hours_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> DoctorHoursResponse:
     """Заменить индивидуальный график врача: все 7 дней передаются разом.
 
@@ -83,5 +86,13 @@ async def set_doctor_hours(
     membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
     saved = await use_case.execute(
         scope.clinic_id, membership_id, [d.to_hours() for d in body.days]
+    )
+    await audit.record_clinic(
+        actor_id=scope.context.account_id,
+        clinic_id=scope.clinic_id,
+        action="schedule.doctor_hours",
+        entity_type="membership",
+        entity_id=membership_id,
+        payload=None,
     )
     return DoctorHoursResponse(days=[DoctorHoursItem.from_hours(d) for d in saved])

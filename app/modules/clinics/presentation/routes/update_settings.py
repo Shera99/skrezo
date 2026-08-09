@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.clinics.application.use_cases.clinic_settings import (
     UpdateClinicSettingsUseCase,
 )
@@ -53,6 +55,7 @@ async def update_settings(
     context: ClientContext = Depends(require_permission("settings.edit")),
     lang: Lang = Depends(get_request_lang),
     use_case: UpdateClinicSettingsUseCase = Depends(get_update_clinic_settings_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> ClinicSettingsResponse:
     """Изменить название, город, контакты, язык или таймзону клиники.
 
@@ -67,5 +70,13 @@ async def update_settings(
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     view = await use_case.execute(
         context.clinic_id, body.model_dump(exclude_unset=True), lang=lang
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="settings.update",
+        entity_type="clinic",
+        entity_id=context.clinic_id,
+        payload={"fields": sorted(body.model_dump(exclude_unset=True))},
     )
     return ClinicSettingsResponse.from_view(view)

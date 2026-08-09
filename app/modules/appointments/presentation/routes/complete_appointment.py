@@ -18,6 +18,8 @@ from app.modules.appointments.presentation.schemas import (
     AppointmentDetailResponse,
     CompleteAppointmentRequest,
 )
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -64,6 +66,7 @@ async def complete_appointment(
     body: CompleteAppointmentRequest | None = None,
     context: ClientContext = Depends(require_permission("appointments.complete_pay")),
     use_case: CompleteAppointmentUseCase = Depends(get_complete_appointment_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> AppointmentDetailResponse:
     """Перевести приём в ``completed`` и, если передана оплата, провести её в кассу.
 
@@ -91,5 +94,13 @@ async def complete_appointment(
         payment,
         no_charge=body.no_charge if body is not None else False,
         no_charge_comment=body.no_charge_comment if body is not None else None,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="appointment.complete",
+        entity_type="appointment",
+        entity_id=appointment_id,
+        payload={"paid": payment is not None, "noCharge": bool(body and body.no_charge)},
     )
     return AppointmentDetailResponse.from_detail(detail)

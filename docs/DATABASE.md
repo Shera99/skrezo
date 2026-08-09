@@ -1,6 +1,6 @@
 # Схема базы данных Skrezo
 
-Актуально на миграцию **0033** (`alembic upgrade head`). Все таблицы —
+Актуально на миграцию **0036** (`alembic upgrade head`). Все таблицы —
 PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу).
 
 ## Соглашения
@@ -217,6 +217,7 @@ erDiagram
     AUDIT_LOG {
         uuid id PK
         uuid actor_id FK "account"
+        uuid clinic_id FK "nullable: клиника (пусто — действие Skrezo)"
         text action
         text entity_type
         uuid entity_id "nullable"

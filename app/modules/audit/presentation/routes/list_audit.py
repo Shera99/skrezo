@@ -34,6 +34,9 @@ async def list_audit(
     result = await use_case.execute(
         actor_id=actor_id,
         clinic_id=clinic_id,
+        # Только действия Skrezo: журнал клиник живёт отдельно (`GET /clinic/audit`),
+        # и его тысячи записей здесь были бы шумом.
+        platform_only=True,
         from_dt=from_dt,
         to_dt=to_dt,
         cursor=cursor,

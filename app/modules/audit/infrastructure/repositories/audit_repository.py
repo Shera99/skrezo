@@ -26,9 +26,11 @@ class AuditRepository:
         entity_type: str,
         entity_id: uuid.UUID | None,
         payload: dict[str, Any] | None,
+        clinic_id: uuid.UUID | None = None,
     ) -> AuditLog:
         entry = AuditLog(
             actor_id=actor_id,
+            clinic_id=clinic_id,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -43,11 +45,27 @@ class AuditRepository:
         *,
         actor_id: uuid.UUID | None = None,
         clinic_id: uuid.UUID | None = None,
+        clinic_scope: uuid.UUID | None = None,
+        platform_only: bool = False,
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 20,
     ) -> tuple[list[AuditEntry], tuple[datetime, uuid.UUID] | None]:
+        """Записи журнала (свежие сверху) и курсор следующей страницы.
+
+        Два разных фильтра по клинике, и путать их нельзя:
+
+        * ``clinic_id`` — платформенный: действия Skrezo **над** этой клиникой
+          (сущность ``clinic``). Так журнал клиента читает админка;
+        * ``clinic_scope`` — клиничный: всё, что сотрудники делали **внутри**
+          клиники. На нём держится изоляция журнала клиники, поэтому он
+          проверяет колонку, а не сущность.
+
+        ``platform_only`` оставляет только записи Skrezo. Без него экран
+        поддержки утонул бы: клиничных записей тысячи (каждый платёж, каждая
+        правка пациента) против десятков платформенных.
+        """
         stmt = select(
             AuditLog.id.label("id"),
             AuditLog.actor_id.label("actor_id"),
@@ -63,6 +81,10 @@ class AuditRepository:
             stmt = stmt.where(AuditLog.actor_id == actor_id)
         if clinic_id is not None:
             stmt = stmt.where(AuditLog.entity_type == "clinic", AuditLog.entity_id == clinic_id)
+        if clinic_scope is not None:
+            stmt = stmt.where(AuditLog.clinic_id == clinic_scope)
+        if platform_only:
+            stmt = stmt.where(AuditLog.clinic_id.is_(None))
         if from_dt is not None:
             stmt = stmt.where(AuditLog.created_at >= from_dt)
         if to_dt is not None:

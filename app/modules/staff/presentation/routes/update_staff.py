@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.staff.application.use_cases.update_staff import UpdateStaffUseCase
 from app.modules.staff.presentation.deps import get_update_staff_use_case
 from app.modules.staff.presentation.schemas import StaffMemberOut, UpdateStaffRequest
@@ -37,6 +39,7 @@ async def update_staff(
     body: UpdateStaffRequest,
     context: ClientContext = Depends(require_permission("staff.manage")),
     use_case: UpdateStaffUseCase = Depends(get_update_staff_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> StaffMemberOut:
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -47,5 +50,13 @@ async def update_staff(
         phone_raw=body.phone,
         specialization_id=body.specialization_id,
         role_id=body.role_id,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="staff.update",
+        entity_type="membership",
+        entity_id=membership_id,
+        payload={"fields": sorted(body.model_dump(exclude_unset=True))},
     )
     return StaffMemberOut.from_member(member)

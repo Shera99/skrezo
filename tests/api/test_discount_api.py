@@ -239,14 +239,16 @@ async def test_ceiling_is_editable_per_clinic(client: AsyncClient, ctx: ClinicCt
     assert resp.json()["maxDiscountPercent"] == 10
 
 
-async def test_discount_is_audited(
-    admin_client: AsyncClient, client: AsyncClient, ctx: ClinicCtx
-) -> None:
-    """Кто и сколько скинул — видно в аудите."""
+async def test_discount_is_audited(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Кто и сколько скинул — видно в журнале КЛИНИКИ, а не Skrezo.
+
+    Скидка — операция сотрудника, и разбирает её владелец клиники; в
+    платформенном журнале ей делать нечего (см. ``test_clinic_audit_api``).
+    """
     appointment_id = await _book(client, ctx)
     assert (await _discount(client, ctx, appointment_id, 25)).status_code == 200
 
-    audit = await admin_client.get(f"{API}/admin/audit")
+    audit = await client.get(f"{API}/clinic/audit", headers=ctx.headers)
     assert audit.status_code == 200, audit.text
     assert "appointment.discount" in audit.text
 

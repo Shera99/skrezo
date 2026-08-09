@@ -97,17 +97,15 @@ class ApplyDiscountUseCase:
         )
         await self._session.commit()
 
-        await self._audit.record(
+        # Запись клиничная: её читает журнал клиники, а не поддержка Skrezo.
+        # Клиника теперь колонкой, а не полем payload — по ней идёт отбор.
+        await self._audit.record_clinic(
             actor_id=actor_id,
+            clinic_id=clinic_id,
             action="appointment.discount",
             entity_type="appointment",
             entity_id=appointment_id,
-            payload={
-                "clinicId": str(clinic_id),
-                "from": previous,
-                "to": percent,
-                "discountTiyin": discount,
-            },
+            payload={"from": previous, "to": percent, "discountTiyin": discount},
         )
 
         patient_name = await self._appointments.patient_name(appointment.patient_id)

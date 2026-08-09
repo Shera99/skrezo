@@ -10,6 +10,8 @@ from app.core.errors import ForbiddenError
 from app.modules.access.application.use_cases.manage_roles import CreateRoleUseCase
 from app.modules.access.presentation.deps import get_create_role_use_case, require_permission
 from app.modules.access.presentation.schemas import CreateRoleRequest, RoleItem
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -52,6 +54,7 @@ async def create_role(
     body: CreateRoleRequest,
     context: ClientContext = Depends(require_permission("roles.manage")),
     use_case: CreateRoleUseCase = Depends(get_create_role_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> RoleItem:
     """Своя роль клиники с произвольным набором прав из каталога.
 
@@ -62,5 +65,13 @@ async def create_role(
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     row = await use_case.execute(
         context.clinic_id, body.name, body.permissions, body.max_discount_percent
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="role.create",
+        entity_type="role",
+        entity_id=row.id,
+        payload={"name": row.name},
     )
     return RoleItem.from_row(row)

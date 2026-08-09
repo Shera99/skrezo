@@ -11,6 +11,8 @@ from app.core.errors import ForbiddenError
 from app.modules.access.application.use_cases.manage_roles import DeleteRoleUseCase
 from app.modules.access.presentation.deps import get_delete_role_use_case, require_permission
 from app.modules.access.presentation.schemas import RoleDeletedResponse
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -50,6 +52,7 @@ async def delete_role(
     role_id: uuid.UUID,
     context: ClientContext = Depends(require_permission("roles.manage")),
     use_case: DeleteRoleUseCase = Depends(get_delete_role_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> RoleDeletedResponse:
     """Удалить кастомную роль клиники.
 
@@ -59,4 +62,12 @@ async def delete_role(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     await use_case.execute(context.clinic_id, role_id)
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="role.delete",
+        entity_type="role",
+        entity_id=role_id,
+        payload=None,
+    )
     return RoleDeletedResponse(id=role_id)

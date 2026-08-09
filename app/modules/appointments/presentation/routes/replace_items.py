@@ -16,6 +16,8 @@ from app.modules.appointments.presentation.schemas import (
     AppointmentDetailResponse,
     ReplaceItemsRequest,
 )
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -62,6 +64,7 @@ async def replace_items(
     body: ReplaceItemsRequest,
     context: ClientContext = Depends(require_permission("appointments.edit")),
     use_case: ReplaceItemsUseCase = Depends(get_replace_items_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> AppointmentDetailResponse:
     """Положить новый список позиций вместо прежнего и пересчитать итог приёма.
 
@@ -88,4 +91,12 @@ async def replace_items(
         for i in body.items
     ]
     detail = await use_case.execute(context.clinic_id, appointment_id, items)
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="appointment.items",
+        entity_type="appointment",
+        entity_id=appointment_id,
+        payload={"items": len(items)},
+    )
     return AppointmentDetailResponse.from_detail(detail)

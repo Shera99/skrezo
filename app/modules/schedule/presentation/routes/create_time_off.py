@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, status
 
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.schedule.application.use_cases.create_time_off import CreateTimeOffUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -68,6 +70,7 @@ async def create_time_off(
     body: CreateTimeOffRequest,
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: CreateTimeOffUseCase = Depends(get_create_time_off_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> TimeOffItem:
     """Отпуск, больничный или разовая недоступность врача.
 
@@ -81,5 +84,13 @@ async def create_time_off(
     membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
     record = await use_case.execute(
         scope.clinic_id, membership_id, body.starts_at, body.ends_at, body.reason
+    )
+    await audit.record_clinic(
+        actor_id=scope.context.account_id,
+        clinic_id=scope.clinic_id,
+        action="schedule.time_off_add",
+        entity_type="membership",
+        entity_id=membership_id,
+        payload={"startsAt": body.starts_at.isoformat(), "endsAt": body.ends_at.isoformat()},
     )
     return TimeOffItem.from_record(record)

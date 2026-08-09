@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.cash.application.use_cases.record_payment import RecordPaymentUseCase
 from app.modules.cash.presentation.deps import get_record_payment_use_case
 from app.modules.cash.presentation.schemas import PaymentItem, RecordPaymentRequest
@@ -51,6 +53,7 @@ async def record_payment(
     body: RecordPaymentRequest,
     context: ClientContext = Depends(require_permission("cash.operate")),
     use_case: RecordPaymentUseCase = Depends(get_record_payment_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> PaymentItem:
     """Приход денег в кассу за конкретный приём.
 
@@ -67,5 +70,13 @@ async def record_payment(
         body.amount_tiyin,
         body.method,
         body.comment,
+    )
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="cash.payment",
+        entity_type="cash_payment",
+        entity_id=record.id,
+        payload={"appointmentId": str(body.appointment_id), "amountTiyin": body.amount_tiyin},
     )
     return PaymentItem.from_record(record)

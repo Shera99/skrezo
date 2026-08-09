@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.schedule.application.use_cases.delete_time_off import DeleteTimeOffUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -56,6 +58,7 @@ async def delete_time_off(
     time_off_id: uuid.UUID,
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: DeleteTimeOffUseCase = Depends(get_delete_time_off_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> TimeOffDeletedResponse:
     """Удалить отсутствие врача по id.
 
@@ -65,4 +68,12 @@ async def delete_time_off(
     """
     membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
     await use_case.execute(scope.clinic_id, membership_id, time_off_id)
+    await audit.record_clinic(
+        actor_id=scope.context.account_id,
+        clinic_id=scope.clinic_id,
+        action="schedule.time_off_remove",
+        entity_type="membership",
+        entity_id=membership_id,
+        payload={"timeOffId": str(time_off_id)},
+    )
     return TimeOffDeletedResponse(id=time_off_id)

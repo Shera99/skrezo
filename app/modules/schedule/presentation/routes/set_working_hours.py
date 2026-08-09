@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.schedule.application.use_cases.set_working_hours import SetWorkingHoursUseCase
 from app.modules.schedule.presentation.deps import get_set_working_hours_use_case
 from app.modules.schedule.presentation.schemas import (
@@ -45,6 +47,7 @@ async def set_working_hours(
     body: SetWorkingHoursRequest,
     context: ClientContext = Depends(require_permission("settings.edit")),
     use_case: SetWorkingHoursUseCase = Depends(get_set_working_hours_use_case),
+    audit: AuditService = Depends(get_audit_service),
 ) -> WorkingHoursResponse:
     """Заменить часы работы клиники: все 7 дней передаются разом.
 
@@ -55,4 +58,12 @@ async def set_working_hours(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     saved = await use_case.execute(context.clinic_id, [d.to_hours() for d in body.days])
+    await audit.record_clinic(
+        actor_id=context.account_id,
+        clinic_id=context.clinic_id,
+        action="schedule.working_hours",
+        entity_type="clinic",
+        entity_id=context.clinic_id,
+        payload=None,
+    )
     return WorkingHoursResponse(days=[WorkingHoursItem.from_hours(d) for d in saved])
