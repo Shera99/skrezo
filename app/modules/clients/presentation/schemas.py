@@ -1,9 +1,13 @@
 """Схемы раздела «Клиенты» (контракты фронта админ-панели, 1:1).
 
-Поля-заглушки (клиническое ядро/биллинг вне скоупа): `patientsCount`/`revenue`
-= 0, `lifetimeRevenue`/`lastActiveAt`/`activity` = null, `payments` = [],
-`cardAttached` = false (карты не привязываются). `tariffLabel` пока = `tariffName`
-(пер-клиничный тариф не назначается).
+`patientsCount`, `revenueTiyin` и блок `activity` считаются из клинического ядра
+и кассы клиники. ⚠️ `revenueTiyin` — оборот САМОЙ клиники, а не деньги, которые
+она принесла Skrezo: последнее — это `lifetimeRevenueTiyin`, и оно ждёт биллинга.
+
+Остаются заглушками (биллинг отложен): `lifetimeRevenue`/`lastActiveAt` = null,
+`payments` = [], `cardAttached` = false (карты не привязываются). `tariffLabel`
+пока = `tariffName` (пер-клиничный тариф не назначается), `activity.lastLogin`
+пуст — входы не отслеживаются.
 """
 
 from __future__ import annotations
@@ -40,9 +44,19 @@ class ClientListItem(CamelModel):
     tariff_label: str = Field(description="Человекочитаемый ярлык тарифа")
     seats_used: int
     seats_limit: int | None = None
-    patients_count: int = 0
-    revenue_tiyin: int = Field(default=0, description="Выручка кассы клиники (вне скоупа) — 0")
-    lifetime_revenue_tiyin: int | None = None
+    patients_count: int = Field(
+        default=0, description="Пациентов клиники — тех, кого она принимала (пациент глобальный)"
+    )
+    revenue_tiyin: int = Field(
+        default=0, description="Нетто кассы КЛИНИКИ за всё время: платежи минус возвраты"
+    )
+    lifetime_revenue_tiyin: int | None = Field(
+        default=None,
+        description=(
+            "Сколько клиент заплатил SKREZO за всё время — ждёт биллинга "
+            "(не путать с `revenueTiyin`: то оборот самой клиники)"
+        ),
+    )
     subscription_status: SubscriptionStatus | None = None
     trial_day: int | None = None
     last_active_at: datetime | None = None
@@ -67,6 +81,8 @@ class ClientListItem(CamelModel):
             trial_day=_trial_day(row.subscription_status, row.trial_started_at),
             created_at=row.created_at,
             current_period_end=row.current_period_end,
+            patients_count=row.patients_count,
+            revenue_tiyin=row.revenue_tiyin,
         )
 
 
@@ -119,9 +135,13 @@ class ClientPayment(CamelModel):
 
 
 class ClientActivity(CamelModel):
-    patients: int
-    visits: int
-    last_login: str
+    """Активность клиники: сколько людей она принимала и сколько раз."""
+
+    patients: int = Field(description="Пациентов, которых принимала клиника")
+    visits: int = Field(description="Приёмов за всё время (любого статуса)")
+    last_login: str = Field(
+        default="", description="Последний вход — не отслеживается, всегда пусто"
+    )
 
 
 class ClientDetailResponse(ClientListItem):
@@ -152,6 +172,8 @@ class ClientDetailResponse(ClientListItem):
             tariff_label=name,
             seats_used=detail.seats_used,
             seats_limit=clinic.seats_limit,
+            patients_count=detail.patients_count,
+            revenue_tiyin=detail.revenue_tiyin,
             subscription_status=sub.status if sub else None,
             trial_day=_trial_day(
                 sub.status if sub else None, sub.trial_started_at if sub else None
@@ -163,7 +185,9 @@ class ClientDetailResponse(ClientListItem):
             language=clinic.lang.value,
             card_attached=bool(sub and sub.card_attached_at is not None),
             specialization=owner.specialization_name if owner else None,
-            activity=None,  # блок активности соло — клиническое ядро вне скоупа
+            activity=ClientActivity(
+                patients=detail.patients_count, visits=detail.visits_count
+            ),
             staff=[StaffMember.from_row(s) for s in detail.staff],
             payments=[],  # журнал платежей клиента → Skrezo: биллинг отложен
             notes=clinic.support_notes or "",

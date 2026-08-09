@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, working_slot
 
 
 async def _first_city_id(admin_client: AsyncClient) -> str:
@@ -134,3 +134,90 @@ async def test_doctor_on_solo_is_400(admin_client: AsyncClient) -> None:
     )
     assert resp.status_code == 400
     assert resp.json()["error"] == "solo_no_staff"
+
+
+async def test_client_card_shows_real_patients_and_revenue(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Метрики клиента считаются из ядра и кассы, а не стоят нулями.
+
+    Раньше Skrezo по карточке не мог понять, живёт клиника или числится:
+    `patientsCount` и `revenueTiyin` были заглушками со времён «клиническое
+    ядро вне скоупа».
+    """
+    city = await _first_city_id(admin_client)
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={
+            "type": "clinic",
+            "adminFullName": "Владелец Метрик",
+            "adminPhone": "0700600900",
+            "name": "Клиника Метрик",
+            "cityId": city,
+            "businessPhone": "0700000000",
+            "seats": 5,
+        },
+    )
+    assert created.status_code == 201, created.text
+    clinic_id = created.json()["id"]
+
+    login = await client.post(
+        f"{API}/auth/login",
+        json={"phone": "0700600900", "password": created.json()["tempPassword"]},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+
+    patient = await client.post(
+        f"{API}/clinic/patients",
+        headers=headers,
+        json={"phone": "0700600901", "firstName": "Пациент", "lastName": "Метриков"},
+    )
+    service = await client.post(
+        f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 5000}
+    )
+    appointment = await client.post(
+        f"{API}/clinic/appointments",
+        headers=headers,
+        json={
+            "patientId": patient.json()["id"],
+            "scheduledAt": working_slot(),
+            "items": [{"serviceId": service.json()["id"], "teeth": [46]}],
+        },
+    )
+    assert appointment.status_code == 201, appointment.text
+    paid = await client.post(
+        f"{API}/clinic/cash/payments",
+        headers=headers,
+        json={
+            "appointmentId": appointment.json()["id"],
+            "amountTiyin": 5000,
+            "method": "cash",
+        },
+    )
+    assert paid.status_code == 201, paid.text
+
+    card = await admin_client.get(f"{API}/admin/clients/{clinic_id}")
+    assert card.status_code == 200, card.text
+    assert card.json()["patientsCount"] == 1
+    assert card.json()["revenueTiyin"] == 5000
+    assert card.json()["activity"]["patients"] == 1
+    assert card.json()["activity"]["visits"] == 1
+    # Сколько клиент заплатил Skrezo — это другое поле, и оно ждёт биллинга.
+    assert card.json()["lifetimeRevenueTiyin"] is None
+
+    listed = await admin_client.get(f"{API}/admin/clients")
+    row = next(r for r in listed.json()["list"] if r["id"] == clinic_id)
+    assert row["patientsCount"] == 1
+    assert row["revenueTiyin"] == 5000
+
+
+async def test_client_without_activity_reports_zeros(admin_client: AsyncClient) -> None:
+    """Клиника без приёмов — нули, а не пропуск строки в списке."""
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={"type": "solo", "adminFullName": "Пустой", "adminPhone": "0700600902"},
+    )
+    listed = await admin_client.get(f"{API}/admin/clients")
+    row = next(r for r in listed.json()["list"] if r["id"] == created.json()["id"])
+    assert row["patientsCount"] == 0
+    assert row["revenueTiyin"] == 0

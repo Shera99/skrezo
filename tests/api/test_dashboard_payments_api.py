@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from httpx import AsyncClient
+import uuid
 
-from tests.conftest import API
+from httpx import AsyncClient
+from sqlalchemy import update
+
+from app.shared.db.enums import SubscriptionStatus
+from app.shared.db.models.subscription import Subscription
+from tests.conftest import API, Resources
 
 
 async def test_dashboard_summary_shape_and_counts(admin_client: AsyncClient) -> None:
@@ -39,3 +44,32 @@ async def test_payments_stub(admin_client: AsyncClient) -> None:
     )
     assert refund.status_code == 404
     assert refund.json()["error"] == "payment_not_found"
+
+
+async def test_dashboard_counts_expired_trials_as_risk(
+    admin_client: AsyncClient, _resources: Resources
+) -> None:
+    """Клиника с истёкшим триалом видна в рисках, а не пропадает с экрана.
+
+    До этого она не попадала ни в активные, ни в риски, ни в отменённые — то
+    есть отток был не виден вовсе.
+    """
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={"type": "solo", "adminFullName": "Истёкший", "adminPhone": "0700700002"},
+    )
+    assert created.status_code == 201, created.text
+    async with _resources.factory() as session:
+        await session.execute(
+            update(Subscription)
+            .where(Subscription.clinic_id == uuid.UUID(created.json()["id"]))
+            .values(status=SubscriptionStatus.TRIAL_EXPIRED)
+        )
+        await session.commit()
+
+    body = (
+        await admin_client.get(f"{API}/admin/dashboard/summary?from=2026-07-01&to=2026-07-11")
+    ).json()
+
+    assert body["risks"]["trialExpired"] == 1
+    assert body["active"]["total"] == 0  # и активной она больше не считается

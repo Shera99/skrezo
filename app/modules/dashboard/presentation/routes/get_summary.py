@@ -71,6 +71,7 @@ async def dashboard_summary(
             with_card=data.trial_with_card,
         ),
         risks=RisksBlock(
+            trial_expired=data.status_counts[SubscriptionStatus.TRIAL_EXPIRED],
             awaiting_card=data.status_counts[SubscriptionStatus.AWAITING_CARD],
             past_due=data.status_counts[SubscriptionStatus.PAST_DUE],
             blocked=data.status_counts[SubscriptionStatus.BLOCKED],

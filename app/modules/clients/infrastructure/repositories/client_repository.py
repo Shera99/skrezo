@@ -13,13 +13,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.modules.clients.domain.models import ClientDetail, ClientListRow, StaffRow
-from app.shared.db.enums import DEFAULT_LANG, ClinicType, Lang, SubscriptionStatus
+from app.shared.db.enums import DEFAULT_LANG, ClinicType, Lang, PaymentKind, SubscriptionStatus
 from app.shared.db.models.account import Account
+from app.shared.db.models.appointment import Appointment
+from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
@@ -68,6 +70,41 @@ class ClientRepository:
             .scalar_subquery()
         )
 
+    @staticmethod
+    def _patients_subquery() -> Any:
+        """Пациентов на клинику: тот же счёт, что в отчётах — по приёмам.
+
+        Пациент в Skrezo глобальный, «своих» у клиники нет: её пациенты — те,
+        кого она принимала. Иначе в карточке стояло бы число пациентов всей
+        платформы.
+        """
+        return (
+            select(
+                Appointment.clinic_id.label("clinic_id"),
+                func.count(distinct(Appointment.patient_id)).label("patients_count"),
+            )
+            .group_by(Appointment.clinic_id)
+            .subquery()
+        )
+
+    @staticmethod
+    def _revenue_subquery() -> Any:
+        """Нетто кассы на клинику за всё время: платежи минус возвраты."""
+        signed = func.sum(
+            case(
+                (CashPayment.kind == PaymentKind.REFUND, -CashPayment.amount_tiyin),
+                else_=CashPayment.amount_tiyin,
+            )
+        )
+        return (
+            select(
+                CashPayment.clinic_id.label("clinic_id"),
+                func.coalesce(signed, 0).label("revenue_tiyin"),
+            )
+            .group_by(CashPayment.clinic_id)
+            .subquery()
+        )
+
     def _list_base(self, lang: Lang) -> Select[Any]:
         owner = (
             select(
@@ -78,6 +115,8 @@ class ClientRepository:
             .where(Membership.active.is_(True), Role.is_owner.is_(True))
             .subquery()
         )
+        patients = self._patients_subquery()
+        revenue = self._revenue_subquery()
         # Название города — перевод на язык запроса, фолбэк на ru.
         ct_lang = aliased(CityTranslation)
         ct_ru = aliased(CityTranslation)
@@ -97,6 +136,8 @@ class ClientRepository:
                 Subscription.current_period_end.label("current_period_end"),
                 Subscription.card_attached_at.label("card_attached_at"),
                 self._seats_used_expr().label("seats_used"),
+                func.coalesce(patients.c.patients_count, 0).label("patients_count"),
+                func.coalesce(revenue.c.revenue_tiyin, 0).label("revenue_tiyin"),
             )
             .select_from(Clinic)
             .outerjoin(owner, owner.c.clinic_id == Clinic.id)
@@ -104,6 +145,11 @@ class ClientRepository:
             .outerjoin(Subscription, Subscription.clinic_id == Clinic.id)
             .outerjoin(ct_lang, and_(ct_lang.city_id == Clinic.city_id, ct_lang.lang == lang))
             .outerjoin(ct_ru, and_(ct_ru.city_id == Clinic.city_id, ct_ru.lang == DEFAULT_LANG))
+            # Агрегаты — сгруппированными подзапросами, а не скалярными на строку:
+            # список админки читает сотни клиник, и коррелированный подзапрос на
+            # каждую превратился бы в тот же N+1, только внутри SQL.
+            .outerjoin(patients, patients.c.clinic_id == Clinic.id)
+            .outerjoin(revenue, revenue.c.clinic_id == Clinic.id)
         )
 
     @staticmethod
@@ -184,6 +230,8 @@ class ClientRepository:
                 current_period_end=r.current_period_end,
                 card_attached_at=r.card_attached_at,
                 created_at=r.created_at,
+                patients_count=r.patients_count,
+                revenue_tiyin=r.revenue_tiyin,
             )
             for r in rows
         ]
@@ -215,13 +263,44 @@ class ClientRepository:
             )
         ).scalar_one_or_none()
         seats_used = sum(1 for s in staff if s.active and not s.is_owner)
+        patients_count, visits_count = await self._clinic_activity(clinic_id)
         return ClientDetail(
             clinic=clinic,
             city_name=city_name,
             subscription=subscription,
             staff=staff,
             seats_used=seats_used,
+            patients_count=patients_count,
+            visits_count=visits_count,
+            revenue_tiyin=await self._clinic_revenue(clinic_id),
         )
+
+    async def _clinic_activity(self, clinic_id: uuid.UUID) -> tuple[int, int]:
+        """(пациентов, приёмов) клиники — блок активности в карточке."""
+        row = (
+            await self._session.execute(
+                select(
+                    func.count(distinct(Appointment.patient_id)),
+                    func.count(Appointment.id),
+                ).where(Appointment.clinic_id == clinic_id)
+            )
+        ).one()
+        return int(row[0]), int(row[1])
+
+    async def _clinic_revenue(self, clinic_id: uuid.UUID) -> int:
+        """Нетто кассы клиники за всё время (платежи минус возвраты)."""
+        signed = func.sum(
+            case(
+                (CashPayment.kind == PaymentKind.REFUND, -CashPayment.amount_tiyin),
+                else_=CashPayment.amount_tiyin,
+            )
+        )
+        value = (
+            await self._session.execute(
+                select(func.coalesce(signed, 0)).where(CashPayment.clinic_id == clinic_id)
+            )
+        ).scalar_one()
+        return int(value)
 
     async def _city_name(self, city_id: uuid.UUID, lang: Lang) -> str | None:
         stmt = select(CityTranslation.value).where(

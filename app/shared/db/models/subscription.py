@@ -47,3 +47,9 @@ class Subscription(Base, UUIDPKMixin, TimestampMixin):
     trial_warning_sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # То же для оплаченного периода. Отдельное поле, а не общее с триалом:
+    # период повторяется, и отметку нужно сбрасывать при каждом продлении —
+    # общая с триалом ломала бы его однократность.
+    period_warning_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

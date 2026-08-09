@@ -32,9 +32,17 @@ class TrialBlock(CamelModel):
 
 
 class RisksBlock(CamelModel):
-    awaiting_card: int
-    past_due: int
-    blocked: int
+    """Клиники, которые не работают и требуют решения.
+
+    ``trialExpired`` — самая массовая строка: триал кончился, оплаты не было.
+    Без неё такая клиника не попадала ни в активные, ни в риски, ни в отменённые
+    и просто пропадала с экрана — то есть отток был не виден вовсе.
+    """
+
+    trial_expired: int = Field(description="Триал кончился, оплаты не было")
+    awaiting_card: int = Field(description="Ждут привязки карты (гейт карты отключён)")
+    past_due: int = Field(description="Оплаченный период кончился")
+    blocked: int = Field(description="Заблокированы решением Skrezo")
 
 
 class ConversionBlock(CamelModel):

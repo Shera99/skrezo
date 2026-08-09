@@ -18,6 +18,9 @@ from app.modules.subscriptions.application.use_cases.expire_paid_periods import 
     ExpirePaidPeriodsUseCase,
 )
 from app.modules.subscriptions.application.use_cases.expire_trials import ExpireTrialsUseCase
+from app.modules.subscriptions.application.use_cases.warn_period_ending import (
+    WarnPeriodEndingUseCase,
+)
 from app.modules.subscriptions.application.use_cases.warn_trial_ending import (
     WarnTrialEndingUseCase,
 )
@@ -55,6 +58,18 @@ async def warn_trial_ending(ctx: dict[str, Any]) -> int:
     async with JobRunRecorder("warn_trial_ending", attempt(ctx)) as run:
         async with session_factory() as session:
             use_case = WarnTrialEndingUseCase(
+                session, SubscriptionRepository(session), notifier(ctx)
+            )
+            count = await use_case.execute(settings.trial_warning_days)
+        run.note(f"предупреждено клиник: {count}")
+        return count
+
+
+async def warn_period_ending(ctx: dict[str, Any]) -> int:
+    """Предупредить тех, у кого оплаченный период кончается в ближайшие дни."""
+    async with JobRunRecorder("warn_period_ending", attempt(ctx)) as run:
+        async with session_factory() as session:
+            use_case = WarnPeriodEndingUseCase(
                 session, SubscriptionRepository(session), notifier(ctx)
             )
             count = await use_case.execute(settings.trial_warning_days)

@@ -188,6 +188,7 @@ erDiagram
         timestamptz current_period_end "nullable"
         timestamptz cancelled_at "nullable"
         timestamptz trial_warning_sent_at "nullable: предупреждение о конце триала"
+        timestamptz period_warning_sent_at "nullable: то же для оплаченного периода"
     }
     SUBSCRIPTION_EVENT {
         uuid id PK

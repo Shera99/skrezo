@@ -27,6 +27,9 @@ class ClientListRow:
     current_period_end: datetime | None
     card_attached_at: datetime | None
     created_at: datetime
+    #: Пациентов клиники (по приёмам) и нетто кассы за всё время.
+    patients_count: int = 0
+    revenue_tiyin: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,3 +55,6 @@ class ClientDetail:
     subscription: Subscription | None
     staff: list[StaffRow]
     seats_used: int
+    patients_count: int = 0
+    visits_count: int = 0
+    revenue_tiyin: int = 0

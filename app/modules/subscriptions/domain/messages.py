@@ -69,3 +69,17 @@ def team_trials_expired_text(clinic_names: list[str]) -> str:
     lines = ["🔒 Триал закончился, клиники перешли в режим чтения:"]
     lines.extend(f"• {name}" for name in clinic_names)
     return "\n".join(lines)
+
+
+def period_ending_text(clinic_name: str, days_left: int) -> str:
+    """Владельцу: оплаченный период скоро кончится."""
+    return (
+        f"Skrezo: оплаченный период клиники «{clinic_name}» заканчивается через "
+        f"{days_left} {_days_word(days_left)}. Продлите доступ, чтобы записи и "
+        "касса продолжили работать."
+    )
+
+
+def team_period_ending_text(clinic_name: str, days_left: int) -> str:
+    """Команде: у клиники кончается оплата — повод выставить счёт."""
+    return f"💳 Оплата заканчивается через {days_left} {_days_word(days_left)}: {clinic_name}"

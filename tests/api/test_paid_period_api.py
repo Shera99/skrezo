@@ -324,3 +324,53 @@ async def test_subscription_management_needs_platform_admin(
         json={"paidUntil": (datetime.now(UTC) + timedelta(days=30)).isoformat()},
     )
     assert resp.status_code in (401, 403), resp.text
+
+
+# ── 5. Предупреждение о конце оплаченного периода ───────────────────────────
+
+
+async def test_period_warning_is_sent_once_and_resets_on_renewal(
+    admin_client: AsyncClient,
+    _resources: Resources,
+    clinic: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Предупреждение — один раз за период, но НЕ один раз за жизнь клиента.
+
+    Отметка сбрасывается при активации: без этого клиент получил бы
+    предупреждение только про самый первый оплаченный период, а дальше — тишина
+    до момента, когда касса встала.
+    """
+    monkeypatch.setattr(subscription_tasks, "session_factory", _resources.factory)
+    monkeypatch.setattr(
+        "app.modules.jobs.application.services.job_recorder.session_factory",
+        _resources.factory,
+    )
+    await _set_period_end(_resources, clinic["id"], datetime.now(UTC) + timedelta(days=2))
+
+    assert await subscription_tasks.warn_period_ending({}) == 1
+    assert await subscription_tasks.warn_period_ending({}) == 0
+
+    # Продлили — и следующий период снова получит предупреждение.
+    renewed = await admin_client.post(
+        f"{API}/admin/clients/{clinic['id']}/subscription/activate",
+        json={"paidUntil": (datetime.now(UTC) + timedelta(days=2)).isoformat()},
+    )
+    assert renewed.status_code == 200, renewed.text
+    assert await subscription_tasks.warn_period_ending({}) == 1
+
+
+async def test_period_warning_ignores_trial_and_distant_periods(
+    _resources: Resources, clinic: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Клинику на триале и далёкий период эта задача не трогает."""
+    monkeypatch.setattr(subscription_tasks, "session_factory", _resources.factory)
+    monkeypatch.setattr(
+        "app.modules.jobs.application.services.job_recorder.session_factory",
+        _resources.factory,
+    )
+    # Клиника из фикстуры — на триале.
+    assert await subscription_tasks.warn_period_ending({}) == 0
+
+    await _set_period_end(_resources, clinic["id"], datetime.now(UTC) + timedelta(days=40))
+    assert await subscription_tasks.warn_period_ending({}) == 0

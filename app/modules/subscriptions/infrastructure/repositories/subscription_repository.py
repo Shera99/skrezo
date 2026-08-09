@@ -122,6 +122,10 @@ class SubscriptionRepository:
         subscription.current_period_start = period_start
         subscription.current_period_end = period_end
         subscription.cancelled_at = None
+        # ⚠️ Отметка предупреждения сбрасывается: у нового периода свой конец, и
+        # без сброса клиент получил бы предупреждение только про самый первый
+        # оплаченный период, а дальше — тишина до момента отключения.
+        subscription.period_warning_sent_at = None
         await self._session.flush()
         return subscription
 
@@ -135,6 +139,35 @@ class SubscriptionRepository:
         subscription.status = status
         await self._session.flush()
         return subscription
+
+    async def claim_period_warnings(
+        self, now: datetime, until: datetime
+    ) -> list[SubscriptionContact]:
+        """Забрать оплаченные клиники, у которых период кончается на днях.
+
+        Устроено как :meth:`claim_trial_warnings`, и отметка сбрасывается при
+        каждой активации — иначе предупреждение о продлении пришло бы ровно
+        один раз за всю жизнь клиента.
+        """
+        rows = (
+            await self._session.execute(
+                update(Subscription)
+                .where(
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Subscription.period_warning_sent_at.is_(None),
+                    Subscription.current_period_end.is_not(None),
+                    Subscription.current_period_end > now,
+                    Subscription.current_period_end <= until,
+                )
+                .values(period_warning_sent_at=now)
+                .returning(
+                    Subscription.id,
+                    Subscription.clinic_id,
+                    Subscription.current_period_end.label("deadline"),
+                )
+            )
+        ).all()
+        return await self._with_owners(rows)
 
     async def claim_trial_warnings(
         self, now: datetime, until: datetime
