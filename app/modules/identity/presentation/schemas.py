@@ -13,8 +13,10 @@ from app.shared.db.enums import Lang
 
 
 class LoginRequest(CamelModel):
+    """Вход по паролю — только для аккаунтов команды Skrezo."""
+
     phone: str = Field(description="Телефон (= логин), любой формат — нормализуется в E.164")
-    password: str = Field(min_length=1, description="Пароль аккаунта")
+    password: str = Field(min_length=1, description="Пароль аккаунта команды Skrezo")
 
 
 class ChangePasswordRequest(CamelModel):
@@ -69,7 +71,11 @@ class ClientTokenResponse(ClientTokensOut):
         default=None, description="Клиника в токене (если единственная)"
     )
     must_change_password: bool = Field(
-        default=False, description="Пароль временный — требуется смена перед работой"
+        default=False,
+        description=(
+            "Пароль временный — требуется смена перед работой. Осмыслен только для "
+            "команды Skrezo: у остальных пароля нет, и здесь всегда false"
+        ),
     )
     is_platform_admin: bool = Field(
         default=False, description="Сотрудник команды Skrezo (доступ к админ-панели /admin/*)"
@@ -90,7 +96,7 @@ class ClientTokenResponse(ClientTokensOut):
 
 
 class OtpRequestRequest(CamelModel):
-    """Шаг 1: запрос кода на телефон."""
+    """Шаг 1: запрос кода на телефон (основной вход — клиники и соло-врачи)."""
 
     phone: str = Field(description="Телефон, любой формат — нормализуется в E.164")
 
@@ -106,7 +112,7 @@ class OtpRequestResponse(CamelModel):
 
 
 class ForgotPasswordRequest(CamelModel):
-    """Шаг 1 восстановления доступа: код на телефон аккаунта."""
+    """Шаг 1 восстановления доступа: код на телефон аккаунта команды Skrezo."""
 
     phone: str = Field(description="Телефон аккаунта, любой формат — нормализуется в E.164")
 

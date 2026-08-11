@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, otp_login
 
 BISHKEK = ZoneInfo("Asia/Bishkek")
 _phone_seq = itertools.count(1)
@@ -73,12 +73,6 @@ class ClinicCtx:
     service_id: str  # услуга на 3000 тыйынов — позиция приёма
 
 
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
-
-
 @pytest.fixture
 async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
     city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
@@ -96,7 +90,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     await client.put(
         f"{API}/clinic/schedule/working-hours", headers=headers, json=_hours_all_week()
     )
@@ -119,7 +113,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         json={"fullName": "Врач", "phone": worker_phone, "specializationId": spec},
     )
     assert worker.status_code == 201, worker.text
-    worker_headers = await _login(client, worker_phone, str(worker.json()["tempPassword"]))
+    worker_headers = await otp_login(client, worker_phone)
 
     return ClinicCtx(
         headers=headers,

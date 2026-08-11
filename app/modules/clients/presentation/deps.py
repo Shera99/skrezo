@@ -12,9 +12,6 @@ from app.modules.clients.application.use_cases.create_account import CreateAccou
 from app.modules.clients.application.use_cases.get_client import GetClientUseCase
 from app.modules.clients.application.use_cases.list_clients import ListClientsUseCase
 from app.modules.clients.application.use_cases.phone_check import PhoneCheckUseCase
-from app.modules.clients.application.use_cases.reset_admin_password import (
-    ResetAdminPasswordUseCase,
-)
 from app.modules.clients.application.use_cases.status_counts import StatusCountsUseCase
 from app.modules.clients.application.use_cases.update_client import UpdateClientUseCase
 from app.modules.clients.infrastructure.repositories.client_repository import ClientRepository
@@ -69,13 +66,6 @@ def get_change_admin_phone_use_case(
     clients: ClientRepository = Depends(get_client_repository),
 ) -> ChangeAdminPhoneUseCase:
     return ChangeAdminPhoneUseCase(session, clients)
-
-
-def get_reset_admin_password_use_case(
-    session: AsyncSession = Depends(get_session),
-    clients: ClientRepository = Depends(get_client_repository),
-) -> ResetAdminPasswordUseCase:
-    return ResetAdminPasswordUseCase(session, clients)
 
 
 def get_archive_client_use_case(

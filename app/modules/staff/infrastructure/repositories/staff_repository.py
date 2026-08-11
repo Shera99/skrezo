@@ -63,19 +63,13 @@ class StaffRepository:
         )
         return result.scalar_one_or_none() is not None
 
-    async def create_account(
-        self,
-        *,
-        phone: str,
-        full_name: str,
-        password_hash: str,
-        must_change_password: bool = True,
-    ) -> Account:
+    async def create_account(self, *, phone: str, full_name: str) -> Account:
+        """Создать аккаунт сотрудника — всегда без пароля (вход по коду на телефон)."""
         account = Account(
             phone=phone,
             full_name=full_name,
-            password_hash=password_hash,
-            must_change_password=must_change_password,
+            password_hash=None,
+            must_change_password=False,
         )
         self._session.add(account)
         await self._session.flush()

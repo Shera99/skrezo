@@ -17,10 +17,10 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 
-async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> str:
+async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> None:
     """Завести клинику через админ-провижининг, вернуть временный пароль владельца."""
     city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
     resp = await admin_client.post(
@@ -36,20 +36,13 @@ async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) ->
         },
     )
     assert resp.status_code == 201, resp.text
-    return str(resp.json()["tempPassword"])
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @pytest.fixture
 async def clinic(client: AsyncClient, admin_client: AsyncClient) -> dict[str, str]:
     """Заголовки владельца свежей клиники (контур клиники)."""
-    temp = await _provision_clinic(admin_client, "0700700001", "Клиника Null-Guard")
-    return await _login(client, "0700700001", temp)
+    await _provision_clinic(admin_client, "0700700001", "Клиника Null-Guard")
+    return await otp_login(client, "0700700001")
 
 
 # ── services: PATCH /clinic/services/{id} ───────────────────────────────────

@@ -42,7 +42,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     status_code=status.HTTP_201_CREATED,
     response_model=DoctorCreatedResponse,
     summary="Добавить врача (админ-сайд)",
-    response_description="membershipId и временный пароль врача",
+    response_description="membershipId созданного врача",
     responses=_ERRORS,
 )
 async def add_doctor(
@@ -65,4 +65,4 @@ async def add_doctor(
         entity_id=clinic_id,
         payload={"membership_id": str(result.membership.id)},
     )
-    return DoctorCreatedResponse(id=result.membership.id, temp_password=result.temp_password)
+    return DoctorCreatedResponse(id=result.membership.id)

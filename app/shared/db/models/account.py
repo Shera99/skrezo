@@ -1,15 +1,15 @@
-"""Таблица аккаунтов (клиентский контур). Телефон = логин.
+"""Таблица аккаунтов (единый контур). Телефон = логин.
 
-Два способа входа сосуществуют:
+Способ входа определяется флагом ``is_platform_admin``:
 
-* **Сотрудники клиник** (владелец/менеджер/работник) — по паре ``phone`` +
-  пароль (``password_hash``, argon2). Первичный пароль выдаётся временным при
-  провижининге/добавлении; флаг ``must_change_password`` заставляет сменить его.
-* **Соло-врачи** — passwordless по OTP: ``password_hash IS NULL``, вход каждый раз
-  подтверждением кода. Регистрация — self-service (``/auth/solo/register``).
+* **Команда Skrezo** — телефон + пароль (``password_hash``, argon2). Единственный
+  контур с паролем; аккаунты заводит скрипт ``app/scripts/create_platform_user.py``.
+* **Все остальные** — владельцы клиник, менеджеры, работники, соло-врачи — входят
+  по коду из SMS: ``password_hash IS NULL``, подтверждение при каждом входе.
 
-Наличие пароля различает контуры: OTP-вход логинит только passwordless-аккаунты,
-чтобы не обходить пароль сотрудников клиник.
+Инвариант после миграции ``0038``: ``password_hash IS NOT NULL`` ⇔ аккаунт
+команды Skrezo. Он держится с обеих сторон — OTP-вход не логинит админа, а вход
+по паролю не логинит всех прочих, даже если хеш у них каким-то образом появится.
 """
 
 from __future__ import annotations
@@ -28,15 +28,15 @@ class Account(Base, UUIDPKMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(Text, nullable=False)
     lang: Mapped[Lang] = mapped_column(LangType, nullable=False, server_default=DEFAULT_LANG.value)
     onboarded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    # Хеш пароля (argon2). NULL — пароль ещё не задан (аккаунт создан до перехода
-    # на пароли); вход при NULL невозможен, требуется установка пароля.
+    # Хеш пароля (argon2). NULL — вход по коду из SMS (все, кроме команды Skrezo).
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     # true — пароль временный, при следующем входе клиент обязан его сменить.
+    # Осмыслен только вместе с паролем, то есть у аккаунтов команды Skrezo.
     must_change_password: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
+        Boolean, nullable=False, server_default=text("false")
     )
     # true — сотрудник команды Skrezo (кросс-тенантный доступ к /admin/*, минует
-    # клиничные проверки). Единый вход для всех: команда и сотрудники клиник.
+    # клиничные проверки). Он же — единственный, кто входит по паролю.
     is_platform_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

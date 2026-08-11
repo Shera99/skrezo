@@ -38,6 +38,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     status_code=status.HTTP_201_CREATED,
     response_model=StaffCreatedResponse,
     summary="Добавить работника",
+    response_description="membershipId созданного работника",
     responses=_ERRORS,
 )
 async def add_staff(
@@ -46,6 +47,11 @@ async def add_staff(
     use_case: AddStaffUseCase = Depends(get_add_staff_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> StaffCreatedResponse:
+    """Завести работника клиники.
+
+    Пароль не выдаётся: работник входит по коду подтверждения на свой номер, а
+    сообщение о добавлении уходит ему автоматически.
+    """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     result = await use_case.execute(
@@ -63,6 +69,4 @@ async def add_staff(
         entity_id=result.membership.id,
         payload={"roleId": str(result.membership.role_id)},
     )
-    return StaffCreatedResponse(
-        membership_id=result.membership.id, temp_password=result.temp_password
-    )
+    return StaffCreatedResponse(membership_id=result.membership.id)

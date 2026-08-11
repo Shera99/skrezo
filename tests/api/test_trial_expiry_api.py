@@ -30,19 +30,13 @@ from app.modules.subscriptions.infrastructure.repositories.subscription_reposito
 )
 from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
-from tests.conftest import API, Resources, working_slot
+from tests.conftest import API, Resources, otp_login, working_slot
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070089{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @pytest.fixture
@@ -63,7 +57,7 @@ async def clinic(admin_client: AsyncClient, client: AsyncClient) -> dict[str, st
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     patient = await client.post(
         f"{API}/clinic/patients",
         headers=headers,

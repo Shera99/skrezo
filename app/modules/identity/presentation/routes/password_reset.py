@@ -32,7 +32,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     409: {
-        "description": "Номер входит по коду из SMS (соло-врач) — пароля у него нет",
+        "description": "Номер входит по коду из SMS (не команда Skrezo) — пароля у него нет",
         "content": {
             "application/json": {
                 "example": {

@@ -207,12 +207,11 @@ class CreateAccountRequest(CamelModel):
 
 
 class AccountCreatedResponse(CamelModel):
+    """Клиент заведён. Пароля нет: владелец входит по коду на свой номер."""
+
     id: uuid.UUID
     type: ClinicType
-    admin_phone: str = Field(description="Телефон владельца (= логин)")
-    temp_password: str = Field(
-        description="Временный пароль владельца — показать один раз и передать владельцу"
-    )
+    admin_phone: str = Field(description="Телефон владельца (= логин, вход по коду из SMS)")
 
 
 class UpdateClientRequest(NotNullFieldsModel):
@@ -261,18 +260,11 @@ class DoctorUpdateRequest(CamelModel):
 
 
 class DoctorCreatedResponse(CamelModel):
+    """Врач заведён. Пароля нет: он входит по коду на свой номер."""
+
     id: uuid.UUID = Field(description="membershipId созданного врача")
-    temp_password: str = Field(
-        description="Временный пароль врача — показать один раз и передать врачу"
-    )
 
 
 class DoctorRemovedResponse(CamelModel):
     ok: bool = True
     mode: str = Field(description="deactivated (soft) — доступ закрыт")
-
-
-class PasswordResetResponse(CamelModel):
-    temp_password: str = Field(
-        description="Новый временный пароль — показать один раз и передать пользователю"
-    )

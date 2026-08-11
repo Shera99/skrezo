@@ -63,18 +63,11 @@ class UpdateStaffRequest(CamelModel):
 
 
 class StaffCreatedResponse(CamelModel):
+    """Работник заведён. Пароля нет: он входит по коду на свой номер."""
+
     membership_id: uuid.UUID
-    temp_password: str = Field(
-        description="Временный пароль работника — показать один раз и передать работнику"
-    )
 
 
 class StaffRemovedResponse(CamelModel):
     ok: bool = True
     mode: str
-
-
-class StaffPasswordResetResponse(CamelModel):
-    temp_password: str = Field(
-        description="Новый временный пароль работника — показать один раз и передать"
-    )

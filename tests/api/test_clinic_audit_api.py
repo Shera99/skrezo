@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -47,11 +47,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> 
         },
     )
     assert created.status_code == 201, created.text
-    login = await client.post(
-        f"{API}/auth/login",
-        json={"phone": phone, "password": created.json()["tempPassword"]},
-    )
-    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    headers = await otp_login(client, phone)
 
     patient = await client.post(
         f"{API}/clinic/patients",
@@ -201,11 +197,7 @@ async def test_journal_needs_permission(admin_client: AsyncClient, client: Async
     )
     assert added.status_code == 201, added.text
 
-    login = await client.post(
-        f"{API}/auth/login",
-        json={"phone": worker_phone, "password": added.json()["tempPassword"]},
-    )
-    worker_headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    worker_headers = await otp_login(client, worker_phone)
 
     resp = await client.get(f"{API}/clinic/audit", headers=worker_headers)
     assert resp.status_code == 403, resp.text

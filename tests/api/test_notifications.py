@@ -33,7 +33,7 @@ from app.shared.notifications.notifier import Notifier
 from app.shared.notifications.smspro import SmsProTextChannel
 from app.shared.notifications.telegram_chat import TelegramChatChannel
 from app.shared.notifications.whatsapp import WhatsAppTextChannel
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_login
 
 PHONE = "+996700123456"
 TEXT = "Skrezo: тестовое сообщение"
@@ -268,7 +268,7 @@ def _override_notifier(phones: _Recorder, chat: _ChatRecorder) -> None:
 async def test_new_clinic_owner_gets_login_message(
     admin_client: AsyncClient, _resources: Resources
 ) -> None:
-    """Владельцу созданной клиники уходит номер и временный пароль."""
+    """Владельцу созданной клиники уходит номер и способ входа (без секрета)."""
     phones, chat = _Recorder(), _ChatRecorder()
     _override_notifier(phones, chat)
 
@@ -291,14 +291,15 @@ async def test_new_clinic_owner_gets_login_message(
     assert len(phones.sent) == 1
     sent_phone, text = phones.sent[0]
     assert sent_phone.endswith(phone[1:])
-    assert created.json()["tempPassword"] in text
     assert "Клиника Уведомлений" in text
+    assert "код" in text  # вход по коду, пароля в сообщении нет
+    assert "пароль" not in text.lower()
 
 
 async def test_added_staff_gets_login_message(
     admin_client: AsyncClient, client: AsyncClient, _resources: Resources
 ) -> None:
-    """Добавленному сотруднику уходит его временный пароль."""
+    """Добавленному сотруднику уходит сообщение о доступе (пароля в нём нет)."""
     city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
     spec = (await admin_client.get(f"{API}/admin/refs/specializations")).json()[0]["id"]
     owner_phone = _phone()
@@ -314,12 +315,8 @@ async def test_added_staff_gets_login_message(
             "seats": 5,
         },
     )
-    owner_token = (
-        await client.post(
-            f"{API}/auth/login",
-            json={"phone": owner_phone, "password": clinic.json()["tempPassword"]},
-        )
-    ).json()["accessToken"]
+    assert clinic.status_code == 201, clinic.text
+    owner_headers = await otp_login(client, owner_phone)
 
     # Подменяем отправителя только теперь: уведомление о создании клиники уже позади.
     phones, chat = _Recorder(), _ChatRecorder()
@@ -328,7 +325,7 @@ async def test_added_staff_gets_login_message(
     staff_phone = _phone()
     added = await client.post(
         f"{API}/clinic/staff",
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers=owner_headers,
         json={"fullName": "Врач", "phone": staff_phone, "specializationId": spec},
     )
     assert added.status_code == 201, added.text
@@ -336,8 +333,9 @@ async def test_added_staff_gets_login_message(
     assert len(phones.sent) == 1
     sent_phone, text = phones.sent[0]
     assert sent_phone.endswith(staff_phone[1:])
-    assert added.json()["tempPassword"] in text
     assert "Клиника Сотрудников" in text
+    assert "код" in text  # вход по коду, пароля в сообщении нет
+    assert "пароль" not in text.lower()
 
 
 async def test_new_lead_goes_to_team_chat(client: AsyncClient, _resources: Resources) -> None:
@@ -384,7 +382,7 @@ async def test_delivery_failure_does_not_break_the_operation(
     )
     assert created.status_code == 201, created.text
     assert phones.sent  # попытка была
-    assert created.json()["tempPassword"]
+    assert created.json()["adminPhone"]
 
 
 # ── Текст сообщения ─────────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ from app.shared.db.enums import AppointmentStatus
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.doctor_time_off import DoctorTimeOff
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_login
 
 # 2026-07-20 — понедельник (рабочий день по дефолту), 2026-07-19 — воскресенье (выходной).
 MONDAY = "2026-07-20"
@@ -111,12 +111,6 @@ class ClinicCtx:
     service45_id: str
 
 
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
-
-
 async def _provision(
     admin_client: AsyncClient, client: AsyncClient, name: str
 ) -> tuple[str, dict[str, str], str]:
@@ -136,14 +130,14 @@ async def _provision(
         },
     )
     assert resp.status_code == 201, resp.text
-    headers = await _login(client, phone, resp.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     return str(resp.json()["id"]), headers, phone
 
 
 async def _add_doctor(
     client: AsyncClient, headers: dict[str, str], full_name: str
-) -> tuple[str, str, str]:
-    """Добавить врача (работник + специализация) — вернуть membershipId, телефон, пароль."""
+) -> tuple[str, str]:
+    """Добавить врача (работник + специализация) — вернуть membershipId и телефон."""
     spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
     phone = _phone()
     resp = await client.post(
@@ -152,7 +146,7 @@ async def _add_doctor(
         json={"fullName": full_name, "phone": phone, "specializationId": spec},
     )
     assert resp.status_code == 201, resp.text
-    return str(resp.json()["membershipId"]), phone, str(resp.json()["tempPassword"])
+    return str(resp.json()["membershipId"]), phone
 
 
 async def _add_patient(client: AsyncClient, headers: dict[str, str], name: str) -> str:
@@ -178,8 +172,8 @@ async def _add_service(
 
 async def _make_clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> ClinicCtx:
     clinic_id, headers, owner_phone = await _provision(admin_client, client, name)
-    doctor_id, _, _ = await _add_doctor(client, headers, f"Врач 1 {name}")
-    doctor2_id, _, _ = await _add_doctor(client, headers, f"Врач 2 {name}")
+    doctor_id, _ = await _add_doctor(client, headers, f"Врач 1 {name}")
+    doctor2_id, _ = await _add_doctor(client, headers, f"Врач 2 {name}")
     return ClinicCtx(
         clinic_id=clinic_id,
         headers=headers,
@@ -384,8 +378,8 @@ async def test_worker_sees_own_schedule_but_not_others(
     слоты. Теперь own-контур открыт, но строго сведён к собственному членству, а
     чужие врачи по-прежнему недоступны.
     """
-    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник")
-    worker = await _login(client, phone, password)
+    own_id, phone = await _add_doctor(client, clinic_a.headers, "Работник")
+    worker = await otp_login(client, phone)
 
     # /auth/me отдаёт собственный membershipId — фронт узнаёт свой id для doctorId.
     me = await client.get(f"{API}/auth/me", headers=worker)
@@ -443,8 +437,8 @@ async def test_worker_manages_own_schedule_not_others_or_clinic_settings(
     manage_own покрывает только собственное членство; график других врачей остаётся
     за manage_all, а часы клиники — за settings.edit/settings.view, которых у роли нет.
     """
-    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник 2")
-    worker = await _login(client, phone, password)
+    own_id, phone = await _add_doctor(client, clinic_a.headers, "Работник 2")
+    worker = await otp_login(client, phone)
 
     # Свой график — правится и сохраняется.
     own = await client.put(
@@ -1553,8 +1547,8 @@ async def test_patch_null_survives_worker_role(client: AsyncClient, clinic_a: Cl
     booked = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30)
     assert booked.status_code == 201, booked.text
 
-    _, phone, password = await _add_doctor(client, clinic_a.headers, "Работник-вандал")
-    worker = await _login(client, phone, password)
+    _, phone = await _add_doctor(client, clinic_a.headers, "Работник-вандал")
+    worker = await otp_login(client, phone)
 
     resp = await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
@@ -1919,8 +1913,8 @@ async def test_worker_manages_own_time_off_not_others(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
     """Работник (manage_own/view_own): CRUD своих отсутствий; чужие — 403."""
-    own_id, phone, password = await _add_doctor(client, clinic_a.headers, "Работник-отпускник")
-    worker = await _login(client, phone, password)
+    own_id, phone = await _add_doctor(client, clinic_a.headers, "Работник-отпускник")
+    worker = await otp_login(client, phone)
     own_base = f"{API}/clinic/schedule/doctors/{own_id}/time-off"
     other_base = f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/time-off"
 
@@ -2012,8 +2006,8 @@ async def test_force_does_not_bypass_time_off(
 
 async def test_force_needs_permission(client: AsyncClient, clinic_a: ClinicCtx) -> None:
     """У врача есть appointments.create, но записывать вне графика он не может."""
-    membership_id, phone, password = await _add_doctor(client, clinic_a.headers, "Врач Форс")
-    worker = await _login(client, phone, password)
+    membership_id, phone = await _add_doctor(client, clinic_a.headers, "Врач Форс")
+    worker = await otp_login(client, phone)
 
     resp = await _book(
         client,

@@ -1,4 +1,8 @@
-"""Роут: POST /auth/login — вход сотрудника клиники по телефону и паролю."""
+"""Роут: POST /auth/login — вход команды Skrezo по телефону и паролю.
+
+Единственный контур с паролем. Клиники и соло-врачи входят по OTP
+(``/auth/otp/request`` → ``/auth/otp/verify``).
+"""
 
 from __future__ import annotations
 
@@ -40,7 +44,7 @@ async def _login_rate_limit(
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
     401: {
-        "description": "Неверный телефон или пароль",
+        "description": "Неверный телефон или пароль (в т.ч. аккаунт не из команды Skrezo)",
         "content": {
             "application/json": {
                 "example": {
@@ -56,7 +60,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 @router.post(
     "/login",
     response_model=ClientTokenResponse,
-    summary="Вход по телефону и паролю",
+    summary="Вход команды Skrezo по телефону и паролю",
     response_description="Токены, аккаунт, список клиник и флаг обязательной смены пароля",
     responses=_ERRORS,
 )
@@ -65,7 +69,12 @@ async def login(
     use_case: LoginUseCase = Depends(get_login_use_case),
     _rate_limit: None = Depends(_login_rate_limit),
 ) -> ClientTokenResponse:
-    """Проверить телефон + пароль и выдать клиентские токены.
+    """Проверить телефон + пароль и выдать токены сотруднику команды Skrezo.
+
+    Паролем входят **только** аккаунты админ-панели (``isPlatformAdmin``).
+    Владельцы клиник, менеджеры, работники и соло-врачи входят по коду:
+    ``POST /auth/otp/request`` → ``POST /auth/otp/verify``. Для них этот роут
+    отвечает 401 ``invalid_credentials``, как и на несуществующий номер.
 
     Если ``mustChangePassword = true`` — пароль временный, клиент обязан вызвать
     ``POST /auth/change-password`` перед дальнейшей работой.

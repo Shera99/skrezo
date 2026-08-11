@@ -12,7 +12,6 @@ from app.modules.staff.application.services.staff_notification_service import (
 from app.modules.staff.application.use_cases.add_staff import AddStaffUseCase
 from app.modules.staff.application.use_cases.list_staff import ListStaffUseCase
 from app.modules.staff.application.use_cases.remove_staff import RemoveStaffUseCase
-from app.modules.staff.application.use_cases.reset_staff_password import ResetStaffPasswordUseCase
 from app.modules.staff.application.use_cases.update_staff import UpdateStaffUseCase
 from app.modules.staff.infrastructure.repositories.staff_repository import StaffRepository
 from app.shared.notifications.deps import get_notifier
@@ -55,10 +54,3 @@ def get_remove_staff_use_case(
     staff: StaffRepository = Depends(get_staff_repository),
 ) -> RemoveStaffUseCase:
     return RemoveStaffUseCase(session, staff)
-
-
-def get_reset_staff_password_use_case(
-    session: AsyncSession = Depends(get_session),
-    staff: StaffRepository = Depends(get_staff_repository),
-) -> ResetStaffPasswordUseCase:
-    return ResetStaffPasswordUseCase(session, staff)

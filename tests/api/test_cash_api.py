@@ -20,19 +20,13 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070095{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @dataclass(slots=True)
@@ -59,7 +53,7 @@ async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) 
         },
     )
     assert resp.status_code == 201, resp.text
-    headers = await _login(client, phone, resp.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     service = await client.post(
         f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
     )
@@ -90,7 +84,7 @@ async def _add_worker(
         json={"fullName": name, "phone": phone, "specializationId": spec},
     )
     assert resp.status_code == 201, resp.text
-    worker = await _login(client, phone, str(resp.json()["tempPassword"]))
+    worker = await otp_login(client, phone)
     return str(resp.json()["membershipId"]), worker
 
 

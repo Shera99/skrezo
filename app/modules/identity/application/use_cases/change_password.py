@@ -1,7 +1,7 @@
-"""Use-case: смена пароля текущим аккаунтом.
+"""Use-case: смена своего пароля — только для команды Skrezo.
 
-Используется как для обязательной смены временного пароля при первом входе, так
-и для добровольной смены. Требует текущий пароль. Сбрасывает флаг
+Пароль есть лишь у аккаунтов ``is_platform_admin``: все остальные входят по коду
+из SMS, и менять им нечего. Требует текущий пароль и сбрасывает флаг
 ``must_change_password``.
 """
 
@@ -11,7 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError, UnauthorizedError
+from app.core.errors import ConflictError, NotFoundError, UnauthorizedError
 from app.core.security import hash_password, verify_password
 from app.modules.identity.infrastructure.repositories.account_repository import AccountRepository
 
@@ -27,6 +27,8 @@ class ChangePasswordUseCase:
         account = await self._accounts.get_by_id(account_id)
         if account is None:
             raise NotFoundError("Аккаунт не найден", code="account_not_found")
+        if not account.is_platform_admin:
+            raise ConflictError("Этот аккаунт входит по коду из SMS", code="use_otp_login")
         if account.password_hash is None or not verify_password(
             current_password, account.password_hash
         ):

@@ -46,9 +46,12 @@ class VerifyOtpUseCase:
         """Проверить код и развести три случая.
 
         * аккаунта нет → билет регистрации (клиент показывает анкету);
-        * аккаунт passwordless (соло) → вход, выдаём токены;
-        * аккаунт с паролем (сотрудник клиники) → 409: этот номер входит по
-          паролю, OTP его не логинит (иначе OTP обошёл бы пароль).
+        * обычный аккаунт (клиника или соло) → вход, выдаём токены;
+        * аккаунт команды Skrezo → 409: админ-панель входит только по паролю.
+
+        Админа код из SMS не логинит намеренно: иначе перехват сообщения давал бы
+        кросс-тенантный доступ ко всем клиникам платформы, а пароль админа
+        превращался бы в формальность.
         """
         phone = normalize_phone(phone_raw)
         if not await self._otp.verify_code(phone, code, OtpPurpose.LOGIN):
@@ -58,7 +61,7 @@ class VerifyOtpUseCase:
         if account is None:
             token = await self._otp.issue_registration_ticket(phone)
             return VerifyOtpResult(login=None, registration_token=token)
-        if account.password_hash is not None:
+        if account.is_platform_admin:
             raise ConflictError("Этот номер входит по паролю", code="use_password_login")
 
         login = await issue_session(account, self._memberships, self._tokens)

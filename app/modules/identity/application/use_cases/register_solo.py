@@ -43,7 +43,7 @@ class RegisterSoloUseCase:
         city_id: uuid.UUID,
         lang: Lang = Lang.RU,
     ) -> LoginResult:
-        """Создать соло-аккаунт (passwordless), 30-дневный триал и сразу войти.
+        """Создать соло-аккаунт (без пароля), 30-дневный триал и сразу войти.
 
         Телефон берётся из билета регистрации, выданного проверкой кода, — клиент
         его не передаёт и подменить не может. Билет гасится только после успешного
@@ -62,7 +62,6 @@ class RegisterSoloUseCase:
             admin_phone=phone,
             city_id=city_id,
             specialization_id=specialization_id,
-            passwordless=True,
             lang=lang,
         )
         result = await self._provisioning.provision(command)  # атомарно + commit

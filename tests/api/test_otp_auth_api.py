@@ -5,9 +5,9 @@
 
 Ключевые риски:
 
-* соло-врач регистрируется по OTP (passwordless) и получает 30-дневный триал;
-* повторный вход соло — тоже по OTP, без пароля;
-* номер сотрудника клиники (с паролем) по OTP не логинится (409);
+* соло-врач регистрируется по OTP (без пароля) и получает 30-дневный триал;
+* повторный вход соло и вход владельца клиники — тем же OTP;
+* номер команды Skrezo по OTP НЕ логинится (409) — админка только по паролю;
 * билет регистрации одноразовый и обязателен; чужой телефон подставить нельзя.
 """
 
@@ -214,10 +214,10 @@ async def test_register_unknown_specialization_is_422(
 # ── 4. Разделение с паролевым входом ────────────────────────────────────────
 
 
-async def test_clinic_owner_phone_cannot_login_by_otp(
+async def test_clinic_owner_logs_in_by_otp(
     admin_client: AsyncClient, client: AsyncClient, _resources: Resources
 ) -> None:
-    """Номер владельца клиники (с паролем) по OTP не логинится → 409 use_password_login."""
+    """Владелец клиники входит тем же OTP, что и соло: пароля у него нет."""
     city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
     phone = _phone()
     created = await admin_client.post(
@@ -237,6 +237,27 @@ async def test_clinic_owner_phone_cannot_login_by_otp(
     await client.post(f"{API}/auth/otp/request", json={"phone": phone})
     verify = await client.post(
         f"{API}/auth/otp/verify", json={"phone": phone, "code": await _code(_resources, phone)}
+    )
+    assert verify.status_code == 200, verify.text
+    body = verify.json()
+    assert body["status"] == "authenticated"
+    assert body["auth"]["isPlatformAdmin"] is False
+    # Клиника единственная — токен сразу с её скоупом.
+    assert body["auth"]["activeClinicId"] is not None
+
+
+async def test_platform_admin_phone_cannot_login_by_otp(
+    client: AsyncClient, admin_token: str, _resources: Resources
+) -> None:
+    """Номер команды Skrezo по OTP не логинится → 409 use_password_login.
+
+    Перехваченная SMS не должна открывать кросс-тенантную админку: пароль там
+    остался именно ради этого.
+    """
+    await client.post(f"{API}/auth/otp/request", json={"phone": "0700000001"})
+    verify = await client.post(
+        f"{API}/auth/otp/verify",
+        json={"phone": "0700000001", "code": await _code(_resources, "0700000001")},
     )
     assert verify.status_code == 409, verify.text
     assert verify.json()["error"] == "use_password_login"

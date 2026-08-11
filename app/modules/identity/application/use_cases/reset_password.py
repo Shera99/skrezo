@@ -1,9 +1,10 @@
 """Use-case: смена пароля по коду из SMS — «забыл пароль» (шаг 2).
 
 Отличие от :mod:`change_password` в том, кто подтверждает право сменить пароль:
-там — текущий пароль, здесь — владение номером телефона. Сброс админом
-(``/admin/clients/{id}/reset-password`` и ``/clinic/staff/{id}/reset-password``)
-остаётся третьим путём: он нужен, когда номер сменился и код прийти уже некуда.
+там — текущий пароль, здесь — владение номером телефона. Оба пути актуальны
+только для команды Skrezo: пароль есть лишь у аккаунтов ``is_platform_admin``.
+Забывший пароль админ, потерявший ещё и номер, восстанавливается скриптом
+``app/scripts/create_platform_user.py``.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ class ResetPasswordUseCase:
         лежит под другим ключом и сюда не годится — иначе достаточно было бы
         уговорить человека продиктовать «код для входа».
 
-        Аккаунта нет → 404, соло-врач (пароля нет вовсе) → 409: ему пароль
+        Аккаунта нет → 404, аккаунт не из команды Skrezo → 409: ему пароль
         сбрасывать нечего, он входит по коду. Оба ответа приходят уже после
         верного кода, то есть тому, кто владеет номером, — перебирать чужие
         номера ими нельзя.
@@ -55,7 +56,7 @@ class ResetPasswordUseCase:
         account = await self._accounts.get_by_phone(phone)
         if account is None:
             raise NotFoundError("Аккаунт не найден", code="account_not_found")
-        if account.password_hash is None:
+        if not account.is_platform_admin:
             raise ConflictError("Этот номер входит по коду из SMS", code="use_otp_login")
 
         account.password_hash = hash_password(new_password)

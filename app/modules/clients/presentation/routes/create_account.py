@@ -32,7 +32,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     status_code=status.HTTP_201_CREATED,
     response_model=AccountCreatedResponse,
     summary="Создать аккаунт клиента",
-    response_description="Идентификатор, тип, телефон и временный пароль владельца",
+    response_description="Идентификатор, тип и телефон владельца",
     responses=_ERRORS,
 )
 async def create_account(
@@ -41,7 +41,12 @@ async def create_account(
     use_case: CreateAccountUseCase = Depends(get_create_account_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> AccountCreatedResponse:
-    """Атомарно создаёт клинику/соло + владельца + роли + подписку (триал 30 дней)."""
+    """Атомарно создаёт клинику/соло + владельца + роли + подписку (триал 30 дней).
+
+    Пароль владельцу не выдаётся: он входит по коду подтверждения на свой номер
+    (``POST /auth/otp/request`` → ``POST /auth/otp/verify``). Сообщение об этом
+    уходит владельцу автоматически.
+    """
     command = ProvisionCommand(
         type=body.type,
         admin_full_name=body.admin_full_name,
@@ -61,11 +66,8 @@ async def create_account(
         entity_id=result.clinic.id,
         payload={"type": result.clinic.type.value},
     )
-    # Админский провижининг всегда с паролем (passwordless — только соло по OTP).
-    assert result.temp_password is not None
     return AccountCreatedResponse(
         id=result.clinic.id,
         type=result.clinic.type,
         admin_phone=result.account.phone,
-        temp_password=result.temp_password,
     )

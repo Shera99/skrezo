@@ -6,40 +6,25 @@
 
 from __future__ import annotations
 
-import structlog
-
 from app.modules.clinics.domain.messages import clinic_created_text
 from app.shared.db.models.account import Account
 from app.shared.db.models.clinic import Clinic
 from app.shared.notifications.notifier import Notifier
-
-logger = structlog.get_logger(__name__)
 
 
 class AdminNotificationService:
     def __init__(self, notifier: Notifier) -> None:
         self._notifier = notifier
 
-    async def notify_account_created(
-        self, account: Account, clinic: Clinic, temp_password: str | None
-    ) -> None:
-        """Отправить владельцу вход и временный пароль.
+    async def notify_account_created(self, account: Account, clinic: Clinic) -> None:
+        """Сообщить владельцу, что кабинет создан и вход — по коду на его номер.
 
-        Пароля нет (соло-врач регистрируется сам и входит по коду) — отправлять
-        нечего: такому аккаунту сообщение «войдите паролем» только помешает.
+        Зовётся только с админского пути (``POST /admin/clients``): владелец
+        узнаёт о кабинете, которого не заводил. Соло-врач регистрируется сам и в
+        конце регистрации уже внутри — ему это сообщение не отправляется.
         """
-        if temp_password is None:
-            logger.info(
-                "clinic_created_passwordless",
-                account_id=str(account.id),
-                clinic_id=str(clinic.id),
-            )
-            return
-
         await self._notifier.notify_phone(
             account.phone,
-            clinic_created_text(
-                clinic_name=clinic.name, phone=account.phone, temp_password=temp_password
-            ),
+            clinic_created_text(clinic_name=clinic.name, phone=account.phone),
             event="clinic_created",
         )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 
 async def _first_city_id(admin_client: AsyncClient) -> str:
@@ -28,7 +28,8 @@ async def test_create_solo_and_list(admin_client: AsyncClient) -> None:
     body = created.json()
     assert body["type"] == "solo"
     assert body["adminPhone"] == "+996700600001"
-    assert body["tempPassword"]
+    # Пароль не выдаётся: владелец входит по коду на свой номер.
+    assert "tempPassword" not in body
 
     listing = await admin_client.get(f"{API}/admin/clients?page=1")
     assert listing.status_code == 200
@@ -107,7 +108,7 @@ async def test_admin_doctor_lifecycle(admin_client: AsyncClient) -> None:
     )
     assert add.status_code == 201, add.text
     doc_id = add.json()["id"]
-    assert add.json()["tempPassword"]
+    assert "tempPassword" not in add.json()
 
     upd = await admin_client.patch(
         f"{API}/admin/clients/{cid}/doctors/{doc_id}", json={"fullName": "Доктор Новый"}
@@ -161,11 +162,7 @@ async def test_client_card_shows_real_patients_and_revenue(
     assert created.status_code == 201, created.text
     clinic_id = created.json()["id"]
 
-    login = await client.post(
-        f"{API}/auth/login",
-        json={"phone": "0700600900", "password": created.json()["tempPassword"]},
-    )
-    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    headers = await otp_login(client, "0700600900")
 
     patient = await client.post(
         f"{API}/clinic/patients",

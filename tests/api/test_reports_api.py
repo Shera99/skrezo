@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, otp_login
 
 BISHKEK = ZoneInfo("Asia/Bishkek")
 # Часы внутри рабочего окна клиники по умолчанию (09:00–18:00), мимо обеда 12:00–13:00.
@@ -52,12 +52,6 @@ def _slot() -> str:
     return datetime.combine(_report_day(), time(hour, minute), tzinfo=BISHKEK).isoformat()
 
 
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
-
-
 @dataclass(slots=True)
 class ClinicCtx:
     clinic_id: str
@@ -82,7 +76,7 @@ async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) 
         },
     )
     assert resp.status_code == 201, resp.text
-    headers = await _login(client, phone, resp.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     service = await client.post(
         f"{API}/clinic/services", headers=headers, json={"name": "Лечение", "priceTiyin": 3000}
     )
@@ -111,7 +105,7 @@ async def _add_doctor(
         json={"fullName": name, "phone": phone, "specializationId": spec},
     )
     assert resp.status_code == 201, resp.text
-    worker = await _login(client, phone, str(resp.json()["tempPassword"]))
+    worker = await otp_login(client, phone)
     return str(resp.json()["membershipId"]), worker
 
 

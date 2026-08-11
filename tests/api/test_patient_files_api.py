@@ -24,7 +24,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -61,10 +61,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> 
         },
     )
     assert created.status_code == 201, created.text
-    login = await client.post(
-        f"{API}/auth/login", json={"phone": phone, "password": created.json()["tempPassword"]}
-    )
-    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    headers = await otp_login(client, phone)
 
     patient = await client.post(
         f"{API}/clinic/patients",

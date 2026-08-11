@@ -20,19 +20,13 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, otp_login
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070091{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> dict[str, str]:
@@ -52,7 +46,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> 
         },
     )
     assert created.status_code == 201, created.text
-    return await _login(client, phone, created.json()["tempPassword"])
+    return await otp_login(client, phone)
 
 
 async def _roles(client: AsyncClient, headers: dict[str, str]) -> list[dict[str, Any]]:
@@ -218,7 +212,7 @@ async def test_permission_change_applies_immediately(
         json={"fullName": "Врач Кеш", "phone": phone, "specializationId": spec},
     )
     assert staff.status_code == 201, staff.text
-    worker_headers = await _login(client, phone, str(staff.json()["tempPassword"]))
+    worker_headers = await otp_login(client, phone)
 
     # Право есть — пациенты видны (запрос заодно прогревает кеш прав роли).
     assert (
@@ -294,7 +288,8 @@ async def test_worker_has_no_roles_manage(
         headers=headers,
         json={"fullName": "Врач Без Прав", "phone": phone, "specializationId": spec},
     )
-    worker_headers = await _login(client, phone, str(staff.json()["tempPassword"]))
+    assert staff.status_code == 201, staff.text
+    worker_headers = await otp_login(client, phone)
 
     assert (await client.get(f"{API}/clinic/roles", headers=worker_headers)).status_code == 403
     created = await client.post(

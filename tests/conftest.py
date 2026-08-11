@@ -187,6 +187,37 @@ async def _create_account(res: Resources, **kwargs: object) -> None:
         await session.commit()
 
 
+async def otp_code(phone: str, purpose: str = "login") -> str:
+    """Прочитать выпущенный OTP-код из fakeredis (канал доставки заглушён).
+
+    Redis берём из подмены зависимости в самом приложении, а не из фикстуры
+    ``_resources``: хелпер входа зовётся из десятков тестовых файлов, и тащить
+    фикстуру в каждую вспомогательную функцию — лишний параметр в каждой сигнатуре.
+    """
+    redis: Redis = app.dependency_overrides[get_redis]()
+    code: str | None = await redis.get(f"auth:otp:code:{purpose}:{normalize_phone(phone)}")
+    assert code is not None, f"код назначения {purpose} не выпущен"
+    return code
+
+
+async def otp_login(client: AsyncClient, phone: str) -> dict[str, str]:
+    """Войти по OTP и вернуть заголовок авторизации.
+
+    Основной вход платформы: клиники и соло-врачи. Команда Skrezo так не входит,
+    ей нужен ``POST /auth/login`` (см. фикстуру ``admin_token``).
+    """
+    requested = await client.post(f"{API}/auth/otp/request", json={"phone": phone})
+    assert requested.status_code == 200, requested.text
+
+    verified = await client.post(
+        f"{API}/auth/otp/verify", json={"phone": phone, "code": await otp_code(phone)}
+    )
+    assert verified.status_code == 200, verified.text
+    body = verified.json()
+    assert body["status"] == "authenticated", body
+    return {"Authorization": f"Bearer {body['auth']['accessToken']}"}
+
+
 @pytest_asyncio.fixture
 async def admin_token(_resources: Resources, client: AsyncClient) -> str:
     """Создать платформенного админа и войти — вернуть access-токен."""

@@ -1,4 +1,4 @@
-"""Роут: POST /auth/change-password — смена пароля текущим аккаунтом."""
+"""Роут: POST /auth/change-password — смена своего пароля (команда Skrezo)."""
 
 from __future__ import annotations
 
@@ -30,6 +30,17 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
             }
         },
     },
+    409: {
+        "description": "Аккаунт входит по коду из SMS — пароля у него нет",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "use_otp_login",
+                    "message": "Этот аккаунт входит по коду из SMS",
+                }
+            }
+        },
+    },
 }
 
 
@@ -46,7 +57,11 @@ async def change_password(
     use_case: ChangePasswordUseCase = Depends(get_change_password_use_case),
     _rl: None = Depends(_rate_limit),
 ) -> OkResponse:
-    """Сменить пароль (в т.ч. обязательную смену временного при первом входе)."""
+    """Сменить пароль (в т.ч. обязательную смену временного при первом входе).
+
+    Только для команды Skrezo: у остальных аккаунтов пароля нет, они входят по
+    коду из SMS — им ответ 409 ``use_otp_login``.
+    """
     await use_case.execute(
         context.account_id,
         current_password=body.current_password,

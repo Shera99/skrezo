@@ -4,10 +4,11 @@
 шаблоны ролей в роли клиники и заводит аккаунт-владельца.
 
     uv run python -m app.scripts.create_test_clinic --phone 0700123456 \
-        --full-name "Иван Соло" --password secret123
+        --full-name "Иван Соло"
 
-Владелец создаётся с готовым паролем (``must_change_password=false``), чтобы им
-можно было сразу войти через ``POST /auth/login``.
+Владелец создаётся без пароля, как и в бою: входить им нужно по коду —
+``POST /auth/otp/request`` → ``POST /auth/otp/verify``. В dev-режиме
+(``OTP_EXPOSE_CODE=true``) код возвращается прямо в ответе на запрос.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import asyncio
 from sqlalchemy import select
 
 from app.core.db import engine, session_factory
-from app.core.security import hash_password
 from app.shared.db.enums import ClinicType, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.city import City
@@ -29,7 +29,7 @@ from app.shared.db.models.role_permission import RolePermission
 from app.shared.domain.value_objects import normalize_phone
 
 
-async def run(phone_raw: str, full_name: str, clinic_name: str, password: str) -> None:
+async def run(phone_raw: str, full_name: str, clinic_name: str) -> None:
     phone = normalize_phone(phone_raw)
     async with session_factory() as session:
         exists = (
@@ -88,7 +88,7 @@ async def run(phone_raw: str, full_name: str, clinic_name: str, password: str) -
             full_name=full_name,
             lang=Lang.RU,
             onboarded=True,
-            password_hash=hash_password(password),
+            password_hash=None,  # вход по коду на телефон
             must_change_password=False,
         )
         session.add(account)
@@ -114,9 +114,8 @@ def main() -> None:
     parser.add_argument("--phone", required=True)
     parser.add_argument("--full-name", default="Тестовый Врач")
     parser.add_argument("--clinic-name", default="Тестовая клиника")
-    parser.add_argument("--password", default="secret123", help="Пароль владельца для входа")
     args = parser.parse_args()
-    asyncio.run(run(args.phone, args.full_name, args.clinic_name, args.password))
+    asyncio.run(run(args.phone, args.full_name, args.clinic_name))
 
 
 if __name__ == "__main__":

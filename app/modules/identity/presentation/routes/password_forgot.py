@@ -1,4 +1,8 @@
-"""Роут: POST /auth/password/forgot — код на смену забытого пароля (шаг 1)."""
+"""Роут: POST /auth/password/forgot — код на смену забытого пароля (шаг 1).
+
+Пароль есть только у команды Skrezo, так что и восстановление — их путь.
+Остальные входят по коду и забывать им нечего.
+"""
 
 from __future__ import annotations
 
@@ -38,8 +42,8 @@ async def _forgot_rate_limit(
 ) -> None:
     """Лимит на выпуск кода — по паре IP + нормализованный телефон (SMS дорогие).
 
-    Счётчик свой, не общий с ``/auth/otp/request``: иначе соло-врач, забывший
-    пароль, тратил бы попытки входа, и наоборот.
+    Счётчик свой, не общий с ``/auth/otp/request``: иначе запрос кода на
+    восстановление тратил бы попытки входа, и наоборот.
     """
     try:
         phone = normalize_phone(body.phone)
@@ -65,7 +69,7 @@ async def forgot_password(
     use_case: RequestOtpUseCase = Depends(get_request_otp_use_case),
     _rate_limit: None = Depends(_forgot_rate_limit),
 ) -> OtpRequestResponse:
-    """Шаг 1: выслать код подтверждения на телефон аккаунта.
+    """Шаг 1: выслать код подтверждения на телефон аккаунта команды Skrezo.
 
     Дальше — ``POST /auth/password/reset`` с этим кодом и новым паролём. Код
     годится **только** на смену пароля: войти им нельзя, как и сменить пароль

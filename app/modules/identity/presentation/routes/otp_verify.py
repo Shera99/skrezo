@@ -28,7 +28,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
         },
     },
     409: {
-        "description": "Номер входит по паролю (сотрудник клиники)",
+        "description": "Номер входит по паролю (аккаунт команды Skrezo)",
         "content": {
             "application/json": {
                 "example": {
@@ -65,8 +65,9 @@ async def verify_otp(
 
     * аккаунта нет → ``registration_required`` + ``registrationToken`` (клиент
       показывает анкету и вызывает ``POST /auth/solo/register``);
-    * соло-аккаунт (без пароля) → ``authenticated`` + токены в ``auth``;
-    * номер сотрудника клиники (с паролем) → 409 ``use_password_login``.
+    * аккаунт клиники или соло-врача → ``authenticated`` + токены в ``auth``;
+    * номер команды Skrezo → 409 ``use_password_login`` (админ-панель входит
+      только через ``POST /auth/login``).
     """
     result = await use_case.execute(body.phone, body.code)
     return OtpVerifyResponse(

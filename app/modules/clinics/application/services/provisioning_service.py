@@ -2,11 +2,11 @@
 
 Один транзакционный сценарий: клиника → клонирование ролей → аккаунт-владелец
 → членство(owner) → подписка(trial). Используется ручным созданием из админки
-Skrezo (клиники заводит только команда). Дедуп телефона по аккаунтам.
+Skrezo (клиники заводит только команда) и самостоятельной регистрацией соло-врача.
+Дедуп телефона по аккаунтам.
 
-Владельцу выдаётся **временный пароль** (`must_change_password=true`): он
-возвращается в результате один раз, чтобы админ передал его владельцу; при первом
-входе владелец обязан сменить пароль.
+Аккаунт владельца создаётся **без пароля**: и клиника, и соло входят по коду на
+телефон. Передавать при заведении нечего — владелец сразу запрашивает код.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, ValidationAppError
-from app.core.security import generate_temp_password, hash_password
 from app.modules.access.application.services.role_provisioning_service import (
     RoleProvisioningService,
 )
@@ -48,8 +47,6 @@ class ProvisionCommand:
     lead_id: uuid.UUID | None = None
     # Специализация владельца (соло-врач = practitioner); NULL для клиники.
     specialization_id: uuid.UUID | None = None
-    # true — passwordless-аккаунт (соло-врач входит по OTP, пароль не выдаётся).
-    passwordless: bool = False
 
 
 @dataclass(slots=True)
@@ -58,7 +55,6 @@ class ProvisionResult:
     account: Account
     owner_role_id: uuid.UUID
     subscription_id: uuid.UUID
-    temp_password: str | None  # временный пароль владельца (None для passwordless)
 
 
 class ProvisioningService:
@@ -103,15 +99,11 @@ class ProvisioningService:
             lang=command.lang,
         )
         owner_role_id = await self._roles.clone_templates_for_clinic(clinic.id)
-        # Passwordless (соло-врач по OTP) — без пароля и без принуждения к смене.
-        temp_password = None if command.passwordless else generate_temp_password()
         account = await self._accounts.create(
             phone=phone,
             full_name=command.admin_full_name,
             lang=command.lang,
             onboarded=False,
-            password_hash=hash_password(temp_password) if temp_password is not None else None,
-            must_change_password=not command.passwordless,
         )
         await self._memberships.create(
             clinic_id=clinic.id,
@@ -124,7 +116,7 @@ class ProvisioningService:
             await self._leads.mark_converted(command.lead_id, clinic.id)
 
         await self._session.commit()
-        return ProvisionResult(clinic, account, owner_role_id, subscription.id, temp_password)
+        return ProvisionResult(clinic, account, owner_role_id, subscription.id)
 
 
 def build_provisioning_service(session: AsyncSession) -> ProvisioningService:

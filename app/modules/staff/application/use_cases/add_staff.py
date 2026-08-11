@@ -3,6 +3,9 @@
 По умолчанию — роль «работник» клиники + специализация; можно сразу выдать
 другую роль клиники (``role_id``), например «менеджер». Проверки: клиника не
 соло, специализация существует, лимит мест, дедуп телефона.
+
+Аккаунт создаётся **без пароля**: сотрудник входит по коду на свой номер.
+Передавать ему нечего — уведомление лишь сообщает, что доступ открыт.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError, ValidationAppError
-from app.core.security import generate_temp_password, hash_password
 from app.modules.staff.application.services.roles import resolve_assignable_role
 from app.modules.staff.application.services.staff_notification_service import (
     StaffNotificationService,
@@ -27,7 +29,6 @@ from app.shared.domain.value_objects import normalize_phone
 @dataclass(slots=True)
 class AddStaffResult:
     membership: Membership
-    temp_password: str  # временный пароль работника (показать один раз)
 
 
 class AddStaffUseCase:
@@ -75,10 +76,7 @@ class AddStaffUseCase:
                 raise NotFoundError("У клиники нет роли «работник»", code="worker_role_missing")
             assigned_role_id = worker_role_id
 
-        temp_password = generate_temp_password()
-        account = await self._staff.create_account(
-            phone=phone, full_name=full_name, password_hash=hash_password(temp_password)
-        )
+        account = await self._staff.create_account(phone=phone, full_name=full_name)
         membership = await self._staff.create_membership(
             clinic_id=clinic_id,
             account_id=account.id,
@@ -86,7 +84,5 @@ class AddStaffUseCase:
             specialization_id=specialization_id,
         )
         await self._session.commit()
-        await self._notifier.notify_staff_added(
-            phone=phone, clinic_name=clinic.name, temp_password=temp_password
-        )
-        return AddStaffResult(membership=membership, temp_password=temp_password)
+        await self._notifier.notify_staff_added(phone=phone, clinic_name=clinic.name)
+        return AddStaffResult(membership=membership)

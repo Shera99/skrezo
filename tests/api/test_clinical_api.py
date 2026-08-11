@@ -7,10 +7,10 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, working_slot
+from tests.conftest import API, otp_login, working_slot
 
 
-async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> str:
+async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> None:
     city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
     resp = await admin_client.post(
         f"{API}/admin/clients",
@@ -25,19 +25,12 @@ async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) ->
         },
     )
     assert resp.status_code == 201, resp.text
-    return str(resp.json()["tempPassword"])
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @pytest.fixture
 async def clinic_a(client: AsyncClient, admin_client: AsyncClient) -> dict[str, str]:
-    temp = await _provision_clinic(admin_client, "0700400001", "Клиника A")
-    return await _login(client, "0700400001", temp)
+    await _provision_clinic(admin_client, "0700400001", "Клиника A")
+    return await otp_login(client, "0700400001")
 
 
 async def test_service_crud(client: AsyncClient, clinic_a: dict[str, str]) -> None:
@@ -162,8 +155,8 @@ async def test_foreign_patient_is_indistinguishable_from_missing(
     лечит: «403» читается как «такой пациент есть, но не ваш».
     """
     # Пациент, которого лечит только клиника B.
-    temp_b = await _provision_clinic(admin_client, "0700404001", "Клиника B404")
-    clinic_b = await _login(client, "0700404001", temp_b)
+    await _provision_clinic(admin_client, "0700404001", "Клиника B404")
+    clinic_b = await otp_login(client, "0700404001")
     sid = (
         await client.post(
             f"{API}/clinic/services", headers=clinic_b, json={"name": "Пломба", "priceTiyin": 3000}
@@ -289,8 +282,8 @@ async def test_shared_history_across_clinics(
     )
 
     # Клиника B — тот же глобальный пациент (по телефону), свой приём на зуб 46.
-    temp_b = await _provision_clinic(admin_client, "0700402001", "Клиника B")
-    clinic_b = await _login(client, "0700402001", temp_b)
+    await _provision_clinic(admin_client, "0700402001", "Клиника B")
+    clinic_b = await otp_login(client, "0700402001")
     lookup = await client.get(f"{API}/clinic/patients/lookup?phone=0700402002", headers=clinic_b)
     assert lookup.json()["patient"]["id"] == pid  # тот же глобальный пациент
     sb = (

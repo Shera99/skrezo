@@ -43,15 +43,6 @@ class CreateClinicRequest(CamelModel):
         return self
 
 
-class ClinicCreatedResponse(CamelModel):
-    id: uuid.UUID
-    type: ClinicType
-    admin_phone: str = Field(description="Телефон владельца (= логин)")
-    temp_password: str = Field(
-        description="Временный пароль владельца — показать один раз и передать владельцу"
-    )
-
-
 class ClinicSettingsResponse(CamelModel):
     """Настройки своей клиники.
 

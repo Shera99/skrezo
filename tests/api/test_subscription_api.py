@@ -20,19 +20,13 @@ from httpx import AsyncClient
 from sqlalchemy import update
 
 from app.shared.db.models.subscription import Subscription
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_login
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070096{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @pytest.fixture
@@ -53,7 +47,7 @@ async def owner(admin_client: AsyncClient, client: AsyncClient) -> tuple[str, di
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     return str(created.json()["id"]), headers
 
 
@@ -109,7 +103,7 @@ async def test_worker_without_billing_view_is_403(
         json={"fullName": "Врач", "phone": phone, "specializationId": spec},
     )
     assert worker.status_code == 201, worker.text
-    worker_headers = await _login(client, phone, str(worker.json()["tempPassword"]))
+    worker_headers = await otp_login(client, phone)
 
     resp = await client.get(f"{API}/clinic/subscription", headers=worker_headers)
     assert resp.status_code == 403, resp.text

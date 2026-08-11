@@ -1,188 +1,116 @@
-"""API-тесты сброса пароля.
+"""API-тесты self-service сброса пароля («забыл пароль»).
 
-Три пути, и они не взаимозаменяемы:
+Пароль есть только у команды Skrezo, поэтому и восстановление — их путь: сброса
+пароля владельцу клиники или работнику больше не существует, они входят по коду.
 
-* админ-сайд — Skrezo сбрасывает пароль владельцу клиента;
-* клиент-сайд — владелец/менеджер сбрасывает пароль работнику;
-* self-service «забыл пароль» — по коду из сообщения, без чьей-либо помощи
-  (нужен, когда владелец сам заперт снаружи).
+Ключевые риски:
 
-Риски self-service: код чужого назначения не должен подходить, соло-врачу
-сбрасывать нечего, а прежние сессии обязаны закрыться — пароль меняют в том
-числе после угона.
+* код чужого назначения не должен подходить ни в одну сторону — иначе
+  «продиктуйте код для входа» превращается в угон аккаунта;
+* аккаунту без пароля сбрасывать нечего (409), и узнаёт он это только после
+  верного кода — перебирать чужие номера ответами нельзя;
+* прежние сессии обязаны закрыться: пароль меняют в том числе после угона.
 """
 
 from __future__ import annotations
 
 import itertools
 
+import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
+from app.core.security import hash_password
+from app.shared.db.enums import Lang
+from app.shared.db.models import Account
 from app.shared.domain.value_objects import normalize_phone
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_code, otp_login
 
 _phone_seq = itertools.count(1)
+_ADMIN_PASSWORD = "staryy-parol-123"
 
 
 def _phone() -> str:
     return f"070093{next(_phone_seq):04d}"
 
 
-async def _reset_code(res: Resources, phone: str) -> str:
-    """Код назначения ``reset`` из fakeredis (доставка заглушена)."""
-    code: str | None = await res.fake.get(f"auth:otp:code:reset:{normalize_phone(phone)}")
-    assert code is not None, "код на смену пароля не выпущен"
-    return code
+@pytest_asyncio.fixture
+async def skrezo_admin(_resources: Resources) -> str:
+    """Отдельный админ Skrezo с известным паролем; вернуть его телефон.
 
-
-async def _create_clinic_owner(admin_client: AsyncClient, phone: str) -> str:
-    """Завести клинику с владельцем на этом номере; вернуть временный пароль."""
-    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
-    created = await admin_client.post(
-        f"{API}/admin/clients",
-        json={
-            "type": "clinic",
-            "adminFullName": "Забывчивый Владелец",
-            "adminPhone": phone,
-            "name": f"Клиника {phone}",
-            "cityId": city,
-            "businessPhone": "0700000000",
-            "seats": 5,
-        },
-    )
-    assert created.status_code == 201, created.text
-    temp: str = created.json()["tempPassword"]
-    return temp
-
-
-async def test_admin_reset_admin_password(client: AsyncClient, admin_client: AsyncClient) -> None:
-    created = await admin_client.post(
-        f"{API}/admin/clients",
-        json={"type": "solo", "adminFullName": "Сброс", "adminPhone": "0700910001"},
-    )
-    assert created.status_code == 201, created.text
-    cid = created.json()["id"]
-    temp1 = created.json()["tempPassword"]
-
-    # Старый временный пароль сейчас работает.
-    ok1 = await client.post(
-        f"{API}/auth/login", json={"phone": "0700910001", "password": temp1}
-    )
-    assert ok1.status_code == 200
-
-    # Админ сбрасывает → новый временный пароль.
-    reset = await admin_client.post(f"{API}/admin/clients/{cid}/reset-password")
-    assert reset.status_code == 200, reset.text
-    temp2 = reset.json()["tempPassword"]
-    assert temp2 != temp1
-
-    # Старый больше не подходит, новый — подходит и требует смены.
-    old = await client.post(f"{API}/auth/login", json={"phone": "0700910001", "password": temp1})
-    assert old.status_code == 401
-    new = await client.post(f"{API}/auth/login", json={"phone": "0700910001", "password": temp2})
-    assert new.status_code == 200
-    assert new.json()["mustChangePassword"] is True
-
-
-async def test_owner_resets_worker_password(
-    client: AsyncClient, admin_client: AsyncClient
-) -> None:
-    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
-    spec = (await admin_client.get(f"{API}/admin/refs/specializations")).json()[0]["id"]
-
-    clinic = await admin_client.post(
-        f"{API}/admin/clients",
-        json={
-            "type": "clinic",
-            "adminFullName": "Владелец",
-            "adminPhone": "0700920001",
-            "name": "Клиника",
-            "cityId": city,
-            "businessPhone": "0700920000",
-            "seats": 5,
-        },
-    )
-    cid = clinic.json()["id"]
-    owner_temp = clinic.json()["tempPassword"]
-
-    doctor = await admin_client.post(
-        f"{API}/admin/clients/{cid}/doctors",
-        json={"fullName": "Врач", "phone": "0700920002", "specializationId": spec},
-    )
-    doc_id = doctor.json()["id"]
-
-    owner_login = await client.post(
-        f"{API}/auth/login", json={"phone": "0700920001", "password": owner_temp}
-    )
-    owner_token = owner_login.json()["accessToken"]
-
-    reset = await client.post(
-        f"{API}/clinic/staff/{doc_id}/reset-password",
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    assert reset.status_code == 200, reset.text
-    worker_temp = reset.json()["tempPassword"]
-
-    worker_login = await client.post(
-        f"{API}/auth/login", json={"phone": "0700920002", "password": worker_temp}
-    )
-    assert worker_login.status_code == 200
-    assert worker_login.json()["mustChangePassword"] is True
-
-
-# ── Self-service «забыл пароль» ─────────────────────────────────────────────
-
-
-async def test_forgot_password_full_flow(
-    client: AsyncClient, admin_client: AsyncClient, _resources: Resources
-) -> None:
-    """Код → новый пароль: старый больше не подходит, смены пароля не требуют."""
+    Отдельный от фикстуры ``admin_token``: тесты здесь меняют пароль, и делать
+    это аккаунту, которым авторизован ``admin_client``, значит ронять соседние
+    запросы того же теста.
+    """
     phone = _phone()
-    old_password = await _create_clinic_owner(admin_client, phone)
+    async with _resources.factory() as session:
+        session.add(
+            Account(
+                phone=normalize_phone(phone),
+                full_name="Забывчивый Админ",
+                lang=Lang.RU,
+                onboarded=True,
+                password_hash=hash_password(_ADMIN_PASSWORD),
+                must_change_password=False,
+                is_platform_admin=True,
+            )
+        )
+        await session.commit()
+    return phone
 
-    forgot = await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
+
+async def _login(client: AsyncClient, phone: str, password: str) -> int:
+    """Попытка входа по паролю; вернуть статус-код."""
+    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
+    return resp.status_code
+
+
+# ── Полный путь восстановления ──────────────────────────────────────────────
+
+
+async def test_forgot_password_full_flow(client: AsyncClient, skrezo_admin: str) -> None:
+    """Код → новый пароль: старый больше не подходит, смены пароля не требуют."""
+    forgot = await client.post(f"{API}/auth/password/forgot", json={"phone": skrezo_admin})
     assert forgot.status_code == 200, forgot.text
 
     reset = await client.post(
         f"{API}/auth/password/reset",
         json={
-            "phone": phone,
-            "code": await _reset_code(_resources, phone),
+            "phone": skrezo_admin,
+            "code": await otp_code(skrezo_admin, "reset"),
             "newPassword": "novyy-parol-123",
         },
     )
     assert reset.status_code == 200, reset.text
 
-    old = await client.post(f"{API}/auth/login", json={"phone": phone, "password": old_password})
-    assert old.status_code == 401, old.text
+    assert await _login(client, skrezo_admin, _ADMIN_PASSWORD) == 401
 
     new = await client.post(
-        f"{API}/auth/login", json={"phone": phone, "password": "novyy-parol-123"}
+        f"{API}/auth/login", json={"phone": skrezo_admin, "password": "novyy-parol-123"}
     )
     assert new.status_code == 200, new.text
-    # Пароль выбрал сам владелец — временным он не считается.
+    # Пароль выбрал сам владелец номера — временным он не считается.
     assert new.json()["mustChangePassword"] is False
 
 
-async def test_reset_revokes_existing_sessions(
-    client: AsyncClient, admin_client: AsyncClient, _resources: Resources
-) -> None:
+async def test_reset_revokes_existing_sessions(client: AsyncClient, skrezo_admin: str) -> None:
     """Сессия, открытая до сброса, не переживает его: refresh → 401."""
-    phone = _phone()
-    temp = await _create_clinic_owner(admin_client, phone)
-    login = await client.post(f"{API}/auth/login", json={"phone": phone, "password": temp})
+    login = await client.post(
+        f"{API}/auth/login", json={"phone": skrezo_admin, "password": _ADMIN_PASSWORD}
+    )
+    assert login.status_code == 200, login.text
     refresh_token = login.json()["refreshToken"]
 
     # До сброса токен рабочий.
     alive = await client.post(f"{API}/auth/refresh", json={"refreshToken": refresh_token})
     assert alive.status_code == 200, alive.text
 
-    await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
+    await client.post(f"{API}/auth/password/forgot", json={"phone": skrezo_admin})
     reset = await client.post(
         f"{API}/auth/password/reset",
         json={
-            "phone": phone,
-            "code": await _reset_code(_resources, phone),
+            "phone": skrezo_admin,
+            "code": await otp_code(skrezo_admin, "reset"),
             "newPassword": "drugoy-parol-123",
         },
     )
@@ -192,67 +120,58 @@ async def test_reset_revokes_existing_sessions(
     assert dead.status_code == 401, dead.text
 
 
-async def test_login_code_cannot_reset_password(
-    client: AsyncClient, admin_client: AsyncClient, _resources: Resources
-) -> None:
-    """Код, выпущенный на вход, пароль не меняет — иначе «продиктуйте код» = угон."""
-    phone = _phone()
-    temp = await _create_clinic_owner(admin_client, phone)
+# ── Назначение кода ─────────────────────────────────────────────────────────
 
-    requested = await client.post(f"{API}/auth/otp/request", json={"phone": phone})
+
+async def test_login_code_cannot_reset_password(client: AsyncClient, skrezo_admin: str) -> None:
+    """Код, выпущенный на вход, пароль не меняет — иначе «продиктуйте код» = угон."""
+    requested = await client.post(f"{API}/auth/otp/request", json={"phone": skrezo_admin})
     assert requested.status_code == 200, requested.text
-    login_code: str | None = await _resources.fake.get(
-        f"auth:otp:code:login:{normalize_phone(phone)}"
-    )
-    assert login_code is not None
 
     resp = await client.post(
         f"{API}/auth/password/reset",
-        json={"phone": phone, "code": login_code, "newPassword": "chuzhoy-kod-123"},
+        json={
+            "phone": skrezo_admin,
+            "code": await otp_code(skrezo_admin),
+            "newPassword": "chuzhoy-kod-123",
+        },
     )
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"] == "invalid_otp"
 
     # Прежний пароль на месте.
-    still = await client.post(f"{API}/auth/login", json={"phone": phone, "password": temp})
-    assert still.status_code == 200, still.text
+    assert await _login(client, skrezo_admin, _ADMIN_PASSWORD) == 200
 
 
-async def test_reset_code_cannot_log_in(
-    client: AsyncClient, admin_client: AsyncClient, _resources: Resources
-) -> None:
+async def test_reset_code_cannot_log_in(client: AsyncClient, skrezo_admin: str) -> None:
     """И наоборот: кодом на смену пароля не войти."""
-    phone = _phone()
-    await _create_clinic_owner(admin_client, phone)
-    await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
+    await client.post(f"{API}/auth/password/forgot", json={"phone": skrezo_admin})
 
     resp = await client.post(
         f"{API}/auth/otp/verify",
-        json={"phone": phone, "code": await _reset_code(_resources, phone)},
+        json={"phone": skrezo_admin, "code": await otp_code(skrezo_admin, "reset")},
     )
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"] == "invalid_otp"
 
 
-async def test_reset_with_wrong_code_is_400(client: AsyncClient, admin_client: AsyncClient) -> None:
+async def test_reset_with_wrong_code_is_400(client: AsyncClient, skrezo_admin: str) -> None:
     """Неверный код → 400, пароль не тронут."""
-    phone = _phone()
-    temp = await _create_clinic_owner(admin_client, phone)
-    await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
+    await client.post(f"{API}/auth/password/forgot", json={"phone": skrezo_admin})
 
     resp = await client.post(
         f"{API}/auth/password/reset",
-        json={"phone": phone, "code": "000000", "newPassword": "ne-proydet-123"},
+        json={"phone": skrezo_admin, "code": "000000", "newPassword": "ne-proydet-123"},
     )
     assert resp.status_code == 400, resp.text
 
-    still = await client.post(f"{API}/auth/login", json={"phone": phone, "password": temp})
-    assert still.status_code == 200, still.text
+    assert await _login(client, skrezo_admin, _ADMIN_PASSWORD) == 200
 
 
-async def test_forgot_for_unknown_phone_does_not_reveal_it(
-    client: AsyncClient, _resources: Resources
-) -> None:
+# ── Кому сбрасывать нечего ──────────────────────────────────────────────────
+
+
+async def test_forgot_for_unknown_phone_does_not_reveal_it(client: AsyncClient) -> None:
     """Незнакомый номер отвечает как знакомый; 404 приходит только после кода."""
     phone = _phone()
     forgot = await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
@@ -263,7 +182,7 @@ async def test_forgot_for_unknown_phone_does_not_reveal_it(
         f"{API}/auth/password/reset",
         json={
             "phone": phone,
-            "code": await _reset_code(_resources, phone),
+            "code": await otp_code(phone, "reset"),
             "newPassword": "nekomu-menyat-123",
         },
     )
@@ -271,38 +190,60 @@ async def test_forgot_for_unknown_phone_does_not_reveal_it(
     assert resp.json()["error"] == "account_not_found"
 
 
-async def test_solo_account_has_no_password_to_reset(
-    client: AsyncClient, _resources: Resources
+@pytest.mark.parametrize("clinic_type", ["solo", "clinic"])
+async def test_clinic_account_has_no_password_to_reset(
+    client: AsyncClient, admin_client: AsyncClient, clinic_type: str
 ) -> None:
-    """Соло-врач входит по коду — сбрасывать ему нечего (409 use_otp_login)."""
+    """Клиника и соло входят по коду — сбрасывать им нечего (409 use_otp_login)."""
     phone = _phone()
-    await client.post(f"{API}/auth/otp/request", json={"phone": phone})
-    login_code: str | None = await _resources.fake.get(
-        f"auth:otp:code:login:{normalize_phone(phone)}"
-    )
-    verify = await client.post(f"{API}/auth/otp/verify", json={"phone": phone, "code": login_code})
-    assert verify.status_code == 200, verify.text
-    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
-    city = (await client.get(f"{API}/cities")).json()[0]["id"]
-    registered = await client.post(
-        f"{API}/auth/solo/register",
-        json={
-            "registrationToken": verify.json()["registrationToken"],
-            "fullName": "Соло Без Пароля",
-            "specializationId": spec,
+    payload: dict[str, object] = {
+        "type": clinic_type,
+        "adminFullName": "Владелец Без Пароля",
+        "adminPhone": phone,
+    }
+    if clinic_type == "clinic":
+        city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
+        payload |= {
+            "name": f"Клиника {phone}",
             "cityId": city,
-        },
-    )
-    assert registered.status_code == 201, registered.text
+            "businessPhone": "0700000000",
+            "seats": 5,
+        }
+    created = await admin_client.post(f"{API}/admin/clients", json=payload)
+    assert created.status_code == 201, created.text
 
     await client.post(f"{API}/auth/password/forgot", json={"phone": phone})
     resp = await client.post(
         f"{API}/auth/password/reset",
         json={
             "phone": phone,
-            "code": await _reset_code(_resources, phone),
-            "newPassword": "solo-parol-123",
+            "code": await otp_code(phone, "reset"),
+            "newPassword": "chuzhoy-parol-123",
         },
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"] == "use_otp_login"
+
+    # Вход по коду при этом работает.
+    assert await otp_login(client, phone)
+
+
+async def test_change_password_rejects_otp_account(
+    client: AsyncClient, admin_client: AsyncClient
+) -> None:
+    """И смена своего пароля тоже: у клиничного аккаунта его нет (409)."""
+    phone = _phone()
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={"type": "solo", "adminFullName": "Соло Без Пароля", "adminPhone": phone},
+    )
+    assert created.status_code == 201, created.text
+
+    headers = await otp_login(client, phone)
+    resp = await client.post(
+        f"{API}/auth/change-password",
+        headers=headers,
+        json={"currentPassword": "cokolibo", "newPassword": "novyy-parol-123"},
     )
     assert resp.status_code == 409, resp.text
     assert resp.json()["error"] == "use_otp_login"

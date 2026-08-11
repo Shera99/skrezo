@@ -5,12 +5,14 @@ DDD. Документ фиксирует принципы, границы мод
 
 ## 1. Принципы
 
-- **Единый контур авторизации.** Один вход по **телефону + паролю** (argon2) для
-  всех — команда Skrezo и сотрудники клиник (`POST /auth/login`). Один JWT-секрет
-  и `aud`. Доступ разграничивают роли: claim `platform_admin`
-  (`account.is_platform_admin`) → `/admin/*`; членство в клинике + RBAC → `/clinic/*`.
-  Вход **пациентов** по OTP относится к их приложению (glo) и в этом сервисе не
-  реализуется.
+- **Единый контур токенов, два способа входа.** Один JWT-секрет и `aud`, но
+  подтверждение личности разное: клиники и соло-врачи — **код на телефон**
+  (`POST /auth/otp/request` → `otp/verify`), команда Skrezo — **телефон + пароль**
+  (argon2, `POST /auth/login`). Способ определяет `account.is_platform_admin`, и
+  оба входа проверяют его: код не логинит админа, пароль не логинит клинику.
+  Доступ дальше разграничивают роли: claim `platform_admin` → `/admin/*`;
+  членство в клинике + RBAC → `/clinic/*`. Вход **пациентов** по OTP относится к
+  их приложению (glo) и в этом сервисе не реализуется.
 - **Изоляция тенантов.** Клиничные эндпоинты строго ограничены `clinic_id`
   из токена; платформенные (`/admin/*`) — кросс-тенантные (только `platform_admin`).
 - **Деньги — целые сомы** (`integer`). **Идентификаторы — UUID v4**. **Время
@@ -50,10 +52,10 @@ DDD. Документ фиксирует принципы, границы мод
 | `catalog` | справочники город/специализация (i18n) | `city(+_translation)`, `specialization(+_translation)` | 1 ✅ |
 | `access` | RBAC клиники: права/роли (пер-клиника) | `permission`, `role`, `role_permission` | 2a ✅ |
 | `platform_auth` | только гвард `/admin/*` (требует `platform_admin`); собственного входа нет | — (флаг `account.is_platform_admin`) | 2a ✅ |
-| `clinics` | провижининг (ручное, командой Skrezo; владельцу — временный пароль) + **настройки своей клиники** `/clinic/settings` (название, город, контакты, язык, таймзона; права `settings.view`/`settings.edit`) | `account`, `membership`, `clinic` (в shared) | 3 ✅ / 14 ✅ |
+| `clinics` | провижининг (ручное, командой Skrezo; владелец без пароля — вход по коду) + **настройки своей клиники** `/clinic/settings` (название, город, контакты, язык, таймзона; права `settings.view`/`settings.edit`) | `account`, `membership`, `clinic` (в shared) | 3 ✅ / 14 ✅ |
 | `clients` | админ: список (offset-пагинация)/карточка/создание/правка, врачи (админ-сайд), phone-check, счётчики статусов, смена номера, архивация | clinic/account/membership/subscription (в shared) | 6 ✅ |
-| `staff` | клиент-сайд: сотрудники клиники (RBAC; работнику — временный пароль) | membership/account/role (в shared) | 6b ✅ |
-| `identity` | вход: сотрудники клиник — телефон + пароль, соло-врачи — OTP (passwordless) + self-service регистрация с триалом; смена пароля своим паролём и **self-service «забыл пароль»** по коду (`/auth/password/forgot`+`/reset`, отзыв сессий), выбор клиники. **Доставка OTP** — цепочка каналов `infrastructure/otp` (Telegram Gateway → WhatsApp → SMSPRO) с переходом к следующему при неудаче; назначение кода (`login`/`reset`) — часть ключа, коды не взаимозаменяемы | `account` (в shared) | 2b ✅ / 12 / 14 ✅ |
+| `staff` | клиент-сайд: сотрудники клиники (RBAC; работник без пароля — вход по коду) | membership/account/role (в shared) | 6b ✅ |
+| `identity` | вход: клиники и соло-врачи — по OTP (+ self-service регистрация соло с триалом), команда Skrezo — телефон + пароль; смена пароля своим паролём и **self-service «забыл пароль»** по коду (`/auth/password/forgot`+`/reset`, отзыв сессий) — только для команды; выбор клиники. **Доставка OTP** — цепочка каналов `infrastructure/otp` (Telegram Gateway → WhatsApp → SMSPRO) с переходом к следующему при неудаче; назначение кода (`login`/`reset`) — часть ключа, коды не взаимозаменяемы | `account` (в shared) | 2b ✅ / 12 / 14 ✅ |
 | `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **управление ролями клиники** (`/clinic/roles`, право `roles.manage`); **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 ✅ / 13 ✅ |
 | `leads` | лид-форма «Больше одного» + нотификация команды в Telegram-чат | `lead` | 3a ✅ / 14 ✅ |
 | `clinic_applications` | заявки клиник (2-й путь регистрации после OTP): подача с подтверждённым телефоном + рассмотрение в админке (статусы pending/reviewed/rejected). Клиника заводится вручную | `clinic_application` | 12 ✅ |
@@ -100,7 +102,9 @@ DDD. Документ фиксирует принципы, границы мод
 - **account** — единая таблица всех пользователей: `id, phone(unique=логин),
   full_name, lang, onboarded, password_hash?, must_change_password,
   is_platform_admin, timestamps`. Команда Skrezo = аккаунт с `is_platform_admin`
-  (без клиничного членства). Таблица `platform_user` удалена (миграция 0017).
+  (без клиничного членства), и он же — единственный с непустым `password_hash`:
+  у всех остальных вход по коду (инвариант закреплён миграцией 0038). Таблица
+  `platform_user` удалена (миграция 0017).
 - **lead** — `id, full_name, phone(unique=дедуп), clinic_name,
   doctors_count_range?, comment?, converted_clinic_id?→clinic, created_at`.
 - **subscription** — `id, clinic_id(unique), status, trial_started_at,
@@ -171,22 +175,24 @@ DDD. Документ фиксирует принципы, границы мод
 
 ## 5. Аутентификация
 
-- **Единый вход** (`identity`) ✅: телефон + пароль (argon2) для всех —
-  `POST /auth/login|change-password|refresh|logout|select-clinic`, `GET /auth/me`.
-  Токен несёт `account_id` + claims: `platform_admin` (команда Skrezo) и/или
-  `clinic_id`/`role_id` (скоуп выбранной клиники). Первичный пароль владельцу/
-  работнику выдаётся **временным** (`must_change_password=true`): `login` вернёт
-  `mustChangePassword=true`, нужно вызвать `change-password`. Мультиклиничный
-  аккаунт выбирает клинику через `select-clinic`. Refresh-токены — в Redis
-  (allowlist/revoke). Клиники заводит только команда Skrezo.
-- **Соло-врачи — OTP** (`identity`) ✅: passwordless-вход и self-service
-  регистрация. `POST /auth/otp/request` → `otp/verify` (нет аккаунта →
-  `registrationToken`) → `solo/register` (имя + профессия + город) создаёт
-  passwordless-аккаунт, клинику `solo`, членство-владельца со специализацией и
-  30-дневный триал. Повторный вход — тем же OTP. Номер с паролем (сотрудник
-  клиники) по OTP не логинится. Код хранится в Redis (TTL, счётчик попыток);
-  **канал доставки (SMS/WhatsApp) не выбран** — код логируется/`devCode` в dev.
-  Вход пациентов по OTP — в приложении glo, вне сервиса.
+- **Вход по OTP** (`identity`) ✅ — основной для платформы: владелец, менеджер,
+  работник и соло-врач. `POST /auth/otp/request` → `otp/verify` → вход; если
+  аккаунта нет, шаг 2 отдаёт `registrationToken`, и `solo/register` (имя +
+  профессия + город) создаёт аккаунт, клинику `solo`, членство-владельца со
+  специализацией и 30-дневный триал. Код хранится в Redis (TTL, счётчик попыток),
+  доставка — цепочкой каналов; в dev код логируется/возвращается в `devCode`.
+  Номер команды Skrezo по коду **не** логинится (`409 use_password_login`):
+  перехваченная SMS не должна открывать кросс-тенантную админку.
+- **Вход по паролю** (`identity`) ✅ — только команда Skrezo:
+  `POST /auth/login|change-password|password/forgot|password/reset`. Аккаунту без
+  `is_platform_admin` `login` отвечает `401 invalid_credentials` — тем же ответом,
+  что и на несуществующий номер, чтобы не раскрывать, какие номера принадлежат
+  команде. Флаг `must_change_password` осмыслен только здесь.
+- **Общее для обоих входов** ✅: токен несёт `account_id` + claims
+  `platform_admin` и/или `clinic_id`/`role_id` (скоуп выбранной клиники).
+  Мультиклиничный аккаунт выбирает клинику через `select-clinic`. Refresh-токены —
+  в Redis (allowlist/revoke). `refresh`, `logout`, `GET /auth/me` — общие.
+  Клиники заводит только команда Skrezo.
 - **Заявки клиник** (`clinic_applications`) ✅: второй путь после шага 2 —
   `POST /clinic-applications` (название, город, кол-во врачей; телефон из билета
   OTP, не из тела). Клиника **не создаётся автоматически**: заявка ложится в
@@ -205,17 +211,19 @@ DDD. Документ фиксирует принципы, границы мод
   Собственного входа модуль больше не имеет.
 
 Примитивы — в `app/core/security.py` (`create_token`, `decode_token`,
-`hash_password`, `verify_password`, `generate_temp_password`). Админы Skrezo
-заводятся скриптом `python -m app.scripts.create_platform_user --phone … --password …`.
+`hash_password`, `verify_password`). Админы Skrezo заводятся скриптом
+`python -m app.scripts.create_platform_user --phone … --password …` — единственный
+способ выдать пароль.
 
 - **Rate-limit** (`app/shared/api/rate_limit.py`, счётчики в Redis, фикс. окно →
-  429 `too_many_requests` c `retryAfter`): вход (по IP+телефон), смена пароля,
-  лид-форма (по IP). Лимиты — в настройках (`LOGIN_RATE_LIMIT` и др.).
-- **Сброс пароля** инициирует Skrezo/владелец (не self-service): `POST
-  /admin/clients/{id}/reset-password` (владельцу) и `POST
-  /clinic/staff/{id}/reset-password` (работнику) → новый временный пароль
-  (`must_change_password=true`). Самообслуживаемого «забыл пароль» нет — нужен
-  канал доставки кода (SMS/WhatsApp, не выбран).
+  429 `too_many_requests` c `retryAfter`): вход (по IP+телефон), выпуск кода
+  (`otp/request` и `password/forgot` — раздельные счётчики), смена и сброс
+  пароля, лид-форма (по IP). Лимиты — в настройках (`LOGIN_RATE_LIMIT` и др.).
+- **Сброс пароля** — только self-service и только для команды Skrezo:
+  `POST /auth/password/forgot` + `/reset` по коду назначения `reset`, с отзывом
+  всех refresh-сессий. Сброса «чужими руками» (Skrezo владельцу, владелец
+  работнику) больше нет: сбрасывать нечего, они входят по коду. Инвариант
+  `password_hash IS NOT NULL` ⇔ аккаунт команды Skrezo закреплён миграцией `0038`.
 
 ### 5.1. RBAC клиники (модуль `access`)
 

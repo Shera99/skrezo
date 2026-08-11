@@ -90,8 +90,8 @@ erDiagram
         text full_name
         enum lang
         bool onboarded
-        text password_hash "nullable"
-        bool must_change_password
+        text password_hash "NULL — вход по коду; заполнен только у команды Skrezo"
+        bool must_change_password "осмыслен только вместе с паролем"
         bool is_platform_admin "команда Skrezo"
     }
     CLINIC {

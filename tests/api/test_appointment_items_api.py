@@ -23,19 +23,13 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, today_slot, working_slot
+from tests.conftest import API, otp_login, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070097{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @dataclass(slots=True)
@@ -63,7 +57,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
 
     patient = await client.post(
         f"{API}/clinic/patients",
@@ -355,7 +349,8 @@ async def test_replace_items_of_other_clinic_is_404(
             "seats": 5,
         },
     )
-    other_headers = await _login(client, phone, other.json()["tempPassword"])
+    assert other.status_code == 201, other.text
+    other_headers = await otp_login(client, phone)
 
     resp = await client.put(
         f"{API}/clinic/appointments/{appointment_id}/items",

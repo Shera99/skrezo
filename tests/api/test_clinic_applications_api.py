@@ -21,7 +21,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.shared.domain.value_objects import normalize_phone
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_login
 
 _phone_seq = itertools.count(1)
 
@@ -252,10 +252,7 @@ async def test_clinic_staff_cannot_read_applications(
         },
     )
     assert created.status_code == 201, created.text
-    login = await client.post(
-        f"{API}/auth/login", json={"phone": phone, "password": created.json()["tempPassword"]}
-    )
-    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    headers = await otp_login(client, phone)
 
     resp = await client.get(f"{API}/admin/clinic-applications", headers=headers)
     assert resp.status_code == 403, resp.text

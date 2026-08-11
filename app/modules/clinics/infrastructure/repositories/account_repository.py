@@ -24,16 +24,15 @@ class AccountRepository:
         full_name: str,
         lang: Lang,
         onboarded: bool,
-        password_hash: str | None,  # None — passwordless-аккаунт (соло-врач, вход по OTP)
-        must_change_password: bool = True,
     ) -> Account:
+        """Создать аккаунт владельца — всегда без пароля (вход по коду на телефон)."""
         account = Account(
             phone=phone,
             full_name=full_name,
             lang=lang,
             onboarded=onboarded,
-            password_hash=password_hash,
-            must_change_password=must_change_password,
+            password_hash=None,
+            must_change_password=False,
         )
         self._session.add(account)
         await self._session.flush()

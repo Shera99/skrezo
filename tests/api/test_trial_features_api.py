@@ -24,19 +24,13 @@ from sqlalchemy import update
 
 from app.shared.db.enums import SubscriptionStatus
 from app.shared.db.models.subscription import Subscription
-from tests.conftest import API, Resources
+from tests.conftest import API, Resources, otp_login
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070098{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 async def _provision_clinic(
@@ -58,7 +52,7 @@ async def _provision_clinic(
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
     return str(created.json()["id"]), headers
 
 

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 
-from tests.conftest import API
+from tests.conftest import API, otp_login
 
 _phone_seq = itertools.count(1)
 
@@ -58,10 +58,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient) -> dict[str, A
         },
     )
     assert created.status_code == 201, created.text
-    login = await client.post(
-        f"{API}/auth/login", json={"phone": phone, "password": created.json()["tempPassword"]}
-    )
-    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    headers = await otp_login(client, phone)
     patient = await client.post(
         f"{API}/clinic/patients",
         headers=headers,

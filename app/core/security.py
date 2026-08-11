@@ -1,15 +1,14 @@
 """Криптографические примитивы: хеширование паролей и работа с JWT.
 
-Единый контур авторизации: один секрет и один ``aud`` для всех (команда Skrezo и
-сотрудники клиник входят одинаково — телефон + пароль). Роль/доступ разграничивают
-claims токена: ``platform_admin`` (кросс-тенант) и ``clinic_id``/``role_id`` (скоуп
-клиники).
+Единый контур токенов: один секрет и один ``aud`` для всех, независимо от способа
+входа (пароль у команды Skrezo, код из SMS у клиник и соло-врачей). Роль/доступ
+разграничивают claims токена: ``platform_admin`` (кросс-тенант) и
+``clinic_id``/``role_id`` (скоуп клиники).
 """
 
 from __future__ import annotations
 
 import enum
-import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,11 +21,8 @@ from app.core.config import settings
 
 _password_hasher = PasswordHasher()
 
-# Алфавит временного пароля: без похожих символов (0/O, 1/l/I) — чтобы диктовать.
-_TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 
-
-# ── Пароли (общий контур: команда Skrezo и аккаунты клиник) ─────────────────
+# ── Пароли (только аккаунты команды Skrezo) ─────────────────────────────────
 def hash_password(password: str) -> str:
     """Захешировать пароль (argon2id)."""
     return _password_hasher.hash(password)
@@ -38,16 +34,6 @@ def verify_password(password: str, password_hash: str) -> bool:
         return _password_hasher.verify(password_hash, password)
     except VerifyMismatchError:
         return False
-
-
-def generate_temp_password(length: int = 10) -> str:
-    """Сгенерировать читаемый временный пароль.
-
-    Используется при создании владельца (провижининг) и работника (staff):
-    выдаётся один раз, аккаунт помечается ``must_change_password`` и обязан
-    сменить пароль при первом входе.
-    """
-    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(length))
 
 
 # ── JWT ─────────────────────────────────────────────────────────────────────

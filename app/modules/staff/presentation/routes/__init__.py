@@ -8,7 +8,6 @@ from app.modules.staff.presentation.routes import (
     add_staff,
     list_staff,
     remove_staff,
-    reset_staff_password,
     update_staff,
 )
 
@@ -17,4 +16,3 @@ router.include_router(list_staff.router)
 router.include_router(add_staff.router)
 router.include_router(update_staff.router)
 router.include_router(remove_staff.router)
-router.include_router(reset_staff_password.router)

@@ -23,7 +23,5 @@ class CreateClinicUseCase:
 
     async def execute(self, command: ProvisionCommand) -> ProvisionResult:
         result = await self._provisioning.provision(command)
-        await self._notifier.notify_account_created(
-            result.account, result.clinic, result.temp_password
-        )
+        await self._notifier.notify_account_created(result.account, result.clinic)
         return result

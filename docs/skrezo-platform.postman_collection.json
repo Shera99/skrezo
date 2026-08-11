@@ -23,7 +23,7 @@
           "name": "auth",
           "item": [
             {
-              "name": "Вход по телефону и паролю",
+              "name": "Вход команды Skrezo по телефону и паролю",
               "request": {
                 "method": "POST",
                 "header": [
@@ -44,7 +44,7 @@
                     "login"
                   ]
                 },
-                "description": "Проверить телефон + пароль и выдать клиентские токены.\n\nЕсли ``mustChangePassword = true`` — пароль временный, клиент обязан вызвать\n``POST /auth/change-password`` перед дальнейшей работой.",
+                "description": "Проверить телефон + пароль и выдать токены сотруднику команды Skrezo.\n\nПаролем входят **только** аккаунты админ-панели (``isPlatformAdmin``).\nВладельцы клиник, менеджеры, работники и соло-врачи входят по коду:\n``POST /auth/otp/request`` → ``POST /auth/otp/verify``. Для них этот роут\nотвечает 401 ``invalid_credentials``, как и на несуществующий номер.\n\nЕсли ``mustChangePassword = true`` — пароль временный, клиент обязан вызвать\n``POST /auth/change-password`` перед дальнейшей работой.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"password\": \"{{password}}\"\n}",
@@ -137,7 +137,7 @@
                     "verify"
                   ]
                 },
-                "description": "Шаг 2: проверить код и развести три случая.\n\n* аккаунта нет → ``registration_required`` + ``registrationToken`` (клиент\n  показывает анкету и вызывает ``POST /auth/solo/register``);\n* соло-аккаунт (без пароля) → ``authenticated`` + токены в ``auth``;\n* номер сотрудника клиники (с паролем) → 409 ``use_password_login``.",
+                "description": "Шаг 2: проверить код и развести три случая.\n\n* аккаунта нет → ``registration_required`` + ``registrationToken`` (клиент\n  показывает анкету и вызывает ``POST /auth/solo/register``);\n* аккаунт клиники или соло-врача → ``authenticated`` + токены в ``auth``;\n* номер команды Skrezo → 409 ``use_password_login`` (админ-панель входит\n  только через ``POST /auth/login``).",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phone\": \"string\",\n  \"code\": \"string\"\n}",
@@ -208,7 +208,7 @@
                     "change-password"
                   ]
                 },
-                "description": "Сменить пароль (в т.ч. обязательную смену временного при первом входе).",
+                "description": "Сменить пароль (в т.ч. обязательную смену временного при первом входе).\n\nТолько для команды Skrezo: у остальных аккаунтов пароля нет, они входят по\nкоду из SMS — им ответ 409 ``use_otp_login``.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"currentPassword\": \"string\",\n  \"newPassword\": \"string\"\n}",
@@ -244,7 +244,7 @@
                     "forgot"
                   ]
                 },
-                "description": "Шаг 1: выслать код подтверждения на телефон аккаунта.\n\nДальше — ``POST /auth/password/reset`` с этим кодом и новым паролём. Код\nгодится **только** на смену пароля: войти им нельзя, как и сменить пароль\nкодом, выпущенным на вход.\n\nОтвет не раскрывает, зарегистрирован ли номер: он одинаков и для чужого\nномера. Каналы и dev-режим — те же, что у ``/auth/otp/request``.",
+                "description": "Шаг 1: выслать код подтверждения на телефон аккаунта команды Skrezo.\n\nДальше — ``POST /auth/password/reset`` с этим кодом и новым паролём. Код\nгодится **только** на смену пароля: войти им нельзя, как и сменить пароль\nкодом, выпущенным на вход.\n\nОтвет не раскрывает, зарегистрирован ли номер: он одинаков и для чужого\nномера. Каналы и dev-режим — те же, что у ``/auth/otp/request``.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phone\": \"string\"\n}",
@@ -577,7 +577,7 @@
                     "clients"
                   ]
                 },
-                "description": "Атомарно создаёт клинику/соло + владельца + роли + подписку (триал 30 дней).",
+                "description": "Атомарно создаёт клинику/соло + владельца + роли + подписку (триал 30 дней).\n\nПароль владельцу не выдаётся: он входит по коду подтверждения на свой номер\n(``POST /auth/otp/request`` → ``POST /auth/otp/verify``). Сообщение об этом\nуходит владельцу автоматически.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"type\": \"solo\",\n  \"adminFullName\": \"string\",\n  \"adminPhone\": \"string\",\n  \"seats\": 0,\n  \"cityId\": \"00000000-0000-0000-0000-000000000000\",\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"businessPhone\": \"string\",\n  \"language\": \"kg\"\n}",
@@ -745,28 +745,6 @@
                       "language": "json"
                     }
                   }
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Сбросить пароль администратора клиента",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/reset-password",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "admin",
-                    "clients",
-                    "{{clinic_id}}",
-                    "reset-password"
-                  ]
                 }
               },
               "response": []
@@ -1827,6 +1805,7 @@
                     "staff"
                   ]
                 },
+                "description": "Завести работника клиники.\n\nПароль не выдаётся: работник входит по коду подтверждения на свой номер, а\nсообщение о добавлении уходит ему автоматически.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"fullName\": \"string\",\n  \"phone\": \"string\",\n  \"specializationId\": \"00000000-0000-0000-0000-000000000000\",\n  \"roleId\": \"00000000-0000-0000-0000-000000000000\"\n}",
@@ -1890,28 +1869,6 @@
                     "clinic",
                     "staff",
                     "{{membership_id}}"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Сбросить пароль работника",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/staff/{{membership_id}}/reset-password",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "clinic",
-                    "staff",
-                    "{{membership_id}}",
-                    "reset-password"
                   ]
                 }
               },

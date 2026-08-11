@@ -21,19 +21,13 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, today_slot, working_slot
+from tests.conftest import API, otp_login, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
 
 def _phone() -> str:
     return f"070098{next(_phone_seq):04d}"
-
-
-async def _login(client: AsyncClient, phone: str, password: str) -> dict[str, str]:
-    resp = await client.post(f"{API}/auth/login", json={"phone": phone, "password": password})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['accessToken']}"}
 
 
 @dataclass(slots=True)
@@ -61,7 +55,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         },
     )
     assert created.status_code == 201, created.text
-    headers = await _login(client, phone, created.json()["tempPassword"])
+    headers = await otp_login(client, phone)
 
     patient = await client.post(
         f"{API}/clinic/patients",
@@ -79,7 +73,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
         json={"fullName": "Врач", "phone": worker_phone, "specializationId": spec},
     )
     assert worker.status_code == 201, worker.text
-    worker_headers = await _login(client, worker_phone, str(worker.json()["tempPassword"]))
+    worker_headers = await otp_login(client, worker_phone)
 
     return ClinicCtx(
         headers=headers,
@@ -204,7 +198,7 @@ async def test_ceiling_limits_discount(client: AsyncClient, ctx: ClinicCtx) -> N
         },
     )
     assert staff.status_code == 201, staff.text
-    manager_headers = await _login(client, phone, str(staff.json()["tempPassword"]))
+    manager_headers = await otp_login(client, phone)
 
     appointment_id = await _book(client, ctx)
     over = await _discount(client, ctx, appointment_id, 30, headers=manager_headers)
