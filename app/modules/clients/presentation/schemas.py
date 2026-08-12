@@ -109,11 +109,26 @@ class PhoneCheckResponse(CamelModel):
 
 
 class StaffMember(CamelModel):
+    """Сотрудник клиники в карточке клиента.
+
+    Исключённые из списка не пропадают: на их членстве висят приёмы и платежи, и
+    карточка должна объяснять, кто их вёл. Отличает их флаг `active` — без него
+    уволенный врач выглядел бы в админке точно так же, как работающий.
+    """
+
     id: uuid.UUID
     full_name: str
     phone: str
     role: str = Field(description="admin (владелец) | doctor (врач)")
     specialization: str | None = None
+    active: bool = Field(
+        description=(
+            "false — сотрудник исключён из клиники: доступа к ней нет "
+            "(403 `membership_revoked`), место в тарифе не занимает, "
+            "история приёмов сохранена"
+        ),
+        examples=[True],
+    )
 
     @classmethod
     def from_row(cls, staff: StaffRow) -> StaffMember:
@@ -123,6 +138,7 @@ class StaffMember(CamelModel):
             phone=staff.phone,
             role="admin" if staff.is_owner else "doctor",
             specialization=staff.specialization_name,
+            active=staff.active,
         )
 
 

@@ -116,10 +116,23 @@ async def test_admin_doctor_lifecycle(admin_client: AsyncClient) -> None:
     assert upd.status_code == 200
     assert upd.json()["role"] == "doctor"
     assert upd.json()["fullName"] == "Доктор Новый"
+    assert upd.json()["active"] is True
+
+    card = await admin_client.get(f"{API}/admin/clients/{cid}")
+    doctor = next(s for s in card.json()["staff"] if s["id"] == doc_id)
+    assert doctor["active"] is True
+    assert card.json()["seatsUsed"] == 1
 
     rem = await admin_client.delete(f"{API}/admin/clients/{cid}/doctors/{doc_id}")
     assert rem.status_code == 200
     assert rem.json()["mode"] == "deactivated"
+
+    # Врач остаётся в карточке (на нём висит история), но помечен неактивным и
+    # места в тарифе не занимает — иначе уволенный неотличим от работающего.
+    after = await admin_client.get(f"{API}/admin/clients/{cid}")
+    removed = next(s for s in after.json()["staff"] if s["id"] == doc_id)
+    assert removed["active"] is False
+    assert after.json()["seatsUsed"] == 0
 
 
 async def test_doctor_on_solo_is_400(admin_client: AsyncClient) -> None:
