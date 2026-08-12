@@ -372,6 +372,22 @@ class ClientRepository:
             for r in rows
         ]
 
+    async def staff(
+        self, clinic_id: uuid.UUID, lang: Lang, *, active: bool | None = None
+    ) -> list[StaffRow]:
+        """Сотрудники клиники (владелец + врачи), опционально только активные.
+
+        Исключённые по умолчанию остаются в выдаче: на их членстве висят приёмы и
+        платежи, и админке нужно видеть, кто их вёл. Фильтр ``active`` — способ
+        посмотреть отдельно работающих или отдельно уволенных.
+        """
+        rows = await self._staff(clinic_id, lang)
+        return rows if active is None else [r for r in rows if r.active is active]
+
+    async def clinic_exists(self, clinic_id: uuid.UUID) -> bool:
+        result = await self._session.execute(select(Clinic.id).where(Clinic.id == clinic_id))
+        return result.scalar_one_or_none() is not None
+
     async def staff_member(
         self, clinic_id: uuid.UUID, membership_id: uuid.UUID, lang: Lang
     ) -> StaffRow | None:

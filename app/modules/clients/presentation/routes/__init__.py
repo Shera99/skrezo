@@ -11,6 +11,7 @@ from app.modules.clients.presentation.routes import (
     create_account,
     get_client,
     list_clients,
+    list_staff,
     phone_check,
     remove_doctor,
     status_counts,
@@ -25,6 +26,7 @@ router.include_router(create_account.router)
 router.include_router(phone_check.router)
 router.include_router(status_counts.router)
 router.include_router(get_client.router)
+router.include_router(list_staff.router)
 router.include_router(update_client.router)
 router.include_router(change_admin_phone.router)
 router.include_router(archive_client.router)

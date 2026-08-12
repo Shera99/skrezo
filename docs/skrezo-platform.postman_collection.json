@@ -713,6 +713,43 @@
               "response": []
             },
             {
+              "name": "Сотрудники клиники (админ-сайд)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/staff?active=True&lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "staff"
+                  ],
+                  "query": [
+                    {
+                      "key": "active",
+                      "value": "True",
+                      "disabled": true,
+                      "description": "Фильтр по статусу: `true` — работающие, `false` — исключённые, пусто — все (по умолчанию)"
+                    },
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Список сотрудников клиники: владелец (`role=admin`) и врачи (`role=doctor`).\n\nИсключённые из клиники остаются в выдаче с `active: false` — на их членстве\nвисят приёмы и платежи, и админке нужно видеть, кто их вёл. Пагинации нет:\nчисло сотрудников ограничено местами тарифа.\n\nСортировка та же, что в карточке клиента: владелец первым, дальше по дате\nдобавления."
+              },
+              "response": []
+            },
+            {
               "name": "Сменить номер администратора (напрямую)",
               "request": {
                 "method": "POST",
@@ -3730,6 +3767,64 @@
               "response": []
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "accounts",
+      "item": [
+        {
+          "name": "Список аккаунтов платформы",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/accounts?query=string&clinicId=00000000-0000-0000-0000-000000000000&active=True&isPlatformAdmin=True&page=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Поиск по ФИО и телефону"
+                },
+                {
+                  "key": "clinicId",
+                  "value": "00000000-0000-0000-0000-000000000000",
+                  "disabled": true,
+                  "description": "Только люди этой клиники — включая исключённых из неё"
+                },
+                {
+                  "key": "active",
+                  "value": "True",
+                  "disabled": true,
+                  "description": "`true` — работает хотя бы в одной клинике; `false` — исключён (вместе с `clinicId` — исключён именно из неё); пусто — все"
+                },
+                {
+                  "key": "isPlatformAdmin",
+                  "value": "True",
+                  "disabled": true,
+                  "description": "`true` — только команда Skrezo, `false` — только клиентские аккаунты"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "Страница (1-based)"
+                }
+              ]
+            },
+            "description": "Все люди платформы одним списком: и команда Skrezo, и сотрудники клиник.\n\nСтрока — аккаунт, а не членство: человек может работать в нескольких\nклиниках, и дублировать его на строку в каждой означало бы, что `totalCount`\nбольше не отвечает на вопрос «сколько всего аккаунтов». Где он работает и\nоткуда исключён — во вложенном `memberships`.\n\nАккаунт сам по себе не удаляется: исключают из клиники, то есть членство.\nПоэтому «удалён» здесь — это `memberships[].active = false`, а\n`hasActiveMembership` сводит это в одну колонку списка."
+          },
+          "response": []
         }
       ]
     },

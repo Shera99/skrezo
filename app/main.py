@@ -22,6 +22,7 @@ from app.core.logging import configure_logging
 from app.core.redis import redis_client
 from app.modules.access.presentation.routes import admin_router as access_admin_router
 from app.modules.access.presentation.routes import router as roles_router
+from app.modules.accounts.presentation.routes import router as accounts_router
 from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import clinic_router as clinic_audit_router
 from app.modules.audit.presentation.routes import router as audit_router
@@ -105,7 +106,15 @@ OPENAPI_TAGS = [
     {
         "name": "clients",
         "x-displayName": "Клиенты",
-        "description": "Клиенты: список, карточка, создание, врачи, смена номера.",
+        "description": "Клиенты: список, карточка, создание, сотрудники, смена номера.",
+    },
+    {
+        "name": "accounts",
+        "x-displayName": "Аккаунты (Skrezo)",
+        "description": (
+            "Все люди платформы одним списком — команда Skrezo и сотрудники клиник. "
+            "Аккаунт глобальный: исключают не его, а членство в клинике."
+        ),
     },
     {
         "name": "staff",
@@ -316,6 +325,7 @@ def create_app() -> FastAPI:
     app.include_router(clinic_applications_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(tariffs_router, prefix=settings.api_v1_prefix)
     app.include_router(clients_router, prefix=settings.api_v1_prefix)
+    app.include_router(accounts_router, prefix=settings.api_v1_prefix)
     app.include_router(staff_router, prefix=settings.api_v1_prefix)
     app.include_router(schedule_router, prefix=settings.api_v1_prefix)
     app.include_router(patients_router, prefix=settings.api_v1_prefix)

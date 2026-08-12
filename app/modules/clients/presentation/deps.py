@@ -11,6 +11,7 @@ from app.modules.clients.application.use_cases.change_admin_phone import ChangeA
 from app.modules.clients.application.use_cases.create_account import CreateAccountUseCase
 from app.modules.clients.application.use_cases.get_client import GetClientUseCase
 from app.modules.clients.application.use_cases.list_clients import ListClientsUseCase
+from app.modules.clients.application.use_cases.list_staff import ListStaffUseCase
 from app.modules.clients.application.use_cases.phone_check import PhoneCheckUseCase
 from app.modules.clients.application.use_cases.status_counts import StatusCountsUseCase
 from app.modules.clients.application.use_cases.update_client import UpdateClientUseCase
@@ -46,6 +47,12 @@ def get_list_clients_use_case(
     clients: ClientRepository = Depends(get_client_repository),
 ) -> ListClientsUseCase:
     return ListClientsUseCase(clients)
+
+
+def get_list_staff_use_case(
+    clients: ClientRepository = Depends(get_client_repository),
+) -> ListStaffUseCase:
+    return ListStaffUseCase(clients)
 
 
 def get_get_client_use_case(
