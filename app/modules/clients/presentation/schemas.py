@@ -266,5 +266,24 @@ class DoctorCreatedResponse(CamelModel):
 
 
 class DoctorRemovedResponse(CamelModel):
+    """Врач исключён из клиники: доступ к ней закрыт, аккаунт сохранён."""
+
     ok: bool = True
-    mode: str = Field(description="deactivated (soft) — доступ закрыт")
+    mode: str = Field(
+        description="deactivated (soft) — членство деактивировано, история приёмов сохранена",
+        examples=["deactivated"],
+    )
+    access_revoked: bool = Field(
+        default=True,
+        description=(
+            "Доступ к этой клинике закрыт сразу: выданные токены перестают "
+            "работать на её эндпоинтах (403 `membership_revoked`)"
+        ),
+    )
+    account_kept: bool = Field(
+        default=True,
+        description=(
+            "Аккаунт врача не удалён — он глобальный и может работать в других "
+            "клиниках; вход по коду остаётся, но без доступа к этой клинике"
+        ),
+    )

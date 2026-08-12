@@ -23,10 +23,14 @@ from app.modules.access.application.services.subscription_policy import (
     DENY_MESSAGES,
     SubscriptionPolicy,
 )
-from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
+from app.modules.access.presentation.deps import (
+    get_clinic_context,
+    get_permission_resolver,
+    get_subscription_policy,
+)
 from app.modules.cash.infrastructure.repositories.cash_repository import CashRepository
 from app.modules.cash.presentation.deps import get_cash_repository
-from app.shared.auth import ClientContext, get_client_context
+from app.shared.auth import ClientContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +53,7 @@ class CashReadScope:
 
 
 async def require_cash_read(
-    context: ClientContext = Depends(get_client_context),
+    context: ClientContext = Depends(get_clinic_context),
     resolver: PermissionResolver = Depends(get_permission_resolver),
     cash: CashRepository = Depends(get_cash_repository),
     policy: SubscriptionPolicy = Depends(get_subscription_policy),

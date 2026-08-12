@@ -6,6 +6,8 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.access.application.services.membership_resolver import MembershipResolver
+from app.modules.access.presentation.deps import get_membership_resolver
 from app.modules.staff.application.services.staff_notification_service import (
     StaffNotificationService,
 )
@@ -45,12 +47,14 @@ def get_add_staff_use_case(
 def get_update_staff_use_case(
     session: AsyncSession = Depends(get_session),
     staff: StaffRepository = Depends(get_staff_repository),
+    memberships: MembershipResolver = Depends(get_membership_resolver),
 ) -> UpdateStaffUseCase:
-    return UpdateStaffUseCase(session, staff)
+    return UpdateStaffUseCase(session, staff, memberships)
 
 
 def get_remove_staff_use_case(
     session: AsyncSession = Depends(get_session),
     staff: StaffRepository = Depends(get_staff_repository),
+    memberships: MembershipResolver = Depends(get_membership_resolver),
 ) -> RemoveStaffUseCase:
-    return RemoveStaffUseCase(session, staff)
+    return RemoveStaffUseCase(session, staff, memberships)

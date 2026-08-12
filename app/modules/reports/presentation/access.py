@@ -24,10 +24,14 @@ from app.modules.access.application.services.subscription_policy import (
     DENY_MESSAGES,
     SubscriptionPolicy,
 )
-from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
+from app.modules.access.presentation.deps import (
+    get_clinic_context,
+    get_permission_resolver,
+    get_subscription_policy,
+)
 from app.modules.reports.infrastructure.repositories.reports_repository import ReportsRepository
 from app.modules.reports.presentation.deps import get_reports_repository
-from app.shared.auth import ClientContext, get_client_context
+from app.shared.auth import ClientContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +50,7 @@ class ReportsScope:
 
 
 async def require_reports_read(
-    context: ClientContext = Depends(get_client_context),
+    context: ClientContext = Depends(get_clinic_context),
     resolver: PermissionResolver = Depends(get_permission_resolver),
     reports: ReportsRepository = Depends(get_reports_repository),
     policy: SubscriptionPolicy = Depends(get_subscription_policy),

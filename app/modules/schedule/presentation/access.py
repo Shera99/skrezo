@@ -25,10 +25,14 @@ from app.modules.access.application.services.subscription_policy import (
     DENY_MESSAGES,
     SubscriptionPolicy,
 )
-from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
+from app.modules.access.presentation.deps import (
+    get_clinic_context,
+    get_permission_resolver,
+    get_subscription_policy,
+)
 from app.modules.schedule.infrastructure.repositories.schedule_repository import ScheduleRepository
 from app.modules.schedule.presentation.deps import get_schedule_repository
-from app.shared.auth import ClientContext, get_client_context
+from app.shared.auth import ClientContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +58,7 @@ def _scope_guard(all_key: str, own_key: str) -> Callable[..., Awaitable[Schedule
     """Собрать зависимость-гвард для пары прав «все»/«свои»."""
 
     async def _guard(
-        context: ClientContext = Depends(get_client_context),
+        context: ClientContext = Depends(get_clinic_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
         schedule: ScheduleRepository = Depends(get_schedule_repository),
         policy: SubscriptionPolicy = Depends(get_subscription_policy),

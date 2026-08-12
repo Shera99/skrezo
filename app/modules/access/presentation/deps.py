@@ -4,10 +4,15 @@
 клиентского контура. Владелец (``is_owner``) проходит проверку прав роли, но на
 триале и он ограничен набором триал-функций: эффективный доступ =
 (право у роли ИЛИ владелец) И (клиника не на триале ИЛИ право входит в триал).
+
+Все клиничные гварды входят через :func:`get_clinic_context`, а не через голый
+``get_client_context``: роль должна браться из живого членства, иначе токен
+уволенного сотрудника работает до конца своей жизни.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Awaitable, Callable
 
 from fastapi import Depends
@@ -17,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.errors import ForbiddenError
 from app.core.redis import get_redis
+from app.modules.access.application.services.membership_resolver import MembershipResolver
 from app.modules.access.application.services.permission_resolver import PermissionResolver
 from app.modules.access.application.services.subscription_policy import (
     DENY_MESSAGES,
@@ -32,6 +38,9 @@ from app.modules.access.application.use_cases.manage_roles import (
 )
 from app.modules.access.application.use_cases.update_trial_features import (
     UpdateTrialFeaturesUseCase,
+)
+from app.modules.access.infrastructure.repositories.membership_repository import (
+    MembershipRepository,
 )
 from app.modules.access.infrastructure.repositories.role_admin_repository import (
     RoleAdminRepository,
@@ -52,6 +61,39 @@ def get_permission_resolver(
     redis: Redis = Depends(get_redis),
 ) -> PermissionResolver:
     return PermissionResolver(role_repository, redis)
+
+
+def get_membership_repository(session: AsyncSession = Depends(get_session)) -> MembershipRepository:
+    return MembershipRepository(session)
+
+
+def get_membership_resolver(
+    memberships: MembershipRepository = Depends(get_membership_repository),
+    redis: Redis = Depends(get_redis),
+) -> MembershipResolver:
+    return MembershipResolver(memberships, redis)
+
+
+async def get_clinic_context(
+    context: ClientContext = Depends(get_client_context),
+    memberships: MembershipResolver = Depends(get_membership_resolver),
+) -> ClientContext:
+    """Контекст клиничного запроса с ролью из **живого** членства.
+
+    Точка входа всех клиничных гвардов. Клиника берётся из токена (её выбирал
+    сам сотрудник и валидировал ``select-clinic``), а роль — из базы: claim
+    ``role_id`` выписан один раз и не знает ни об увольнении, ни о смене роли.
+
+    Уволенному отвечаем отдельным кодом ``membership_revoked``, а не общим
+    «недостаточно прав»: клиенту по нему видно, что дело не в конкретной ручке и
+    сессию пора закрывать.
+    """
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    role_id = await memberships.resolve(context.account_id, context.clinic_id)
+    if role_id is None:
+        raise ForbiddenError("Доступ к клинике закрыт", code="membership_revoked")
+    return dataclasses.replace(context, role_id=role_id)
 
 
 def get_subscription_policy_repository(
@@ -90,7 +132,7 @@ def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
     """
 
     async def _dep(
-        context: ClientContext = Depends(get_client_context),
+        context: ClientContext = Depends(get_clinic_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
         policy: SubscriptionPolicy = Depends(get_subscription_policy),
     ) -> bool:
@@ -106,7 +148,7 @@ def has_permission(permission_key: str) -> Callable[..., Awaitable[bool]]:
 
 
 async def get_discount_ceiling(
-    context: ClientContext = Depends(get_client_context),
+    context: ClientContext = Depends(get_clinic_context),
     resolver: PermissionResolver = Depends(get_permission_resolver),
 ) -> int:
     """Потолок скидки текущего сотрудника (%): владелец 100, иначе — из роли.
@@ -127,7 +169,7 @@ def require_permission(
     """Вернуть зависимость, требующую у текущего клиента право ``permission_key``."""
 
     async def _guard(
-        context: ClientContext = Depends(get_client_context),
+        context: ClientContext = Depends(get_clinic_context),
         resolver: PermissionResolver = Depends(get_permission_resolver),
         policy: SubscriptionPolicy = Depends(get_subscription_policy),
     ) -> ClientContext:

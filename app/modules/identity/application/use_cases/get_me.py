@@ -49,16 +49,15 @@ class GetMeUseCase:
         memberships = await self._memberships.list_active_context(account.id)
         active: MembershipContext | None = None
         permissions: list[str] = []
-        if context.role_id is not None:
+        # Клиника — из токена, роль и права — из живого членства: у уволенного
+        # сотрудника claim role_id ещё жив, и права по нему фронт показал бы как
+        # действующие, хотя гвард их уже не пускает.
+        if context.clinic_id is not None:
             active = next(
-                (
-                    m
-                    for m in memberships
-                    if m.role_id == context.role_id and m.clinic_id == context.clinic_id
-                ),
-                None,
+                (m for m in memberships if m.clinic_id == context.clinic_id), None
             )
-            resolved = await self._resolver.resolve(context.role_id)
+        if active is not None:
+            resolved = await self._resolver.resolve(active.role_id)
             if resolved is not None:
                 permissions = (
                     sorted(ALL_PERMISSION_KEYS)

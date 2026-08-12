@@ -28,6 +28,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     "/clinic/staff/{membership_id}",
     response_model=StaffRemovedResponse,
     summary="Удалить работника (деактивация)",
+    response_description="Режим удаления и что стало с доступом",
     responses=_ERRORS,
 )
 async def remove_staff(
@@ -36,15 +37,22 @@ async def remove_staff(
     use_case: RemoveStaffUseCase = Depends(get_remove_staff_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> StaffRemovedResponse:
+    """Исключить работника из клиники.
+
+    Членство деактивируется, а не удаляется: на нём висят приёмы и платежи.
+    Доступ к клинике закрывается **сразу** — уже выданные токены получают
+    `403 membership_revoked` на её эндпоинтах. Аккаунт при этом сохраняется: он
+    глобальный, и тот же человек может работать в другой клинике.
+    """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    mode = await use_case.execute(context.clinic_id, membership_id)
+    result = await use_case.execute(context.clinic_id, membership_id)
     await audit.record_clinic(
         actor_id=context.account_id,
         clinic_id=context.clinic_id,
         action="staff.remove",
         entity_type="membership",
         entity_id=membership_id,
-        payload={"mode": mode},
+        payload={"mode": result.mode},
     )
-    return StaffRemovedResponse(mode=mode)
+    return StaffRemovedResponse(mode=result.mode)

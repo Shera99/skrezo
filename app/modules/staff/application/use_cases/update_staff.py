@@ -11,6 +11,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
+from app.modules.access.application.services.membership_resolver import MembershipResolver
 from app.modules.staff.application.services.roles import resolve_assignable_role
 from app.modules.staff.domain.models import StaffMember
 from app.modules.staff.infrastructure.repositories.staff_repository import StaffRepository
@@ -18,9 +19,15 @@ from app.shared.domain.value_objects import normalize_phone
 
 
 class UpdateStaffUseCase:
-    def __init__(self, session: AsyncSession, staff: StaffRepository) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        staff: StaffRepository,
+        memberships: MembershipResolver,
+    ) -> None:
         self._session = session
         self._staff = staff
+        self._memberships = memberships
 
     async def execute(
         self,
@@ -57,11 +64,14 @@ class UpdateStaffUseCase:
                     "Специализация не найдена", code="specialization_not_found"
                 )
             membership.specialization_id = specialization_id
+        role_changed = role_id is not None
         if role_id is not None:
-            # Роль — это права и потолок скидки сотрудника; кеш прав привязан к
-            # роли, а не к членству, поэтому сбрасывать его здесь нечего.
             membership.role_id = await resolve_assignable_role(clinic_id, role_id, self._staff)
 
         await self._session.commit()
+        # Роль сотрудника гвард берёт из кеша членства, а не из токена: без
+        # сброса новые права ждали бы истечения кеша.
+        if role_changed:
+            await self._memberships.invalidate(membership.account_id, clinic_id)
         members = await self._staff.list_members(clinic_id)
         return next(m for m in members if m.membership_id == membership_id)
