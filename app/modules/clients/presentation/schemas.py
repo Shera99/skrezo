@@ -39,6 +39,9 @@ class ClientListItem(CamelModel):
     name: str
     admin_full_name: str | None = None
     admin_phone: str | None = None
+    admin_blocked: bool = Field(
+        default=False, description="Аккаунт владельца заблокирован — он не войдёт в кабинет"
+    )
     city_name: str | None = None
     tariff_name: str = Field(description="Коарс-ярлык тарифа для фильтра: «Соло» | «Клиника»")
     tariff_label: str = Field(description="Человекочитаемый ярлык тарифа")
@@ -72,6 +75,7 @@ class ClientListItem(CamelModel):
             name=row.name,
             admin_full_name=row.admin_full_name,
             admin_phone=row.admin_phone,
+            admin_blocked=row.admin_blocked_at is not None,
             city_name=row.city_name,
             tariff_name=name,
             tariff_label=name,
@@ -129,6 +133,14 @@ class StaffMember(CamelModel):
         ),
         examples=[True],
     )
+    blocked: bool = Field(
+        default=False,
+        description=(
+            "Аккаунт заблокирован (`POST /admin/accounts/{id}/block`): человек не "
+            "войдёт вовсе, ни в одну клинику. Не путать с `active` — тот про "
+            "членство именно в этой клинике"
+        ),
+    )
 
     @classmethod
     def from_row(cls, staff: StaffRow) -> StaffMember:
@@ -139,6 +151,7 @@ class StaffMember(CamelModel):
             role="admin" if staff.is_owner else "doctor",
             specialization=staff.specialization_name,
             active=staff.active,
+            blocked=staff.blocked_at is not None,
         )
 
 
@@ -183,6 +196,7 @@ class ClientDetailResponse(ClientListItem):
             name=clinic.name,
             admin_full_name=owner.full_name if owner else None,
             admin_phone=owner.phone if owner else None,
+            admin_blocked=bool(owner and owner.blocked_at is not None),
             city_name=detail.city_name,
             tariff_name=name,
             tariff_label=name,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from app.core.errors import UnauthorizedError
+from app.core.errors import ForbiddenError, UnauthorizedError
 from app.core.security import verify_password
 from app.modules.identity.application.services.client_token_service import (
     ClientTokenService,
@@ -62,6 +62,10 @@ class LoginUseCase:
             or not verify_password(password, account.password_hash)
         ):
             raise UnauthorizedError("Неверный телефон или пароль", code="invalid_credentials")
+        # Отдельным ответом, а не «неверный пароль»: пароль человек ввёл верный,
+        # и молчать о причине — значит слать его перебирать пароли впустую.
+        if account.blocked_at is not None:
+            raise ForbiddenError("Аккаунт заблокирован", code="account_blocked")
 
         memberships = await self._memberships.list_active_context(account.id)
         # Одно членство → сразу клиника-скоуп токен; несколько → выбор клиники.

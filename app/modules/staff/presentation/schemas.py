@@ -20,7 +20,14 @@ class StaffMemberOut(CamelModel):
     role_name: str
     is_owner: bool
     specialization_id: uuid.UUID | None = None
-    active: bool
+    active: bool = Field(description="false — сотрудник исключён из клиники")
+    blocked: bool = Field(
+        default=False,
+        description=(
+            "Аккаунт заблокирован командой Skrezo: человек не войдёт вовсе. "
+            "Снять блокировку из кабинета клиники нельзя"
+        ),
+    )
     created_at: datetime
 
     @classmethod
@@ -35,6 +42,7 @@ class StaffMemberOut(CamelModel):
             is_owner=member.is_owner,
             specialization_id=member.specialization_id,
             active=member.active,
+            blocked=member.blocked_at is not None,
             created_at=member.created_at,
         )
 

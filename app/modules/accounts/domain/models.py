@@ -36,5 +36,7 @@ class AccountRow:
     lang: Lang
     onboarded: bool
     is_platform_admin: bool
+    blocked_at: datetime | None
+    blocked_reason: str | None
     created_at: datetime
     memberships: list[AccountMembershipRow]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.errors import BadRequestError, ConflictError
+from app.core.errors import BadRequestError, ConflictError, ForbiddenError
 from app.modules.identity.application.services.client_token_service import ClientTokenService
 from app.modules.identity.application.services.otp_service import OtpService
 from app.modules.identity.application.services.session_factory import issue_session
@@ -63,6 +63,9 @@ class VerifyOtpUseCase:
             return VerifyOtpResult(login=None, registration_token=token)
         if account.is_platform_admin:
             raise ConflictError("Этот номер входит по паролю", code="use_password_login")
+        # Код верный, номером человек владеет — причину отказа он заслужил знать.
+        if account.blocked_at is not None:
+            raise ForbiddenError("Аккаунт заблокирован", code="account_blocked")
 
         login = await issue_session(account, self._memberships, self._tokens)
         return VerifyOtpResult(login=login, registration_token=None)

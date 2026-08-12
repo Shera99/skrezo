@@ -44,6 +44,9 @@ class AccountRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def get_by_id(self, account_id: uuid.UUID) -> Account | None:
+        return await self._session.get(Account, account_id)
+
     @staticmethod
     def _membership_exists(clinic_id: uuid.UUID | None, active: bool | None) -> Any:
         """EXISTS-условие «у аккаунта есть членство» с нужными оговорками.
@@ -135,6 +138,8 @@ class AccountRepository:
                 lang=a.lang,
                 onboarded=a.onboarded,
                 is_platform_admin=a.is_platform_admin,
+                blocked_at=a.blocked_at,
+                blocked_reason=a.blocked_reason,
                 created_at=a.created_at,
                 memberships=memberships.get(a.id, []),
             )

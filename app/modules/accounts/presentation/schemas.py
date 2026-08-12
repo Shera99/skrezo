@@ -10,6 +10,45 @@ from pydantic import Field
 from app.modules.accounts.domain.models import AccountMembershipRow, AccountRow
 from app.shared.api.schemas import CamelModel
 from app.shared.db.enums import Lang
+from app.shared.db.models.account import Account
+
+
+class BlockAccountRequest(CamelModel):
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Причина блокировки — показывается в админке рядом с датой",
+        examples=["Уволен, доступ отозван по просьбе владельца"],
+    )
+
+
+class AccountBlockedResponse(CamelModel):
+    """Состояние блокировки аккаунта после операции."""
+
+    id: uuid.UUID
+    blocked: bool
+    blocked_at: datetime | None = Field(
+        default=None, description="Когда заблокирован; null — аккаунт действующий"
+    )
+    blocked_reason: str | None = None
+    sessions_revoked: bool = Field(
+        default=True,
+        description=(
+            "Сессии аккаунта погашены: refresh мёртв, а уже выданный access "
+            "получает 403 `account_blocked` на любой ручке"
+        ),
+    )
+
+    @classmethod
+    def from_account(cls, account: Account) -> AccountBlockedResponse:
+        blocked = account.blocked_at is not None
+        return cls(
+            id=account.id,
+            blocked=blocked,
+            blocked_at=account.blocked_at,
+            blocked_reason=account.blocked_reason,
+            sessions_revoked=blocked,
+        )
 
 
 class AccountMembershipOut(CamelModel):
@@ -60,6 +99,13 @@ class AccountListItem(CamelModel):
     is_platform_admin: bool = Field(
         description="Команда Skrezo: входит по паролю, членств в клиниках не имеет"
     )
+    blocked: bool = Field(
+        description="Доступ отобран целиком: не войдёт ни по коду, ни по паролю"
+    )
+    blocked_at: datetime | None = Field(
+        default=None, description="Когда заблокирован; null — аккаунт действующий"
+    )
+    blocked_reason: str | None = None
     has_active_membership: bool = Field(
         description=(
             "Есть хотя бы одна клиника, где человек ещё работает. У команды "
@@ -80,6 +126,9 @@ class AccountListItem(CamelModel):
             lang=row.lang,
             onboarded=row.onboarded,
             is_platform_admin=row.is_platform_admin,
+            blocked=row.blocked_at is not None,
+            blocked_at=row.blocked_at,
+            blocked_reason=row.blocked_reason,
             has_active_membership=any(m.active for m in row.memberships),
             memberships=[AccountMembershipOut.from_row(m) for m in row.memberships],
             created_at=row.created_at,

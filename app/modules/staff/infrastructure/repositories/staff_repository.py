@@ -128,6 +128,7 @@ class StaffRepository:
                     Role.is_owner,
                     Membership.specialization_id,
                     Membership.active,
+                    Account.blocked_at,
                     Membership.created_at,
                 )
                 .join(Account, Account.id == Membership.account_id)
@@ -147,7 +148,8 @@ class StaffRepository:
                 is_owner=r[6],
                 specialization_id=r[7],
                 active=r[8],
-                created_at=r[9],
+                blocked_at=r[9],
+                created_at=r[10],
             )
             for r in rows
         ]

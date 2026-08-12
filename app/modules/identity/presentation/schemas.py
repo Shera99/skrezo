@@ -29,11 +29,21 @@ class OkResponse(CamelModel):
 
 
 class AccountOut(CamelModel):
+    """Свой аккаунт.
+
+    ``blocked`` здесь всегда false: заблокированный не получит ни токен на входе,
+    ни ответ на авторизованный запрос. Поле оставлено для единообразия — там, где
+    отдаётся аккаунт, отдаётся и его блокировка.
+    """
+
     id: uuid.UUID
     full_name: str
     phone: str
     lang: str
     onboarded: bool
+    blocked: bool = Field(
+        default=False, description="Аккаунт заблокирован командой Skrezo (доступ отобран целиком)"
+    )
 
 
 class ClinicMembershipOut(CamelModel):

@@ -10,11 +10,18 @@
 Инвариант после миграции ``0038``: ``password_hash IS NOT NULL`` ⇔ аккаунт
 команды Skrezo. Он держится с обеих сторон — OTP-вход не логинит админа, а вход
 по паролю не логинит всех прочих, даже если хеш у них каким-то образом появится.
+
+**Блокировка** (``blocked_at``) — единственный способ отобрать доступ у человека
+целиком. Исключение из клиники закрывает только её (``membership.active``), а
+заблокированный не войдёт вовсе. Ставит и снимает её только команда Skrezo.
+Строки из таблицы не удаляются: на аккаунте висят приёмы, платежи и журнал.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Text, text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -40,3 +47,8 @@ class Account(Base, UUIDPKMixin, TimestampMixin):
     is_platform_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Момент блокировки; NULL — аккаунт действующий. Дата, а не флаг: «когда
+    # заблокировали» спрашивают в поддержке, и хранить это отдельно негде.
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Причина блокировки — показывается в админке рядом с датой.
+    blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

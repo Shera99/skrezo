@@ -131,6 +131,7 @@ class ClientRepository:
                 Clinic.created_at.label("created_at"),
                 Account.full_name.label("admin_full_name"),
                 Account.phone.label("admin_phone"),
+                Account.blocked_at.label("admin_blocked_at"),
                 Subscription.status.label("subscription_status"),
                 Subscription.trial_started_at.label("trial_started_at"),
                 Subscription.current_period_end.label("current_period_end"),
@@ -221,6 +222,7 @@ class ClientRepository:
                 name=r.name,
                 admin_full_name=r.admin_full_name,
                 admin_phone=r.admin_phone,
+                admin_blocked_at=r.admin_blocked_at,
                 city_id=r.city_id,
                 city_name=r.city_name,
                 seats_used=r.seats_used,
@@ -332,6 +334,7 @@ class ClientRepository:
                     Membership.specialization_id,
                     spec_name.label("specialization_name"),
                     Membership.active,
+                    Account.blocked_at,
                     Membership.created_at,
                 )
                 .join(Account, Account.id == Membership.account_id)
@@ -367,7 +370,8 @@ class ClientRepository:
                 specialization_id=r[8],
                 specialization_name=r[9],
                 active=r[10],
-                created_at=r[11],
+                blocked_at=r[11],
+                created_at=r[12],
             )
             for r in rows
         ]

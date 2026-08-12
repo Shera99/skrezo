@@ -18,6 +18,7 @@ class ClientListRow:
     name: str
     admin_full_name: str | None
     admin_phone: str | None
+    admin_blocked_at: datetime | None
     city_id: uuid.UUID | None
     city_name: str | None
     seats_used: int
@@ -45,6 +46,7 @@ class StaffRow:
     specialization_id: uuid.UUID | None
     specialization_name: str | None
     active: bool
+    blocked_at: datetime | None
     created_at: datetime
 
 

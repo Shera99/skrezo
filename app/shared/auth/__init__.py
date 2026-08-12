@@ -6,6 +6,12 @@
 
 from __future__ import annotations
 
+from app.shared.auth.blocked import AccountBlockResolver, get_account_block_resolver
 from app.shared.auth.context import ClientContext, get_client_context
 
-__all__ = ["ClientContext", "get_client_context"]
+__all__ = [
+    "AccountBlockResolver",
+    "ClientContext",
+    "get_account_block_resolver",
+    "get_client_context",
+]

@@ -93,6 +93,8 @@ erDiagram
         text password_hash "NULL — вход по коду; заполнен только у команды Skrezo"
         bool must_change_password "осмыслен только вместе с паролем"
         bool is_platform_admin "команда Skrezo"
+        timestamptz blocked_at "NULL — действующий; иначе доступ отобран целиком"
+        text blocked_reason "причина блокировки (для админки)"
     }
     CLINIC {
         uuid id PK

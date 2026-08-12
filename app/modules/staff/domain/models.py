@@ -18,4 +18,5 @@ class StaffMember:
     is_owner: bool
     specialization_id: uuid.UUID | None
     active: bool
+    blocked_at: datetime | None
     created_at: datetime
