@@ -7,7 +7,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 
 async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> None:
@@ -95,6 +95,7 @@ async def test_patient_appointment_and_odontogram(
         headers=clinic_a,
         json={
             "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_a),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": sid, "teeth": [46]}],
         },
@@ -140,7 +141,11 @@ async def test_patient_appointment_and_odontogram(
     bad = await client.post(
         f"{API}/clinic/appointments",
         headers=clinic_a,
-        json={"patientId": pid, "scheduledAt": working_slot(), "items": [{"teeth": [99]}]},
+        json={
+            "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_a),
+            "scheduledAt": working_slot(), "items": [{"teeth": [99]}]
+        },
     )
     assert bad.status_code == 422
     assert bad.json()["error"] == "invalid_tooth"
@@ -174,6 +179,7 @@ async def test_foreign_patient_is_indistinguishable_from_missing(
         headers=clinic_b,
         json={
             "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_b),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": sid, "teeth": [46]}],
         },
@@ -228,6 +234,7 @@ async def test_patient_note_is_stored_and_editable(
         headers=clinic_a,
         json={
             "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_a),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": sid, "teeth": [11]}],
         },
@@ -276,6 +283,7 @@ async def test_shared_history_across_clinics(
         headers=clinic_a,
         json={
             "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_a),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": sa, "teeth": [46]}],
         },
@@ -298,6 +306,7 @@ async def test_shared_history_across_clinics(
         headers=clinic_b,
         json={
             "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, clinic_b),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": sb, "teeth": [46]}],
         },

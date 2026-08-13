@@ -200,6 +200,42 @@ async def otp_code(phone: str, purpose: str = "login") -> str:
     return code
 
 
+_doctor_phone_seq = itertools.count(1)
+
+
+async def own_membership_id(client: AsyncClient, headers: dict[str, str]) -> str:
+    """membershipId практикующего врача клиники; заводит его, если такого нет.
+
+    Врач у приёма обязателен во всех статусах, кроме черновика, а «врач» — это
+    активное членство **со специализацией**. Владелец клиники ей не обладает
+    (её получает только соло-врач при регистрации), поэтому подставить его
+    членство нельзя — приём отвергается как ``invalid_doctor``.
+
+    В соло-кабинете врач уже есть — сам владелец, и заводить некого: сотрудников
+    соло не поддерживает вовсе.
+    """
+    members = await client.get(f"{API}/clinic/staff", headers=headers)
+    assert members.status_code == 200, members.text
+    existing = next(
+        (m for m in members.json() if m["active"] and m["specializationId"]), None
+    )
+    if existing is not None:
+        return str(existing["membershipId"])
+
+    spec = (await client.get(f"{API}/specializations")).json()[0]["id"]
+    added = await client.post(
+        f"{API}/clinic/staff",
+        headers=headers,
+        json={
+            "fullName": "Врач Тестовый",
+            "phone": f"07007{next(_doctor_phone_seq):05d}",
+            "specializationId": spec,
+        },
+    )
+    assert added.status_code == 201, added.text
+    return str(added.json()["membershipId"])
+
+
 async def otp_login(client: AsyncClient, phone: str) -> dict[str, str]:
     """Войти по OTP и вернуть заголовок авторизации.
 

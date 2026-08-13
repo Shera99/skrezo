@@ -132,4 +132,7 @@ class GetDayUseCase:
             works_from=window.start if window is not None else None,
             works_to=window.end if window is not None else None,
             is_working=window is not None,
+            # Отсутствия уже загружены пакетно выше — отдаём их как есть, чтобы
+            # клиенту не пришлось запрашивать time-off на каждого врача колонки.
+            time_off=tuple(sorted(time_off, key=lambda off: off.start)),
         )

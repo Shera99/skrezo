@@ -511,14 +511,18 @@ async def test_cancelled_appointment_frees_the_slot(
     assert again.status_code == 201, again.text
 
 
-async def test_appointments_without_doctor_do_not_conflict(
+async def test_appointment_without_doctor_is_rejected(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
-    """Приём без врача слот не занимает: два таких приёма в одно время — ок."""
-    first = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45, doctor=None)
-    second = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45, doctor=None)
-    assert first.status_code == 201, first.text
-    assert second.status_code == 201, second.text
+    """Приём без врача возможен только как черновик.
+
+    Прежде такой приём заводился и слот не занимал — а в клинике с несколькими
+    врачами он не попадал ни в одну колонку ленты дня и терялся. Черновик,
+    который слот действительно не занимает, проверяется отдельно.
+    """
+    resp = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=45, doctor=None)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "doctor_required"
 
 
 async def test_same_interval_for_different_doctors_is_allowed(
@@ -1102,6 +1106,7 @@ async def test_naive_scheduled_at_rejected_even_without_doctor(
         headers=clinic_a.headers,
         json={
             "patientId": clinic_a.patient_id,
+            "doctorMembershipId": clinic_a.doctor_id,
             "scheduledAt": "2026-07-20T09:00:00",
             "durationMin": 30,
         },
@@ -1624,7 +1629,12 @@ async def test_post_null_into_required_field_is_rejected(
 
 
 async def test_nullable_fields_still_accept_null(client: AsyncClient, clinic_a: ClinicCtx) -> None:
-    """Запрет null не задел NULLABLE-колонки: врача, комментарий и услугу снять можно."""
+    """Запрет null не задел NULLABLE-колонки: комментарий и услугу снять можно.
+
+    Врач в этот набор больше не входит: колонка в БД по-прежнему NULLABLE (у
+    черновика врача может не быть), но у живого приёма снять его нельзя —
+    проверяется ниже.
+    """
     booked = await _book(
         client, clinic_a, start=at(MONDAY, "09:00"), duration=30, service_id=clinic_a.service45_id
     )
@@ -1633,11 +1643,18 @@ async def test_nullable_fields_still_accept_null(client: AsyncClient, clinic_a: 
     resp = await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
         headers=clinic_a.headers,
-        json={"doctorMembershipId": None, "comment": None, "serviceId": None},
+        json={"comment": None, "serviceId": None},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["serviceId"] is None
-    assert resp.json()["doctorName"] is None
+
+    dropped = await client.patch(
+        f"{API}/clinic/appointments/{booked.json()['id']}",
+        headers=clinic_a.headers,
+        json={"doctorMembershipId": None},
+    )
+    assert dropped.status_code == 422, dropped.text
+    assert dropped.json()["error"] == "doctor_required"
 
 
 # ── 12. Границы длительности и снятие услуги ────────────────────────────────
@@ -1645,7 +1662,9 @@ async def test_nullable_fields_still_accept_null(client: AsyncClient, clinic_a: 
 
 async def test_absurd_duration_is_rejected(client: AsyncClient, clinic_a: ClinicCtx) -> None:
     """durationMin сверх суток → 422 (иначе карточка растягивалась на годы)."""
-    resp = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=999999999)
+    resp = await _book(
+        client, clinic_a, start=at(MONDAY, "09:00"), duration=999999999, force=True
+    )
     assert resp.status_code == 422, resp.text
 
 
@@ -1653,15 +1672,17 @@ async def test_absurd_duration_is_rejected_even_without_doctor(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
     """Без врача проверок занятости нет — граница длительности обязана ловить сама."""
-    resp = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=999999999, doctor=None)
+    resp = await _book(
+        client, clinic_a, start=at(MONDAY, "09:00"), duration=999999999, force=True
+    )
     assert resp.status_code == 422, resp.text
 
 
 async def test_duration_boundary_is_one_day(client: AsyncClient, clinic_a: ClinicCtx) -> None:
     """Граница le=1440 включающая: 1440 принимается схемой, 1441 — нет."""
-    over = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=1441, doctor=None)
+    over = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=1441, force=True)
     assert over.status_code == 422, over.text
-    exact = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=1440, doctor=None)
+    exact = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=1440, force=True)
     assert exact.status_code == 201, exact.text
 
 
@@ -1669,7 +1690,7 @@ async def test_absurd_duration_is_rejected_on_update(
     client: AsyncClient, clinic_a: ClinicCtx
 ) -> None:
     """Та же граница на PATCH."""
-    booked = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30, doctor=None)
+    booked = await _book(client, clinic_a, start=at(MONDAY, "09:00"), duration=30)
     resp = await client.patch(
         f"{API}/clinic/appointments/{booked.json()['id']}",
         headers=clinic_a.headers,

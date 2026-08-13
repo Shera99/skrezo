@@ -100,6 +100,24 @@ def _ensure_date_for_status(appointment: Appointment, fields: dict[str, Any]) ->
         )
 
 
+def _ensure_doctor_for_status(appointment: Appointment, fields: dict[str, Any]) -> None:
+    """Врач обязателен везде, кроме приёмов, которые так и не состоялись.
+
+    Исключения те же, что у даты: черновик (ещё ничего не выбрано) и отмена
+    (передумавшего пациента закрывают, и врач у него так и не появился). Иначе
+    «доведение» черновика до записи прошло бы без врача, и приём потерялся бы —
+    в ленте дня он не попадает ни в одну колонку.
+    """
+    new_status = fields.get("status", appointment.status)
+    if new_status in (AppointmentStatus.DRAFT, AppointmentStatus.CANCELLED):
+        return
+    if fields.get("doctor_membership_id", appointment.doctor_membership_id) is None:
+        raise ValidationAppError(
+            "Укажите врача: без него запись возможна только как черновик",
+            code="doctor_required",
+        )
+
+
 class UpdateAppointmentUseCase:
     def __init__(
         self,
@@ -141,6 +159,7 @@ class UpdateAppointmentUseCase:
         )
         _apply_cancel_reason(appointment, fields)
         _ensure_date_for_status(appointment, fields)
+        _ensure_doctor_for_status(appointment, fields)
         await self._apply_no_charge(appointment, fields)
         await self._apply_price(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields, force=force)

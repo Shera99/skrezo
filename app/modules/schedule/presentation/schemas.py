@@ -51,6 +51,15 @@ class DoctorColumnOut(CamelModel):
     works_from: datetime | None = Field(default=None, description="Начало смены")
     works_to: datetime | None = Field(default=None, description="Конец смены")
     is_working: bool = Field(description="Работает ли в этот день (с учётом отсутствий)")
+    time_off: list[SpanOut] = Field(
+        default_factory=list,
+        description=(
+            "Отсутствия врача, попадающие в этот день, по возрастанию начала. "
+            "`isWorking` отвечает только за отсутствие на весь день; частичное "
+            "(уехал на два часа) оставляет врача рабочим, и дыру на сетке видно "
+            "только отсюда. Интервалы абсолютные и могут выходить за границы дня"
+        ),
+    )
 
     @classmethod
     def from_column(cls, c: DoctorColumn) -> DoctorColumnOut:
@@ -62,6 +71,7 @@ class DoctorColumnOut(CamelModel):
             works_from=c.works_from,
             works_to=c.works_to,
             is_working=c.is_working,
+            time_off=[SpanOut.from_span(off) for off in c.time_off],
         )
 
 
@@ -223,6 +233,16 @@ class SetDoctorHoursRequest(CamelModel):
     """Замена графика врача: передаются все 7 дней разом."""
 
     days: list[DoctorHoursItem] = Field(min_length=7, max_length=7)
+
+
+class DoctorHoursClearedResponse(CamelModel):
+    """Индивидуальный график снят — врач работает по часам клиники."""
+
+    ok: bool = True
+    had: bool = Field(
+        description="Был ли у врача индивидуальный график до этого вызова",
+        examples=[True],
+    )
 
 
 class CreateTimeOffRequest(CamelModel):

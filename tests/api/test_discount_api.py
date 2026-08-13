@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, today_slot, working_slot
+from tests.conftest import API, otp_login, own_membership_id, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -33,6 +33,7 @@ def _phone() -> str:
 @dataclass(slots=True)
 class ClinicCtx:
     headers: dict[str, str]  # владелец: потолок 100
+    doctor_id: str  # своё членство владельца: врач у приёма обязателен
     worker_headers: dict[str, str]  # врач: права на скидку нет
     patient_id: str
     service_id: str  # услуга на 10000 тыйынов
@@ -77,6 +78,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
 
     return ClinicCtx(
         headers=headers,
+        doctor_id=await own_membership_id(client, headers),
         worker_headers=worker_headers,
         patient_id=str(patient.json()["id"]),
         service_id=str(service.json()["id"]),
@@ -91,6 +93,7 @@ async def _book(
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": when or working_slot(),
             "items": [{"serviceId": ctx.service_id, "teeth": [46], "quantity": quantity}],
         },

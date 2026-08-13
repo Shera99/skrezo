@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 
 async def _provision_clinic(admin_client: AsyncClient, phone: str, name: str) -> None:
@@ -113,7 +113,11 @@ async def _create_patient_with_appointment(
     appt = await client.post(
         f"{API}/clinic/appointments",
         headers=headers,
-        json={"patientId": pid, "scheduledAt": working_slot(), "items": [{"teeth": [46]}]},
+        json={
+            "patientId": pid,
+            "doctorMembershipId": await own_membership_id(client, headers),
+            "scheduledAt": working_slot(), "items": [{"teeth": [46]}]
+        },
     )
     assert appt.status_code == 201, appt.text
     return str(pid)
@@ -314,17 +318,25 @@ async def test_appointment_patch_null_via_snake_case_is_also_rejected(
 async def test_appointment_nullable_fields_still_accept_null(
     client: AsyncClient, clinic: dict[str, str]
 ) -> None:
-    """Запрет null не задел NULLABLE-колонки приёма: комментарий/врач/услуга снимаются."""
+    """Запрет null не задел NULLABLE-колонки приёма: комментарий и услуга снимаются.
+
+    Врача сюда больше не относим: колонка NULLABLE (черновик бывает без врача),
+    но у живого приёма снятие врача — 422 `doctor_required`.
+    """
     aid = await _create_appointment(client, clinic)
     resp = await client.patch(
         f"{API}/clinic/appointments/{aid}",
         headers=clinic,
-        json={"comment": None, "doctorMembershipId": None, "serviceId": None},
+        json={"comment": None, "serviceId": None},
     )
     assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["doctorName"] is None
-    assert body["serviceId"] is None
+    assert resp.json()["serviceId"] is None
+
+    dropped = await client.patch(
+        f"{API}/clinic/appointments/{aid}", headers=clinic, json={"doctorMembershipId": None}
+    )
+    assert dropped.status_code == 422, dropped.text
+    assert dropped.json()["error"] == "doctor_required"
 
 
 async def test_appointment_clearing_service_keeps_duration(

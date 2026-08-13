@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, today_slot, working_slot
+from tests.conftest import API, otp_login, own_membership_id, today_slot, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -35,6 +35,7 @@ def _phone() -> str:
 @dataclass(slots=True)
 class ClinicCtx:
     headers: dict[str, str]
+    doctor_id: str  # своё членство владельца: врач у приёма обязателен
     patient_id: str
     filling_id: str  # «Пломба», 3000 тыйынов
     cleaning_id: str  # «Чистка», 1000 тыйынов — работа без зуба
@@ -73,6 +74,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
     )
     return ClinicCtx(
         headers=headers,
+        doctor_id=await own_membership_id(client, headers),
         patient_id=str(patient.json()["id"]),
         filling_id=str(filling.json()["id"]),
         cleaning_id=str(cleaning.json()["id"]),
@@ -87,6 +89,7 @@ async def _book(
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": when or working_slot(),
             "items": items,
         },
@@ -194,6 +197,7 @@ async def test_invalid_tooth_in_item_is_422(client: AsyncClient, ctx: ClinicCtx)
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": working_slot(),
             "items": [{"teeth": [99]}],
         },
@@ -209,6 +213,7 @@ async def test_zero_quantity_is_rejected(client: AsyncClient, ctx: ClinicCtx) ->
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": working_slot(),
             "items": [{"serviceId": ctx.filling_id, "quantity": 0}],
         },

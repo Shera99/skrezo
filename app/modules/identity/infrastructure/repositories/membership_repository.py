@@ -24,6 +24,7 @@ class MembershipRepository:
                 Membership.id,
                 Membership.clinic_id,
                 Clinic.name,
+                Clinic.type,
                 Membership.role_id,
                 Role.name,
                 Role.key,
@@ -40,10 +41,11 @@ class MembershipRepository:
             membership_id=row[0],
             clinic_id=row[1],
             clinic_name=row[2],
-            role_id=row[3],
-            role_name=row[4],
-            role_key=row[5],
-            is_owner=row[6],
+            clinic_type=row[3],
+            role_id=row[4],
+            role_name=row[5],
+            role_key=row[6],
+            is_owner=row[7],
         )
 
     async def list_active_context(self, account_id: uuid.UUID) -> list[MembershipContext]:

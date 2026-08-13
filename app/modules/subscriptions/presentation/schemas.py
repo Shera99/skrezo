@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 
 from pydantic import Field
 
+from app.modules.subscriptions.application.use_cases.get_subscription import (
+    ClinicSubscriptionResult,
+)
 from app.modules.subscriptions.domain.status import SubscriptionView, build_view
 from app.shared.api.schemas import CamelModel
 from app.shared.db.enums import SubscriptionStatus
@@ -55,6 +58,29 @@ class ClinicSubscriptionResponse(CamelModel):
     current_period_start: datetime | None = None
     current_period_end: datetime | None = None
     cancelled_at: datetime | None = None
+    seats_used: int = Field(
+        default=0,
+        description=(
+            "Занято мест: активные сотрудники, кроме владельца — он платного "
+            "места не занимает"
+        ),
+        examples=[3],
+    )
+    seats_limit: int | None = Field(
+        default=None,
+        description=(
+            "Лимит мест по тарифу; `null` — соло-кабинет, сотрудников в нём не "
+            "бывает. Свободно = `seatsLimit - seatsUsed`"
+        ),
+        examples=[5],
+    )
+
+    @classmethod
+    def from_result(cls, result: ClinicSubscriptionResult) -> ClinicSubscriptionResponse:
+        response = cls.from_view(result.view)
+        return response.model_copy(
+            update={"seats_used": result.seats_used, "seats_limit": result.seats_limit}
+        )
 
     @classmethod
     def from_view(cls, view: SubscriptionView) -> ClinicSubscriptionResponse:

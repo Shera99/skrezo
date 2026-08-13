@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login
+from tests.conftest import API, otp_login, own_membership_id
 
 BISHKEK = ZoneInfo("Asia/Bishkek")
 _phone_seq = itertools.count(1)
@@ -68,6 +68,7 @@ def _hours_all_week() -> dict[str, Any]:
 @dataclass(slots=True)
 class ClinicCtx:
     headers: dict[str, str]
+    doctor_id: str  # своё членство владельца: врач у приёма обязателен
     patient_id: str
     worker_headers: dict[str, str]  # врач: правит приёмы, но откатывать не может
     service_id: str  # услуга на 3000 тыйынов — позиция приёма
@@ -117,6 +118,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
 
     return ClinicCtx(
         headers=headers,
+        doctor_id=await own_membership_id(client, headers),
         patient_id=str(patient.json()["id"]),
         worker_headers=worker_headers,
         service_id=str(service.json()["id"]),
@@ -127,6 +129,7 @@ async def _book(client: AsyncClient, ctx: ClinicCtx, **extra: Any) -> str:
     """Приём с одной позицией (зуб 46 по услуге) — без позиций его не закрыть."""
     body: dict[str, Any] = {
         "patientId": ctx.patient_id,
+        "doctorMembershipId": ctx.doctor_id,
         "scheduledAt": _slot(),
         "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
         **extra,
@@ -226,7 +229,11 @@ async def test_rollback_only_for_today(client: AsyncClient, ctx: ClinicCtx) -> N
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": ctx.patient_id, "scheduledAt": _slot(days_ago=3)},
+        json={
+            "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": _slot(days_ago=3)
+        },
     )
     assert resp.status_code == 201, resp.text
     appointment_id = str(resp.json()["id"])
@@ -448,7 +455,11 @@ async def _book_empty(client: AsyncClient, ctx: ClinicCtx) -> str:
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": ctx.patient_id, "scheduledAt": _slot()},
+        json={
+            "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": _slot()
+        },
     )
     assert resp.status_code == 201, resp.text
     return str(resp.json()["id"])

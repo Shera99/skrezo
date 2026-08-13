@@ -90,6 +90,15 @@ class CreateAppointmentUseCase:
                 "Укажите дату приёма: без неё запись возможна только как черновик",
                 code="scheduled_at_required",
             )
+        # Врач обязателен по той же причине, что и дата: приём без врача не
+        # попадает ни в одну колонку ленты дня и не занимает слот — в клинике с
+        # несколькими врачами он просто теряется. У черновика врача может не
+        # быть: там ещё ничего не выбрано.
+        if not is_draft and doctor_id is None:
+            raise ValidationAppError(
+                "Укажите врача: без него запись возможна только как черновик",
+                code="doctor_required",
+            )
         scheduled_at = None if is_draft else data.scheduled_at
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
         if doctor_id is not None and scheduled_at is not None:

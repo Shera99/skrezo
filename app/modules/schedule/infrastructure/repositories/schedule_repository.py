@@ -148,6 +148,33 @@ class ScheduleRepository:
             for r in rows
         }
 
+    async def clear_doctor_hours(self, clinic_id: uuid.UUID, membership_id: uuid.UUID) -> int:
+        """Убрать индивидуальный график; вернуть число снятых дней.
+
+        Врач после этого работает по часам клиники — не копией, снятой в момент
+        удаления, а самими часами: их отсутствие и означает «как у клиники»
+        (см. ветку ``has_individual`` в ленте дня).
+        """
+        existing = (
+            await self._session.execute(
+                select(func.count())
+                .select_from(DoctorSchedule)
+                .where(
+                    DoctorSchedule.clinic_id == clinic_id,
+                    DoctorSchedule.membership_id == membership_id,
+                )
+            )
+        ).scalar_one()
+        if existing:
+            await self._session.execute(
+                delete(DoctorSchedule).where(
+                    DoctorSchedule.clinic_id == clinic_id,
+                    DoctorSchedule.membership_id == membership_id,
+                )
+            )
+            await self._session.flush()
+        return int(existing)
+
     async def replace_doctor_hours(
         self, clinic_id: uuid.UUID, membership_id: uuid.UUID, rows: Sequence[DoctorHours]
     ) -> None:

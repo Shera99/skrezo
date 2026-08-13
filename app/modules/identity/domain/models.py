@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.shared.db.enums import ClinicType
+
 
 class OtpPurpose(StrEnum):
     """Назначение кода подтверждения — вход или сброс пароля.
@@ -29,6 +31,7 @@ class MembershipContext:
     membership_id: uuid.UUID
     clinic_id: uuid.UUID
     clinic_name: str
+    clinic_type: ClinicType
     role_id: uuid.UUID
     role_name: str
     role_key: str | None

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.modules.schedule.presentation.routes import (
+    clear_doctor_hours,
     create_time_off,
     delete_time_off,
     get_day,
@@ -23,6 +24,7 @@ router.include_router(get_working_hours.router)
 router.include_router(set_working_hours.router)
 router.include_router(get_doctor_hours.router)
 router.include_router(set_doctor_hours.router)
+router.include_router(clear_doctor_hours.router)
 router.include_router(list_time_off.router)
 router.include_router(create_time_off.router)
 router.include_router(delete_time_off.router)

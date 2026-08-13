@@ -30,7 +30,7 @@ from app.modules.subscriptions.infrastructure.repositories.subscription_reposito
 )
 from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
-from tests.conftest import API, Resources, otp_login, working_slot
+from tests.conftest import API, Resources, otp_login, own_membership_id, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -69,6 +69,7 @@ async def clinic(admin_client: AsyncClient, client: AsyncClient) -> dict[str, st
     return {
         "id": str(created.json()["id"]),
         "auth": headers["Authorization"],
+        "doctor": await own_membership_id(client, headers),
         "patient": str(patient.json()["id"]),
         "service": str(service.json()["id"]),
     }
@@ -94,6 +95,7 @@ async def _end_trial(res: Resources, clinic_id: str) -> None:
 def _book_body(clinic: dict[str, str]) -> dict[str, object]:
     return {
         "patientId": clinic["patient"],
+        "doctorMembershipId": clinic["doctor"],
         "scheduledAt": working_slot(),
         "items": [{"serviceId": clinic["service"], "teeth": [46]}],
     }

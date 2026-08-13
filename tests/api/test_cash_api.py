@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -33,6 +33,7 @@ def _phone() -> str:
 class ClinicCtx:
     clinic_id: str
     headers: dict[str, str]
+    doctor_id: str  # врач у приёма обязателен
     patient_id: str
     service_id: str  # услуга на 3000 тыйынов
 
@@ -67,6 +68,7 @@ async def _provision(admin_client: AsyncClient, client: AsyncClient, name: str) 
     return ClinicCtx(
         clinic_id=str(resp.json()["id"]),
         headers=headers,
+        doctor_id=await own_membership_id(client, headers),
         patient_id=str(patient.json()["id"]),
         service_id=str(service.json()["id"]),
     )
@@ -97,8 +99,7 @@ async def _appointment(
         "scheduledAt": working_slot(),
         "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
     }
-    if doctor is not None:
-        body["doctorMembershipId"] = doctor
+    body["doctorMembershipId"] = doctor or ctx.doctor_id
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
     assert resp.status_code == 201, resp.text
     assert resp.json()["priceTotalTiyin"] == 3000

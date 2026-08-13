@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -33,6 +33,7 @@ def _phone() -> str:
 @dataclass(slots=True)
 class ClinicCtx:
     headers: dict[str, str]
+    doctor_id: str  # своё членство владельца: врач у приёма обязателен
     patient_id: str
     filling_id: str  # «Пломба» → filling
     extraction_id: str  # «Удаление» → missing
@@ -76,6 +77,7 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
     )
     return ClinicCtx(
         headers=headers,
+        doctor_id=await own_membership_id(client, headers),
         patient_id=str(patient.json()["id"]),
         filling_id=await _service(client, headers, "Пломба", "filling"),
         extraction_id=await _service(client, headers, "Удаление", "missing"),
@@ -89,6 +91,7 @@ async def _book(client: AsyncClient, ctx: ClinicCtx, items: list[dict[str, Any]]
         headers=ctx.headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": working_slot(),
             "items": items,
         },
@@ -275,6 +278,7 @@ async def test_other_clinic_sees_updated_card(
         headers=other_headers,
         json={
             "patientId": ctx.patient_id,
+            "doctorMembershipId": await own_membership_id(client, other_headers),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": service_b}],
         },

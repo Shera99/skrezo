@@ -64,7 +64,12 @@ class DoctorRow:
 
 @dataclass(frozen=True, slots=True)
 class DoctorColumn:
-    """Колонка календаря: врач + его рабочее окно и счётчик приёмов за день."""
+    """Колонка календаря: врач + его рабочее окно, отсутствия и счётчик приёмов.
+
+    Отсутствия отдаются целиком, а не только как признак нерабочего дня: врач,
+    уехавший на два часа, остаётся рабочим, и без этих интервалов на сетке нечем
+    показать дыру — записать в неё всё равно нельзя.
+    """
 
     membership_id: uuid.UUID
     full_name: str
@@ -73,6 +78,9 @@ class DoctorColumn:
     works_from: datetime | None
     works_to: datetime | None
     is_working: bool
+    #: Отсутствия, попадающие в этот день (в т.ч. накрывающие его целиком —
+    #: тогда ``is_working`` уже false, а интервал объясняет, почему).
+    time_off: tuple[TimeSpan, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login
+from tests.conftest import API, otp_login, own_membership_id
 
 _phone_seq = itertools.count(1)
 
@@ -69,6 +69,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient) -> dict[str, A
     )
     return {
         "headers": headers,
+        "doctor": await own_membership_id(client, headers),
         "patient": patient.json()["id"],
         "service": service.json()["id"],
     }
@@ -87,6 +88,7 @@ async def test_dashboard_counts_today_in_clinic_timezone(
         headers=ctx["headers"],
         json={
             "patientId": ctx["patient"],
+            "doctorMembershipId": ctx["doctor"],
             "scheduledAt": _today_slot(),
             "items": [{"serviceId": ctx["service"], "teeth": [46]}],
         },
@@ -115,6 +117,7 @@ async def test_dashboard_shows_day_revenue_and_total_debt(
         headers=headers,
         json={
             "patientId": ctx["patient"],
+            "doctorMembershipId": await own_membership_id(client, headers),
             "scheduledAt": _today_slot(),
             "items": [{"serviceId": ctx["service"], "teeth": [46]}],
         },

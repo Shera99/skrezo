@@ -9,7 +9,7 @@ from pydantic import Field
 from app.modules.identity.application.use_cases.login import LoginResult
 from app.modules.identity.domain.models import MembershipContext
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import Lang
+from app.shared.db.enums import ClinicType, Lang
 
 
 class LoginRequest(CamelModel):
@@ -52,6 +52,14 @@ class ClinicMembershipOut(CamelModel):
     )
     clinic_id: uuid.UUID
     clinic_name: str
+    clinic_type: ClinicType = Field(
+        description=(
+            "Тип кабинета: `solo` — врач сам по себе, сотрудников у него не бывает; "
+            "`clinic` — команда. Отличать их по числу сотрудников нельзя: "
+            "у только что заведённой клиники их тоже ноль"
+        ),
+        examples=[ClinicType.CLINIC],
+    )
     role_id: uuid.UUID
     role_name: str
     is_owner: bool
@@ -62,6 +70,7 @@ class ClinicMembershipOut(CamelModel):
             membership_id=membership.membership_id,
             clinic_id=membership.clinic_id,
             clinic_name=membership.clinic_name,
+            clinic_type=membership.clinic_type,
             role_id=membership.role_id,
             role_name=membership.role_name,
             is_owner=membership.is_owner,

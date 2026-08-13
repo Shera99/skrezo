@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Row, select, update
+from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.subscriptions.domain.models import SubscriptionContact
@@ -31,6 +31,30 @@ class SubscriptionRepository:
                 select(Subscription).where(Subscription.clinic_id == clinic_id)
             )
         ).scalar_one_or_none()
+
+    async def seats(self, clinic_id: uuid.UUID) -> tuple[int, int | None]:
+        """(занято мест, лимит по тарифу). Лимит ``None`` — соло, мест не считаем.
+
+        Занято = активные членства, кроме владельца: он не занимает платного
+        места. Тот же счёт, что в админке Skrezo, — иначе клиника и команда
+        видели бы разные числа и спорили бы о том, кому добавлять места.
+        """
+        limit = (
+            await self._session.execute(select(Clinic.seats_limit).where(Clinic.id == clinic_id))
+        ).scalar_one_or_none()
+        used = (
+            await self._session.execute(
+                select(func.count())
+                .select_from(Membership)
+                .join(Role, Role.id == Membership.role_id)
+                .where(
+                    Membership.clinic_id == clinic_id,
+                    Membership.active.is_(True),
+                    Role.is_owner.is_(False),
+                )
+            )
+        ).scalar_one()
+        return int(used), limit
 
     async def create(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 
 async def _first_city_id(admin_client: AsyncClient) -> str:
@@ -190,6 +190,7 @@ async def test_client_card_shows_real_patients_and_revenue(
         headers=headers,
         json={
             "patientId": patient.json()["id"],
+            "doctorMembershipId": await own_membership_id(client, headers),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": service.json()["id"], "teeth": [46]}],
         },

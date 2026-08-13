@@ -36,7 +36,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     "/clinic/subscription",
     response_model=ClinicSubscriptionResponse,
     summary="Подписка своей клиники",
-    response_description="Статус подписки, срок действия и остаток дней",
+    response_description="Статус подписки, срок действия, остаток дней и занятость мест",
     responses=_ERRORS,
 )
 async def get_subscription(
@@ -55,5 +55,5 @@ async def get_subscription(
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    view = await use_case.execute(context.clinic_id)
-    return ClinicSubscriptionResponse.from_view(view)
+    result = await use_case.execute(context.clinic_id)
+    return ClinicSubscriptionResponse.from_result(result)

@@ -24,7 +24,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
-from tests.conftest import API, otp_login, working_slot
+from tests.conftest import API, otp_login, own_membership_id, working_slot
 
 _phone_seq = itertools.count(1)
 
@@ -76,6 +76,7 @@ async def _clinic(admin_client: AsyncClient, client: AsyncClient, name: str) -> 
         headers=headers,
         json={
             "patientId": patient.json()["id"],
+            "doctorMembershipId": await own_membership_id(client, headers),
             "scheduledAt": working_slot(),
             "items": [{"serviceId": service.json()["id"], "teeth": [46]}],
         },

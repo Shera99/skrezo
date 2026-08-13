@@ -291,6 +291,7 @@ async def test_create_without_date_is_rejected(
         headers=ctx.headers,
         json={
             "patientId": patient_id,
+            "doctorMembershipId": ctx.doctor_id,
             "startAt": "2026-08-10T21:30:00+06:00",  # неизвестное поле — игнорируется
             "durationMin": 30,
         },
@@ -345,7 +346,11 @@ async def test_null_date_still_rejected_for_real_appointment(
     booked = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": patient_id, "scheduledAt": _slot(15)},
+        json={
+            "patientId": patient_id,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": _slot(15)
+        },
     )
     assert booked.status_code == 201, booked.text
 
@@ -368,7 +373,11 @@ async def test_drafts_filterable_as_worklist(
     booked = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
-        json={"patientId": decided, "scheduledAt": _slot(16)},
+        json={
+            "patientId": decided,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": _slot(16)
+        },
     )
     assert booked.status_code == 201, booked.text
 

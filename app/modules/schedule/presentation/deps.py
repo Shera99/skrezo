@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.modules.schedule.application.services.availability_service import AvailabilityService
+from app.modules.schedule.application.use_cases.clear_doctor_hours import ClearDoctorHoursUseCase
 from app.modules.schedule.application.use_cases.create_time_off import CreateTimeOffUseCase
 from app.modules.schedule.application.use_cases.delete_time_off import DeleteTimeOffUseCase
 from app.modules.schedule.application.use_cases.get_day import GetDayUseCase
@@ -67,6 +68,13 @@ def get_set_doctor_hours_use_case(
     schedule: ScheduleRepository = Depends(get_schedule_repository),
 ) -> SetDoctorHoursUseCase:
     return SetDoctorHoursUseCase(session, schedule)
+
+
+def get_clear_doctor_hours_use_case(
+    session: AsyncSession = Depends(get_session),
+    schedule: ScheduleRepository = Depends(get_schedule_repository),
+) -> ClearDoctorHoursUseCase:
+    return ClearDoctorHoursUseCase(session, schedule)
 
 
 def get_create_time_off_use_case(

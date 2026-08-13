@@ -128,7 +128,14 @@ class ReplaceItemsRequest(CamelModel):
 
 class CreateAppointmentRequest(CamelModel):
     patient_id: uuid.UUID
-    doctor_membership_id: uuid.UUID | None = None
+    doctor_membership_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Врач = членство в клинике. Обязателен для всех статусов, кроме "
+            "`draft`: без врача приём не попадает ни в одну колонку ленты дня и "
+            "не занимает слот. Пропуск → 422 `doctor_required`"
+        ),
+    )
     service_id: uuid.UUID | None = Field(
         default=None, description="Основная услуга приёма — источник длительности"
     )
@@ -349,7 +356,13 @@ class UpdateAppointmentRequest(NotNullFieldsModel):
         description="Пояснение к бесплатному приёму; обязательно при `noCharge: true`",
         examples=["Гарантийный осмотр после лечения"],
     )
-    doctor_membership_id: uuid.UUID | None = None
+    doctor_membership_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Сменить врача. Снять врача (`null`) можно только у черновика или "
+            "отменённого приёма — иначе 422 `doctor_required`"
+        ),
+    )
     service_id: uuid.UUID | None = Field(
         default=None, description="Основная услуга приёма; null — снять услугу"
     )
