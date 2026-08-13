@@ -37,6 +37,7 @@ async def create_service(
         price_tiyin=body.price_tiyin,
         duration=body.duration,
         tooth_outcome=body.tooth_outcome,
+        doctor_ids=body.doctor_ids,
     )
     await audit.record_clinic(
         actor_id=context.account_id,
@@ -46,4 +47,4 @@ async def create_service(
         entity_id=service.id,
         payload={"name": service.name, "priceTiyin": service.price_tiyin},
     )
-    return ServiceOut.from_orm_service(service)
+    return ServiceOut.from_orm_service(service, body.doctor_ids)

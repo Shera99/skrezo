@@ -307,7 +307,7 @@ make run           # uvicorn с автоперезагрузкой
 | Метод | Путь | Описание |
 |---|---|---|
 | `GET` | `/clinic/schedule/day?date=&doctorId=` | Лента дня: сетка, обед, колонки врачей (с их отсутствиями `timeOff[]`), карточки приёмов (`schedule.view_all` — все врачи; `schedule.view_own` — только своя колонка) |
-| `GET` | `/clinic/schedule/slots?doctorId=&date=&serviceId=` | Свободные слоты врача с учётом часов, обеда, графика, отсутствий и занятости (`schedule.view_all` — любой врач; `schedule.view_own` — только `doctorId` = своё членство) |
+| `GET` | `/clinic/schedule/slots?date=&doctorId=&serviceId=` | Свободные слоты с учётом часов, обеда, графика, отсутствий и занятости. `doctorId` — слоты врача; только `serviceId` — слоты всех, кто её делает, врач в каждом слоте (`view_all` — любой врач; `view_own` — сводится к своему членству) |
 | `GET` · `PUT` | `/clinic/schedule/working-hours` | Часы работы клиники, все 7 дней разом (`settings.view` / `settings.edit`) |
 | `GET` · `PUT` · `DELETE` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом; `DELETE` снимает его — врач возвращается на часы клиники (`schedule.view_all`/`manage_all` — любой врач; `view_own`/`manage_own` — только своё) |
 | `GET` · `POST` | `/clinic/schedule/doctors/{id}/time-off` | Отсутствия врача (отпуск/больничный): список и создание (`view_all`/`view_own`, `manage_all`/`manage_own`) |
@@ -384,11 +384,32 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` · `PATCH` | `/clinic/patients/{id}` | Карточка + одонтограмма + заметка (`note`) / правка (нужна связь с клиникой) |
 | `PUT` | `/clinic/patients/{id}/teeth` | Создать/обновить одонтограмму (карта зубов, FDI) |
 | `GET` | `/clinic/patients/{id}/teeth/{fdi}` | Сквозная история зуба (`patients.view_medical`) |
-| `GET` · `POST` · `PATCH` | `/clinic/services[/{id}]` | Прайс клиники: список/создать/правка, включая `toothOutcome` (`price.view`/`price.edit`) |
+| `GET` · `POST` · `PATCH` | `/clinic/services[/{id}]` | Прайс клиники: список/создать/правка, включая `toothOutcome` и `doctorIds` — кто услугу выполняет (`price.view`/`price.edit`) |
 | `GET` · `POST` | `/clinic/appointments` | Приёмы клиники (фильтр `status`) / создать со списком позиций (`items`), `serviceId`+`durationMin`; `status=draft` — черновик без даты, `force` — вне графика (`patients.view_medical`/`appointments.create`) |
 | `GET` · `PATCH` | `/clinic/appointments/{id}` | Детали / обновить статус, перенести (`force`), пометить бесплатным (`noCharge`) (`patients.view_medical`/`appointments.edit`) |
 | `PUT` | `/clinic/appointments/{id}/items` | Заменить позиции чека целиком и пересчитать итог (`appointments.edit`) |
 | `PUT` | `/clinic/appointments/{id}/discount` | Скидка на приём процентом в пределах потолка роли (`cash.discount`) |
+
+> **Кто выполняет услугу (`doctorIds`).** Три состояния, и путать их нельзя:
+> `null` — ограничения нет, услугу делают все (так живут соло-кабинет и весь
+> прайс, заведённый до появления поля: миграция данных не понадобилась);
+> непустой список — только эти врачи; `[]` — ограничение задано, но активных
+> врачей не осталось, записать некого.
+>
+> На запись `null` снимает ограничение, а **пустой список отвергается**
+> (422 `empty_doctor_ids`): иначе «эту услугу никто не делает» сохранилось бы как
+> отсутствие строк и вернулось как `null` — «делают все», ровно наоборот. Чужое
+> или несуществующее членство → 422 `unknown_doctors` со списком лишних.
+>
+> Уволенного из настройки **не вычищаем** — увольнение мягкое, и связь переживает
+> его: наружу он не отдаётся, а вернётся в клинику — услуга заработает без
+> перенастройки прайса. Врач для этой связки тот же, что и везде: активное
+> членство со специализацией.
+>
+> Запись к врачу, который услугу не делает → 422 `doctor_cant_do_service`, и то
+> же на смене врача или услуги через `PATCH`. Обход — тем же `force: true`, что и
+> запись вне графика (право `appointments.force_booking`). ⚠️ Проверяется
+> `serviceId` приёма; услуги в позициях чека (`items`) под неё пока не попадают.
 | `POST` | `/clinic/appointments/{id}/complete` | Завершить приём и опционально оплатить (одна транзакция; переплата откатывает); без позиций — только `noCharge` (`appointments.complete_pay`) |
 
 > **Черновик приёма (`status=draft`).** Пациент заведён в клинику, но дату и

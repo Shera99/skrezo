@@ -68,7 +68,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
 | `audit` | журнал мутаций: платформенный (`/admin/audit`, действия Skrezo) и **клиничный** (`/clinic/audit`, право `audit.view`) — все мутации клиники. Разделены колонкой `audit_log.clinic_id`: у платформенных она пуста | `audit_log` | 7 ✅ / 15 ✅ |
 | `patients` | клиническое ядро: **глобальные** пациенты, одонтограмма (FDI), сквозная история зуба, **файлы карты** (снимки и документы на диске; тип по содержимому, раздача только через ручку) (RBAC `patients.*`) | `patient`, `patient_tooth`, `patient_file` | 9 ✅ / 15 ✅ |
-| `services` | прайс клиники (услуги, цены) (RBAC `price.*`) | `service` | 9 ✅ |
+| `services` | прайс клиники (услуги, цены) + **кто услугу выполняет** (`doctorIds`): `null` — все, `[]` — никого не осталось; уволенных не вычищаем, фильтруем на чтении (RBAC `price.*`) | `service`, `service_doctor` | 9 ✅ / 16 ✅ |
 | `appointments` | приёмы (клиника+врач=membership+пациент) и **чек списком позиций**: услуга, цена за единицу, количество, зубы (RBAC `appointments.*`) | `appointment`, `appointment_item`, `appointment_item_tooth` | 9 ✅ / 14 ✅ |
 | `schedule` | расписание: лента дня, свободные слоты, часы клиники и графики врачей; владеет `AvailabilityService` — общим определением «врача» и правилами доступности (его же зовёт `appointments`) (RBAC `schedule.*`/`settings.*`) | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off`, `clinic.timezone` | 10 ✅ |
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |

@@ -66,6 +66,8 @@ erDiagram
     PATIENT ||--o{ APPOINTMENT : "пациент (глобальный)"
     MEMBERSHIP ||--o{ APPOINTMENT : "врач (опц.)"
     SERVICE ||--o{ APPOINTMENT : "основная услуга (опц.)"
+    SERVICE ||--o{ SERVICE_DOCTOR : "кто выполняет"
+    MEMBERSHIP ||--o{ SERVICE_DOCTOR : "врач"
     APPOINTMENT ||--o{ APPOINTMENT_ITEM : "позиции чека"
     APPOINTMENT_ITEM ||--o{ APPOINTMENT_ITEM_TOOTH : "зубы позиции"
     PATIENT_TOOTH ||--o{ APPOINTMENT_ITEM_TOOTH : "зуб"
@@ -280,6 +282,10 @@ erDiagram
         int duration "nullable, мин"
         enum tooth_outcome "nullable: в какое состояние приводит зуб"
         bool active
+    }
+    SERVICE_DOCTOR {
+        uuid service_id PK_FK
+        uuid membership_id PK_FK "строк нет = услугу делают все"
     }
     APPOINTMENT {
         uuid id PK

@@ -17,6 +17,7 @@ from app.modules.schedule.domain.models import (
     DaySlots,
     DoctorColumn,
     DoctorHours,
+    DoctorSlot,
     TimeOffList,
     TimeOffRecord,
     TimeSpan,
@@ -133,14 +134,40 @@ class ScheduleDayResponse(CamelModel):
         )
 
 
+class DoctorSlotOut(SpanOut):
+    """Свободный интервал вместе с врачом, который в нём свободен.
+
+    Врач у каждого слота свой: при подборе по услуге в одну сетку сходятся
+    несколько врачей. При запросе по конкретному врачу он тут же, и дублирует
+    `doctorId` верхнего уровня — чтобы клиенту не приходилось смотреть в два
+    места в зависимости от того, как он спросил.
+    """
+
+    doctor_id: uuid.UUID = Field(description="Врач, свободный в этом интервале")
+
+    @classmethod
+    def from_doctor_slot(cls, slot: DoctorSlot) -> DoctorSlotOut:
+        return cls(
+            start_at=slot.span.start,
+            end_at=slot.span.end,
+            doctor_id=slot.doctor_membership_id,
+        )
+
+
 class ScheduleSlotsResponse(CamelModel):
-    """Свободные слоты врача на день."""
+    """Свободные слоты на день: одного врача либо всех, кто делает услугу."""
 
     date: date
     timezone: str = Field(examples=["Asia/Bishkek"])
-    doctor_id: uuid.UUID = Field(description="Членство врача")
+    doctor_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Врач, если спрашивали про конкретного. `null` — подбор по услуге: "
+            "врач тогда свой у каждого слота"
+        ),
+    )
     duration_min: int = Field(description="Длительность слота, минуты", examples=[45])
-    slots: list[SpanOut]
+    slots: list[DoctorSlotOut]
 
     @classmethod
     def from_day_slots(cls, s: DaySlots) -> ScheduleSlotsResponse:
@@ -149,7 +176,7 @@ class ScheduleSlotsResponse(CamelModel):
             timezone=s.timezone,
             doctor_id=s.doctor_membership_id,
             duration_min=s.duration_min,
-            slots=[SpanOut.from_span(x) for x in s.slots],
+            slots=[DoctorSlotOut.from_doctor_slot(x) for x in s.slots],
         )
 
 

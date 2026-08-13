@@ -30,6 +30,7 @@ from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.service import Service
+from app.shared.db.models.service_doctor import ServiceDoctor
 from app.shared.db.updates import apply_updates
 
 # Колонки приёма, которые разрешено править через PATCH. Здесь нет clinic_id:
@@ -85,6 +86,28 @@ class AppointmentRepository:
                 select(Service.id).where(Service.id == service_id, Service.clinic_id == clinic_id)
             )
         ).scalar_one_or_none() is not None
+
+    async def doctor_can_do_service(
+        self, doctor_id: uuid.UUID, service_id: uuid.UUID
+    ) -> bool:
+        """Выполняет ли врач эту услугу.
+
+        Назначений нет — услугу делают все (так живут соло-кабинет и весь прайс,
+        заведённый до появления связки). Назначения есть — врач обязан быть среди
+        них; активность самого врача проверяется отдельно (``is_doctor``).
+        """
+        assigned = (
+            (
+                await self._session.execute(
+                    select(ServiceDoctor.membership_id).where(
+                        ServiceDoctor.service_id == service_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return not assigned or doctor_id in assigned
 
     # Проверка «врач из этой клиники» живёт в AvailabilityService.is_doctor —
     # одно определение врача на приёмы и на расписание.

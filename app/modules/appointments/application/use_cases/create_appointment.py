@@ -99,6 +99,17 @@ class CreateAppointmentUseCase:
                 "Укажите врача: без него запись возможна только как черновик",
                 code="doctor_required",
             )
+        # Врач против услуги. Обход — тем же ``force``, что и запись вне графика:
+        # у администратора клиники должно остаться право записать «всё равно».
+        if (
+            doctor_id is not None
+            and data.service_id is not None
+            and not data.force
+            and not await self._appointments.doctor_can_do_service(doctor_id, data.service_id)
+        ):
+            raise ValidationAppError(
+                "Этот врач не выполняет выбранную услугу", code="doctor_cant_do_service"
+            )
         scheduled_at = None if is_draft else data.scheduled_at
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
         if doctor_id is not None and scheduled_at is not None:

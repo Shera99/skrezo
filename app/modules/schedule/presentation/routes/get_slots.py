@@ -61,28 +61,50 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
     responses=_ERRORS,
 )
 async def get_slots(
-    doctor_id: uuid.UUID = Query(alias="doctorId", description="Членство врача в этой клинике"),
     day: date = Query(alias="date", description="Дата в таймзоне клиники (YYYY-MM-DD)"),
+    doctor_id: uuid.UUID | None = Query(
+        default=None,
+        alias="doctorId",
+        description=(
+            "Членство врача в этой клинике. Можно не передавать, если задан "
+            "`serviceId` — тогда слоты собираются по всем, кто её выполняет"
+        ),
+    ),
     service_id: uuid.UUID | None = Query(
         default=None,
         alias="serviceId",
-        description="Услуга: её длительность задаёт размер слота",
+        description=(
+            "Услуга: её длительность задаёт размер слота, а без `doctorId` — "
+            "ещё и круг врачей, среди которых искать"
+        ),
     ),
     scope: ScheduleScope = Depends(require_schedule_read),
     use_case: GetSlotsUseCase = Depends(get_get_slots_use_case),
 ) -> ScheduleSlotsResponse:
-    """Слоты, в которые врача реально можно записать.
+    """Слоты, в которые реально можно записать.
 
     Учитываются часы работы клиники, общий обед, индивидуальный график врача,
     его отсутствия и уже занятые приёмы (отменённые слот не занимают).
 
+    **По врачу** — передайте `doctorId`. **По услуге** — передайте только
+    `serviceId`: вернутся слоты всех врачей, которые её выполняют, отсортированные
+    по времени, и у каждого слота свой `doctorId`. Это ответ на вопрос «когда
+    ближайшее свободное на эту услугу» одним запросом вместо опроса врачей по
+    очереди. Услуга без назначенных врачей (`doctorIds: null`) считается общей —
+    в подбор идут все практикующие клиники.
+
+    Не передать ни того, ни другого нельзя (422 `doctor_or_service_required`):
+    без них это сетка регистратуры, а не подбор времени для записи.
+
     С правом ``schedule.view_all`` доступны слоты любого врача клиники. С правом
-    ``schedule.view_own`` — только собственные: ``doctorId`` обязан совпадать со
-    своим членством, иначе 403 (чтобы врач видел свободное время перед записью).
+    ``schedule.view_own`` — только собственные: и явный `doctorId` коллеги (403),
+    и подбор по услуге сводятся к своему членству.
 
     Длительность слота — из ``Service.duration`` при переданном ``serviceId``,
     иначе 30 минут. Слоты нарезаются с шагом 15 минут.
     """
+    # own-контур: и явный doctorId, и подбор по услуге сводим к своему членству,
+    # иначе врач увидел бы свободное время коллег в обход 403 на явный запрос.
     doctor_id = resolve_scope_doctor(scope, doctor_id) or doctor_id
     slots = await use_case.execute(scope.clinic_id, doctor_id, day, service_id)
     return ScheduleSlotsResponse.from_day_slots(slots)

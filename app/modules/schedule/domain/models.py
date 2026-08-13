@@ -113,14 +113,27 @@ class DayCalendar:
 
 
 @dataclass(frozen=True, slots=True)
+class DoctorSlot:
+    """Свободный интервал с врачом, который в нём свободен."""
+
+    span: TimeSpan
+    doctor_membership_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
 class DaySlots:
-    """Свободные слоты врача на день."""
+    """Свободные слоты на день — одного врача либо всех, кто делает услугу.
+
+    Врач у каждого слота свой: при подборе по услуге в одну сетку сходятся
+    несколько врачей, и без этого клиент не знал бы, к кому записывать.
+    """
 
     day: date
     timezone: str
-    doctor_membership_id: uuid.UUID
+    #: Врач, если спрашивали про конкретного; ``None`` — подбор по услуге.
+    doctor_membership_id: uuid.UUID | None
     duration_min: int
-    slots: list[TimeSpan]
+    slots: list[DoctorSlot]
 
 
 @dataclass(frozen=True, slots=True)

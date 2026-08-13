@@ -27,4 +27,4 @@ async def list_services(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     services = await use_case.execute(context.clinic_id, active_only=active_only)
-    return [ServiceOut.from_orm_service(s) for s in services]
+    return [ServiceOut.from_orm_service(s, doctor_ids) for s, doctor_ids in services]

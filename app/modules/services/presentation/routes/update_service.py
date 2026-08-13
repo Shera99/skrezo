@@ -36,7 +36,7 @@ async def update_service(
 ) -> ServiceOut:
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    service = await use_case.execute(
+    service, doctor_ids = await use_case.execute(
         context.clinic_id, service_id, body.model_dump(exclude_unset=True)
     )
     await audit.record_clinic(
@@ -47,4 +47,4 @@ async def update_service(
         entity_id=service_id,
         payload={"fields": sorted(body.model_dump(exclude_unset=True))},
     )
-    return ServiceOut.from_orm_service(service)
+    return ServiceOut.from_orm_service(service, doctor_ids)

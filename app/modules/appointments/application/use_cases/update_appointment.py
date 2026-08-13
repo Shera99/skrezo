@@ -160,6 +160,7 @@ class UpdateAppointmentUseCase:
         _apply_cancel_reason(appointment, fields)
         _ensure_date_for_status(appointment, fields)
         _ensure_doctor_for_status(appointment, fields)
+        await self._ensure_doctor_can_do_service(appointment, fields, force=force)
         await self._apply_no_charge(appointment, fields)
         await self._apply_price(appointment, fields)
         await self._ensure_bookable(clinic_id, appointment, fields, force=force)
@@ -354,6 +355,28 @@ class UpdateAppointmentUseCase:
         fields["duration_min"] = await self._availability.resolve_duration(
             clinic_id, fields["service_id"], None
         )
+
+    async def _ensure_doctor_can_do_service(
+        self, appointment: Appointment, fields: dict[str, Any], *, force: bool = False
+    ) -> None:
+        """Врач против услуги — на любой смене врача ИЛИ услуги.
+
+        Проверять только изменённое поле мало: сменили врача — новый может не
+        уметь прежнюю услугу, сменили услугу — прежний врач может не уметь новую.
+        Обход — тем же ``force``, что и запись вне графика.
+        """
+        if force:
+            return
+        doctor_id = fields.get("doctor_membership_id", appointment.doctor_membership_id)
+        service_id = fields.get("service_id", appointment.service_id)
+        if doctor_id is None or service_id is None:
+            return
+        if "doctor_membership_id" not in fields and "service_id" not in fields:
+            return
+        if not await self._appointments.doctor_can_do_service(doctor_id, service_id):
+            raise ValidationAppError(
+                "Этот врач не выполняет выбранную услугу", code="doctor_cant_do_service"
+            )
 
     async def _ensure_bookable(
         self,

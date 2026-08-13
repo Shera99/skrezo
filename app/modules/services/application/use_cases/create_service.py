@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.services.application.services.doctor_assignment import apply_doctor_ids
 from app.modules.services.infrastructure.repositories.service_repository import ServiceRepository
 from app.shared.db.enums import ToothStatus
 from app.shared.db.models.service import Service
@@ -25,6 +26,7 @@ class CreateServiceUseCase:
         price_tiyin: int,
         duration: int | None,
         tooth_outcome: ToothStatus | None = None,
+        doctor_ids: list[uuid.UUID] | None = None,
     ) -> Service:
         service = await self._services.create(
             clinic_id,
@@ -34,5 +36,8 @@ class CreateServiceUseCase:
             duration=duration,
             tooth_outcome=tooth_outcome,
         )
+        # До коммита: неизвестный врач в наборе должен отменить и саму услугу,
+        # иначе в прайсе остаётся полуфабрикат, о котором клиент не просил.
+        await apply_doctor_ids(self._services, clinic_id, service.id, doctor_ids)
         await self._session.commit()
         return service

@@ -32,6 +32,7 @@ from app.shared.db.models.doctor_time_off import DoctorTimeOff
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.service import Service
+from app.shared.db.models.service_doctor import ServiceDoctor
 from app.shared.db.models.specialization import Specialization
 from app.shared.db.models.specialization_translation import SpecializationTranslation
 
@@ -237,6 +238,42 @@ class ScheduleRepository:
             DoctorRow(membership_id=r[0], full_name=r[1], specialization_name=r[2])
             for r in rows
         ]
+
+    async def doctors_for_service(
+        self, clinic_id: uuid.UUID, service_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Врачи клиники, выполняющие эту услугу, по имени (как колонки календаря).
+
+        Назначений у услуги нет — её делают все врачи клиники: так живут
+        соло-кабинет и прайс, заведённый до появления связки. Есть — берём
+        пересечение с практикующими: назначенный, но уволенный из клиники сюда
+        не попадёт, хотя строка связи и осталась.
+        """
+        practitioners = (
+            select(Membership.id)
+            .join(Account, Account.id == Membership.account_id)
+            .where(
+                Membership.clinic_id == clinic_id,
+                Membership.active.is_(True),
+                Membership.specialization_id.is_not(None),
+            )
+            .order_by(Account.full_name)
+        )
+        assigned = set(
+            (
+                await self._session.execute(
+                    select(ServiceDoctor.membership_id).where(
+                        ServiceDoctor.service_id == service_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        all_doctors = list((await self._session.execute(practitioners)).scalars().all())
+        if not assigned:
+            return all_doctors
+        return [d for d in all_doctors if d in assigned]
 
     async def own_membership(
         self, account_id: uuid.UUID, clinic_id: uuid.UUID
