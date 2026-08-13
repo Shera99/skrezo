@@ -28,7 +28,12 @@ class ReplaceItemsUseCase:
         self._cash = cash
 
     async def execute(
-        self, clinic_id: uuid.UUID, appointment_id: uuid.UUID, items: list[ItemInput]
+        self,
+        clinic_id: uuid.UUID,
+        appointment_id: uuid.UUID,
+        items: list[ItemInput],
+        *,
+        force: bool = False,
     ) -> AppointmentDetail:
         """Положить новый список позиций приёма вместо прежнего.
 
@@ -54,7 +59,15 @@ class ReplaceItemsUseCase:
                 "У отменённого приёма нет чека", code="appointment_cancelled"
             )
 
-        await ensure_items_valid(clinic_id, items, self._appointments)
+        # Врач у приёма уже назначен — против него и проверяем состав: положить
+        # «Имплантацию» в чек терапевта нельзя так же, как записать его на неё.
+        await ensure_items_valid(
+            clinic_id,
+            items,
+            self._appointments,
+            doctor_id=appointment.doctor_membership_id,
+            force=force,
+        )
         prices = await resolve_service_prices(items, self._appointments)
         await self._appointments.replace_items(appointment, items, prices)
 

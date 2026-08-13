@@ -233,6 +233,15 @@ class CreateAccountRequest(CamelModel):
     name: str | None = Field(default=None, min_length=2, description="Название (обяз. для clinic)")
     address: str | None = None
     business_phone: str | None = Field(default=None, description="Телефон бизнеса (клиника)")
+    specialization_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Специализация владельца. Задана — владелец сам принимает пациентов: "
+            "у него появляется колонка в ленте дня и на него можно записать. "
+            "Пусто — владелец только управляет клиникой. Для соло обязательна по "
+            "смыслу: без неё врач не сможет вести приём"
+        ),
+    )
     language: Lang = Lang.RU
 
 

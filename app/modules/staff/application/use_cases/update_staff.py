@@ -44,7 +44,22 @@ class UpdateStaffUseCase:
             raise NotFoundError("Сотрудник не найден", code="staff_not_found")
         role = await self._staff.get_role(membership.role_id)
         if role is not None and role.is_owner:
-            raise ForbiddenError("Владельца нельзя редактировать здесь", code="cannot_edit_owner")
+            # Владельца через staff-флоу не правят: ни ФИО, ни телефон (он же
+            # логин), ни роль — иначе клинику можно запереть, отобрав права у
+            # единственного администратора. Исключение одно — специализация: она
+            # решает, принимает ли владелец пациентов, и без неё он не «врач»
+            # (нет колонки в ленте дня, на него нельзя записать). Оставлять это
+            # только за поддержкой Skrezo — значит держать клинику на телефоне
+            # ради галочки в своём же кабинете.
+            if full_name is not None or phone_raw is not None or role_id is not None:
+                raise ForbiddenError(
+                    "У владельца через этот флоу меняется только специализация",
+                    code="cannot_edit_owner",
+                )
+            if specialization_id is None:
+                raise ForbiddenError(
+                    "Владельца нельзя редактировать здесь", code="cannot_edit_owner"
+                )
 
         account = await self._staff.get_account(membership.account_id)
         if account is None:

@@ -20,9 +20,22 @@ from app.modules.patients.domain.teeth import is_valid_tooth
 
 
 async def ensure_items_valid(
-    clinic_id: uuid.UUID, items: Sequence[ItemInput], appointments: AppointmentRepository
+    clinic_id: uuid.UUID,
+    items: Sequence[ItemInput],
+    appointments: AppointmentRepository,
+    *,
+    doctor_id: uuid.UUID | None = None,
+    force: bool = False,
 ) -> None:
-    """Проверить зубы и услуги позиций; иначе 422."""
+    """Проверить зубы, услуги позиций и то, что врач их выполняет; иначе 422.
+
+    Услуги в позициях проверяются наравне с ``serviceId`` приёма, потому что
+    именно из них считаются деньги и обновляется карта зуба: без этой проверки
+    терапевта записывают на «Осмотр», а в состав приёма кладут «Имплантацию».
+
+    Врач передаётся не всегда: у черновика его может не быть, а ``force``
+    (право ``appointments.force_booking``) снимает проверку — как и на записи.
+    """
     for item in items:
         for tooth in item.teeth:
             if not is_valid_tooth(tooth):
@@ -33,6 +46,22 @@ async def ensure_items_valid(
             clinic_id, item.service_id
         ):
             raise ValidationAppError("Услуга не из этой клиники", code="invalid_service")
+
+    if force or doctor_id is None:
+        return
+    # Одной ошибкой на весь чек со списком услуг: клиент прислал состав целиком и
+    # должен увидеть все проблемные строки сразу, а не чинить их по одной.
+    blocked = [
+        service_id
+        for service_id in dict.fromkeys(i.service_id for i in items if i.service_id is not None)
+        if not await appointments.doctor_can_do_service(doctor_id, service_id)
+    ]
+    if blocked:
+        raise ValidationAppError(
+            "Врач не выполняет часть услуг из состава приёма",
+            code="doctor_cant_do_service",
+            extra={"serviceIds": [str(s) for s in blocked]},
+        )
 
 
 async def resolve_service_prices(

@@ -124,6 +124,14 @@ class ReplaceItemsRequest(CamelModel):
     items: list[ItemInputSchema] = Field(
         default_factory=list, description="Позиции чека; пустой список очищает чек"
     )
+    force: bool = Field(
+        default=False,
+        description=(
+            "Положить в чек услугу, которую врач приёма не выполняет "
+            "(право `appointments.force_booking`). Без него — 422 "
+            "`doctor_cant_do_service` со списком услуг в `serviceIds`"
+        ),
+    )
 
 
 class CreateAppointmentRequest(CamelModel):

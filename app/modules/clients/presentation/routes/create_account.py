@@ -56,6 +56,7 @@ async def create_account(
         address=body.address,
         business_phone=body.business_phone,
         seats_limit=body.seats,
+        specialization_id=body.specialization_id,
         lang=body.language,
     )
     result = await use_case.execute(command)

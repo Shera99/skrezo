@@ -62,8 +62,6 @@ class CreateAppointmentUseCase:
         if not await self._appointments.patient_exists(data.patient_id):
             raise NotFoundError("Пациент не найден", code="patient_not_found")
 
-        await ensure_items_valid(clinic_id, data.items, self._appointments)
-
         doctor_id = data.doctor_membership_id
         if doctor_id is not None and not await self._availability.is_doctor(clinic_id, doctor_id):
             raise ValidationAppError("Врач не из этой клиники", code="invalid_doctor")
@@ -110,6 +108,13 @@ class CreateAppointmentUseCase:
             raise ValidationAppError(
                 "Этот врач не выполняет выбранную услугу", code="doctor_cant_do_service"
             )
+        # Зубы, услуги позиций и то, что врач их выполняет. Услуги состава важнее
+        # ``serviceId``: тот задаёт лишь длительность, а из позиций считаются
+        # деньги и обновляется карта зуба.
+        await ensure_items_valid(
+            clinic_id, data.items, self._appointments, doctor_id=doctor_id, force=data.force
+        )
+
         scheduled_at = None if is_draft else data.scheduled_at
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.
         if doctor_id is not None and scheduled_at is not None:

@@ -27,6 +27,7 @@ from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.role import Role
+from app.shared.db.models.specialization import Specialization
 from app.shared.db.models.specialization_translation import SpecializationTranslation
 from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
@@ -401,6 +402,12 @@ class ClientRepository:
 
     async def city_exists(self, city_id: uuid.UUID) -> bool:
         result = await self._session.execute(select(City.id).where(City.id == city_id))
+        return result.scalar_one_or_none() is not None
+
+    async def specialization_exists(self, specialization_id: uuid.UUID) -> bool:
+        result = await self._session.execute(
+            select(Specialization.id).where(Specialization.id == specialization_id)
+        )
         return result.scalar_one_or_none() is not None
 
     async def update_client(self, clinic_id: uuid.UUID, fields: dict[str, Any]) -> Clinic | None:

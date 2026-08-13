@@ -43,6 +43,14 @@ class UpdateClientUseCase:
             clinic_fields["city_id"]
         ):
             raise ValidationAppError("Город не найден", code="city_not_found")
+        # Специализацию проверяем так же, как город: без этого неизвестный id
+        # уходил в базу и падал нарушением внешнего ключа — 500 вместо 422.
+        if owner_spec_id is not None and not await self._clients.specialization_exists(
+            owner_spec_id
+        ):
+            raise ValidationAppError(
+                "Специализация не найдена", code="specialization_not_found"
+            )
 
         if clinic_fields:
             clinic = await self._clients.update_client(clinic_id, clinic_fields)

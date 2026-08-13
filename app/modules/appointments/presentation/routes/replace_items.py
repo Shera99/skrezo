@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
-from app.modules.access.presentation.deps import require_permission
+from app.modules.access.presentation.deps import has_permission, require_permission
 from app.modules.appointments.application.use_cases.replace_items import ReplaceItemsUseCase
 from app.modules.appointments.domain.models import ItemInput
 from app.modules.appointments.presentation.deps import get_replace_items_use_case
@@ -63,6 +63,7 @@ async def replace_items(
     appointment_id: uuid.UUID,
     body: ReplaceItemsRequest,
     context: ClientContext = Depends(require_permission("appointments.edit")),
+    can_force: bool = Depends(has_permission("appointments.force_booking")),
     use_case: ReplaceItemsUseCase = Depends(get_replace_items_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> AppointmentDetailResponse:
@@ -76,9 +77,17 @@ async def replace_items(
     `appointment_completed`), у отменённого чека нет (422). Если новый итог ниже
     уже оплаченного — 422 `total_below_paid`: сначала возврат, иначе в кассе
     появится приём с отрицательным долгом.
+
+    Услуги позиций проверяются против врача приёма: положить в чек то, чего он не
+    выполняет, — 422 `doctor_cant_do_service` со списком услуг в `serviceIds`.
+    Обход — `force: true` (право `appointments.force_booking`), как и на записи.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    if body.force and not can_force:
+        raise ForbiddenError(
+            "Нужно право на запись вне графика врача", code="force_booking_forbidden"
+        )
     items = [
         ItemInput(
             service_id=i.service_id,
@@ -90,7 +99,9 @@ async def replace_items(
         )
         for i in body.items
     ]
-    detail = await use_case.execute(context.clinic_id, appointment_id, items)
+    detail = await use_case.execute(
+        context.clinic_id, appointment_id, items, force=body.force
+    )
     await audit.record_clinic(
         actor_id=context.account_id,
         clinic_id=context.clinic_id,
