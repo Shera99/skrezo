@@ -42,6 +42,7 @@ from app.modules.jobs.presentation.routes import router as jobs_router
 from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
+from app.modules.push.presentation.routes import router as push_router
 from app.modules.reports.presentation.routes import admin_router as reports_admin_router
 from app.modules.reports.presentation.routes import router as reports_router
 from app.modules.schedule.presentation.routes import router as schedule_router
@@ -180,6 +181,15 @@ OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "push",
+        "x-displayName": "Пуш-уведомления",
+        "description": (
+            "Устройства сотрудника и его настройки уведомлений (тихие часы, "
+            "отключённые типы) — свои, без отдельного права. Сама доставка пушей "
+            "(FCM/APNs) появится в следующих инкрементах."
+        ),
+    },
+    {
         "name": "payments",
         "x-displayName": "Платежи",
         "description": "Платежи Skrezo: журнал и сводка (v1 — заглушка).",
@@ -265,7 +275,7 @@ OPENAPI_TAG_GROUPS = [
         "name": "Рабочее приложение клиники",
         "tags": [
             "staff", "roles", "schedule", "patients", "services", "appointments", "cash",
-            "reports", "subscription", "clinic-settings",
+            "reports", "subscription", "clinic-settings", "push",
         ],
     },
     {
@@ -344,6 +354,7 @@ def create_app() -> FastAPI:
     app.include_router(subscription_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
+    app.include_router(push_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:
         """Схема OpenAPI с группами разделов ReDoc (``x-tagGroups``)."""

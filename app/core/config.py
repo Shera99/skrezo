@@ -97,6 +97,22 @@ class Settings(BaseSettings):
     telegram_team_bot_token: str = ""
     telegram_team_chat_id: str = ""
 
+    # ── Пуш-уведомления (FCM + APNs) ─────────────────────────────────────────
+    # Кредов пока нет: при пустом конфиге транспорт (следующий инкремент)
+    # работает через лог-фолбэк, ничего не падает. Включение — заполнением
+    # переменных ниже, без правки кода.
+    push_enabled: bool = False
+    # FCM HTTP v1: JSON service-account (сам JSON или путь к файлу — решает
+    # транспорт при чтении настройки).
+    fcm_service_account_json: str = ""
+    # APNs token-based auth: содержимое .p8-ключа (или путь к файлу) + идентификаторы.
+    apns_key: str = ""
+    apns_key_id: str = ""
+    apns_team_id: str = ""
+    apns_bundle_id: str = ""
+    # true — слать в sandbox APNs (dev-сборки приложения); false — прод.
+    apns_use_sandbox: bool = True
+
     # ── Хранилище файлов ────────────────────────────────────────────────────
     # Каталог на диске сервера (относительно корня проекта или абсолютный).
     # Внутри — storage/{images|files}/ГГГГ/ММ/ДД/. В докере это volume: без него

@@ -17,15 +17,18 @@ from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
+from app.shared.db.models.device import Device
 from app.shared.db.models.doctor_schedule import DoctorSchedule
 from app.shared.db.models.doctor_time_off import DoctorTimeOff
 from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
+from app.shared.db.models.notification_pref import NotificationPref
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.permission import Permission
+from app.shared.db.models.push_event import PushEvent
 from app.shared.db.models.role import Role
 from app.shared.db.models.role_permission import RolePermission
 from app.shared.db.models.service import Service
@@ -49,15 +52,18 @@ __all__ = [
     "Clinic",
     "ClinicApplication",
     "ClinicWorkingHours",
+    "Device",
     "DoctorSchedule",
     "DoctorTimeOff",
     "JobRun",
     "Lead",
     "Membership",
+    "NotificationPref",
     "Patient",
     "PatientFile",
     "PatientTooth",
     "Permission",
+    "PushEvent",
     "Role",
     "RolePermission",
     "Service",

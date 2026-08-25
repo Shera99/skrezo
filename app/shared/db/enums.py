@@ -157,6 +157,13 @@ class JobRunStatus(enum.StrEnum):
     FAILED = "failed"  # задача бросила исключение; arq может повторить попытку
 
 
+class DevicePlatform(enum.StrEnum):
+    """Платформа мобильного устройства — маршрутизация пуша (FCM/APNs)."""
+
+    IOS = "ios"
+    ANDROID = "android"
+
+
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
@@ -203,4 +210,7 @@ FileKindType = SAEnum(
 )
 JobRunStatusType = SAEnum(
     JobRunStatus, name="job_run_status", values_callable=lambda e: [m.value for m in e]
+)
+DevicePlatformType = SAEnum(
+    DevicePlatform, name="device_platform", values_callable=lambda e: [m.value for m in e]
 )
