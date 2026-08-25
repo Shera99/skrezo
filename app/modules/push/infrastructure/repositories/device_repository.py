@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
@@ -70,4 +71,19 @@ class DeviceRepository:
         await self._session.execute(
             delete(Device).where(Device.token == token, Device.account_id == account_id)
         )
+        await self._session.flush()
+
+    async def list_by_clinic(self, clinic_id: uuid.UUID) -> Sequence[Device]:
+        """Все устройства клиники — для тихого фан-аута ``sync.day`` на коллектив."""
+        result = await self._session.execute(select(Device).where(Device.clinic_id == clinic_id))
+        return result.scalars().all()
+
+    async def delete_dead(self, token: str) -> None:
+        """Удалить мёртвый токен (FCM/APNs ответили ``NotRegistered``) — безусловно.
+
+        В отличие от снятия по logout, аккаунт здесь не проверяется:
+        недействительный токен уже никому не принадлежит и должен уйти из таблицы
+        целиком, кто бы его ни зарегистрировал последним.
+        """
+        await self._session.execute(delete(Device).where(Device.token == token))
         await self._session.flush()

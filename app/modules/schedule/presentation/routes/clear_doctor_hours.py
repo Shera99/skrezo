@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends
 
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
+from app.modules.push.application.emitter import PushEmitter
+from app.modules.push.presentation.deps import get_push_emitter
 from app.modules.schedule.application.use_cases.clear_doctor_hours import ClearDoctorHoursUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -58,6 +60,7 @@ async def clear_doctor_hours(
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: ClearDoctorHoursUseCase = Depends(get_clear_doctor_hours_use_case),
     audit: AuditService = Depends(get_audit_service),
+    emitter: PushEmitter = Depends(get_push_emitter),
 ) -> DoctorHoursClearedResponse:
     """Вернуть врача на часы клиники.
 
@@ -81,4 +84,6 @@ async def clear_doctor_hours(
         entity_id=membership_id,
         payload={"had": had},
     )
+    # График врача сброшен — тихо просим приложения перечитать день (sync.day).
+    await emitter.emit_sync_day(scope.clinic_id)
     return DoctorHoursClearedResponse(had=had)

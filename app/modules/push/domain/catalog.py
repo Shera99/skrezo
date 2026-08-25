@@ -274,7 +274,7 @@ def _safe_format(template: str, params: dict[str, Any]) -> str:
     """
     try:
         return template.format(**params)
-    except (KeyError, IndexError):
+    except KeyError, IndexError:
         logger.warning("push_text_placeholder_missing", template=template, params=sorted(params))
         return template
 

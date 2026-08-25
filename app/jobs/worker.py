@@ -32,9 +32,10 @@ from arq import cron, func
 from arq.connections import RedisSettings
 
 from app.core.config import settings
-from app.core.jobs import SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
+from app.core.jobs import DISPATCH_PUSH, SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
+from app.jobs.tasks.push import dispatch_push
 from app.jobs.tasks.subscriptions import (
     expire_paid_periods,
     expire_trials,
@@ -52,6 +53,10 @@ class WorkerSettings:
         # всю цепочку каналов (каждый со своим таймаутом запроса).
         func(send_notification, name=SEND_NOTIFICATION, max_tries=5, timeout=60),
         func(send_team_notification, name=SEND_TEAM_NOTIFICATION, max_tries=5, timeout=60),
+        # Рассылка пушей: недоставку повторяем (провайдер мог не ответить), но
+        # реже, чем текст, — тихий sync.day не критичен, а мёртвый токен диспетчер
+        # снимает сам, без ретраев.
+        func(dispatch_push, name=DISPATCH_PUSH, max_tries=3, timeout=60),
         expire_trials,
         expire_paid_periods,
         warn_trial_ending,
