@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -54,6 +56,8 @@ from app.modules.subscriptions.presentation.routes import (
 from app.modules.subscriptions.presentation.routes import router as subscription_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
 from app.modules.whatsapp.presentation.routes import router as whatsapp_router
+from app.realtime import build_asgi, sio
+from app.realtime.listener import run_realtime_listener
 
 OPENAPI_DESCRIPTION = """
 Бэкенд **платформенной зоны Skrezo** (админ-панель команды) и **рабочего
@@ -298,10 +302,16 @@ OPENAPI_TAG_GROUPS = [
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Жизненный цикл: логи и очередь задач на старте, закрытие ресурсов на стопе."""
+    """Жизненный цикл: логи, очередь задач и слушатель реалтайм-шины."""
     configure_logging()
     await connect_job_queue()
+    # Слушатель шины pg_notify → комнаты Socket.IO ЭТОГО процесса (Ф4).
+    # Стартует здесь, потому что socketio.ASGIApp пробрасывает lifespan сюда.
+    realtime_listener = asyncio.create_task(run_realtime_listener(sio))
     yield
+    realtime_listener.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await realtime_listener
     await close_job_queue()
     await redis_client.aclose()
     await engine.dispose()
@@ -391,3 +401,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+#: Точка запуска сервера: FastAPI + Socket.IO-шлюз на ``/socket.io/`` (Ф4).
+#: ``app`` остаётся чистым FastAPI — его используют тесты и генератор OpenAPI.
+asgi_app = build_asgi(app)

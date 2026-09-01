@@ -22,7 +22,7 @@ revision:           ## Создать пустую ревизию: make revision
 	uv run alembic revision -m "$(m)"
 
 run:                ## Запустить API локально (reload)
-	uv run uvicorn app.main:app --reload
+	uv run uvicorn app.main:asgi_app --reload
 
 worker:             ## Запустить arq-воркер локально
 	uv run arq app.jobs.worker.WorkerSettings

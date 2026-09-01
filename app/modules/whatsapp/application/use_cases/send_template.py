@@ -14,6 +14,7 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
 )
 from app.shared.db.enums import AiMessageRole
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.realtime import publish_realtime
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
 
 #: Плейсхолдер тела шаблона Meta: {{1}}, {{2}}, …
@@ -106,5 +107,11 @@ class SendTemplateUseCase:
             sent_at=now,
         )
         conversation.last_msg_at = now
+        await publish_realtime(
+            self._session,
+            clinic_id,
+            "conversation.message",
+            {"conversationId": str(conversation.id), "direction": "out"},
+        )
         await self._session.commit()
         return message

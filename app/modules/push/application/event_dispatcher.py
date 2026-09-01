@@ -24,6 +24,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -55,7 +56,7 @@ from app.modules.push.infrastructure.repositories.notification_pref_repository i
 from app.modules.push.infrastructure.repositories.push_job_repository import (
     PushJobRepository,
 )
-from app.shared.db.enums import Lang
+from app.shared.db.enums import EventPriority, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
@@ -179,11 +180,12 @@ class EventDispatcher:
             )
         inserted_ids = await self._inbox.insert_items(rows)
 
-        # Сигнал открытым экранам (Ф4). Идёт до пушей: он дешевле и мгновенный.
-        await self._realtime.emit(
-            event.clinic_id,
-            {"type": event.type, "entityType": event.entity_type, "entityId": str(event.entity_id)},
-        )
+        # Сигналы открытым экранам (Ф4): доменный — в клиентских именах
+        # (отмена уходит как appointment.deleted — контракт eventKeys() уже
+        # разбирает эти строки), плюс inbox.new для экрана инбокса. Идут до
+        # пушей: сигнал дешевле и мгновенный.
+        for signal_type, signal_payload in self._realtime_signals(event, context, priority):
+            await self._realtime.emit(event.clinic_id, signal_type, signal_payload)
 
         if rung is Rung.CRITICAL:
             await self._push_now(event, spec, recipients, context)
@@ -225,6 +227,67 @@ class EventDispatcher:
                     continue
                 ids.append(item_id)
         await self._jobs.schedule(ids, send_after=now + NORMAL_PUSH_DELAY)
+
+    def _realtime_signals(
+        self, event: Event, context: _Context, priority: EventPriority
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Клиентские сигналы события — в именах контракта приложения (§9).
+
+        Имена не «чинятся»: доменная отмена — клиентский ``appointment.deleted``,
+        потому что ``eventKeys()`` на клиенте уже разбирает эти строки.
+        Payload — минимум для точечной инвалидации, данных в нём нет.
+        """
+        signals: list[tuple[str, dict[str, Any]]] = []
+        entity_id = str(event.entity_id) if event.entity_id else None
+        if event.type == "appointment.created":
+            signals.append(
+                (
+                    "appointment.created",
+                    {
+                        "id": entity_id,
+                        "date": self._local_date(context),
+                        "doctorId": (
+                            str(context.doctor_membership_id)
+                            if context.doctor_membership_id
+                            else None
+                        ),
+                    },
+                )
+            )
+        elif event.type == "appointment.moved":
+            signals.append(
+                (
+                    "appointment.moved",
+                    {
+                        "id": entity_id,
+                        "date": self._local_date(context),
+                        "time": context.params.get("time", ""),
+                    },
+                )
+            )
+        elif event.type == "appointment.canceled":
+            signals.append(("appointment.deleted", {"id": entity_id}))
+        elif event.type == "appointment.status_changed":
+            signals.append(("appointment.updated", {"id": entity_id, "fields": ["status"]}))
+        elif event.type == "payment.created":
+            signals.append(
+                (
+                    "payment.created",
+                    {
+                        "appointmentId": str(event.payload.get("appointmentId") or ""),
+                        "amountTiyin": int(event.payload.get("amountTiyin") or 0),
+                    },
+                )
+            )
+        # Сводки отдельного доменного сигнала не имеют — им хватает inbox.new.
+        signals.append(("inbox.new", {"priority": priority.value}))
+        return signals
+
+    @staticmethod
+    def _local_date(context: _Context) -> str | None:
+        if context.scheduled_at is None:
+            return None
+        return context.scheduled_at.astimezone(context.tz).date().isoformat()
 
     # ── Контекст события ────────────────────────────────────────────────────
 

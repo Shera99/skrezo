@@ -30,6 +30,7 @@ from app.modules.push.presentation.schemas import (
     InboxResponse,
 )
 from app.shared.auth import ClientContext
+from app.shared.realtime import publish_realtime
 
 router = APIRouter()
 
@@ -102,6 +103,9 @@ async def mark_read(
     item = await inbox.mark_read(context.account_id, context.clinic_id, item_id)
     if item is None:
         raise NotFoundError("Запись не найдена", code="inbox_item_not_found")
+    # Синхронизация между устройствами (Д5): прочитал на планшете — сигнал
+    # уронит бейдж на телефоне. Публикация в транзакции — уйдёт на коммите.
+    await publish_realtime(session, context.clinic_id, "inbox.read", {"inboxId": item_id})
     await session.commit()
     count = await inbox.unread_count(context.account_id, context.clinic_id)
     return InboxReadResponse(unread_count=count)
@@ -122,6 +126,8 @@ async def mark_all_read(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     await inbox.mark_all_read(context.account_id, context.clinic_id)
+    # inboxId: null — «перечитай инбокс целиком», точечного id у read-all нет.
+    await publish_realtime(session, context.clinic_id, "inbox.read", {"inboxId": None})
     await session.commit()
     return InboxReadResponse(unread_count=0)
 

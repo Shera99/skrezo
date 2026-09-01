@@ -31,6 +31,7 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
 from app.shared.db.enums import AiMessageRole
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.domain.value_objects import normalize_phone
+from app.shared.realtime import publish_realtime
 from app.shared.whatsapp_cloud import WhatsAppCloudClient
 
 logger = structlog.get_logger(__name__)
@@ -171,6 +172,13 @@ class InboundProcessor:
 
         if media_id:
             await self._fetch_media(message_id, str(media_id))
+        # Сигнал открытым экранам: чат перечитает диалог (Ф4, contract §9).
+        await publish_realtime(
+            self._session,
+            conversation.clinic_id,
+            "conversation.message",
+            {"conversationId": str(conversation.id), "direction": "in"},
+        )
         return 1
 
     async def _save_echo(self, clinic_id: Any, msg: dict[str, Any]) -> int:
@@ -196,6 +204,12 @@ class InboundProcessor:
         if message_id is None:
             return 0
         conversation.last_msg_at = max(conversation.last_msg_at, ts)
+        await publish_realtime(
+            self._session,
+            conversation.clinic_id,
+            "conversation.message",
+            {"conversationId": str(conversation.id), "direction": "out"},
+        )
         return 1
 
     async def _fetch_media(self, message_id: int, media_id: str) -> None:

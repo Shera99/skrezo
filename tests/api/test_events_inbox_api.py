@@ -914,3 +914,51 @@ async def _make_other_clinic(
     )
     assert created.status_code == 201, created.text
     return await otp_login(client, phone)
+
+
+# ── 8. Сигналы Ф4 (клиентские имена) ────────────────────────────────────────
+
+
+class _RecordingGateway:
+    """Записывает сигналы шины вместо pg_notify."""
+
+    def __init__(self) -> None:
+        self.signals: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(
+        self, clinic_id: uuid.UUID, type_: str, payload: dict[str, Any]
+    ) -> None:
+        self.signals.append((type_, payload))
+
+
+async def test_dispatcher_emits_client_named_signals(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Домен → клиентские имена: отмена уходит как appointment.deleted (§9)."""
+    gateway = _RecordingGateway()
+
+    async def _run_with_gateway() -> None:
+        async with _resources.factory() as session:
+            dispatcher = EventDispatcher(session, build_push_transport(), gateway)
+            await dispatcher.dispatch_pending()
+
+    appointment_id = await _book(client, ctx, hours=30)
+    await _run_with_gateway()
+    types = [t for t, _ in gateway.signals]
+    assert types == ["appointment.created", "inbox.new"]
+    created_payload = gateway.signals[0][1]
+    assert created_payload["id"] == appointment_id
+    assert created_payload["doctorId"] == ctx.doctor_id
+    assert created_payload["date"]  # локальная дата приёма
+    assert gateway.signals[1][1]["priority"] == "normal"
+
+    gateway.signals.clear()
+    cancel = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=ctx.owner_headers,
+        json={"status": "cancelled", "cancelReason": "patient_request"},
+    )
+    assert cancel.status_code == 200, cancel.text
+    await _run_with_gateway()
+    assert [t for t, _ in gateway.signals] == ["appointment.deleted", "inbox.new"]
+    assert gateway.signals[0][1] == {"id": appointment_id}

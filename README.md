@@ -804,6 +804,30 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
 | `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
 
+**Реалтайм (Ф4): Socket.IO на `/socket.io/`.** Живое обновление открытых
+экранов: по сокету идут **сигналы, а не данные** — клиент инвалидирует ключи
+TanStack Query и перечитывает REST, поэтому потерянный сигнал даёт задержку, а
+не неверные данные. Точка запуска сервера — **`app.main:asgi_app`** (FastAPI +
+шлюз; чистый `app` остаётся для тестов и OpenAPI).
+
+> **Авторизация при подключении** — тем же access-JWT, что в REST:
+> `auth: { token }` у socket.io-client либо заголовок `Authorization: Bearer`.
+> Комнаты `clinic:<id>` определяет **сервер** по живым членствам аккаунта —
+> имя комнаты от клиента не принимается никогда (обработчиков подписки не
+> существует); сотрудник двух клиник входит в обе, уволенный — ни в одну.
+> Межпроцессная шина — `pg_notify('realtime')`: публикуют диспетчер воркера и
+> ручки (в транзакции — сигнал уходит на коммите), слушает каждый процесс
+> шлюза прямым asyncpg-соединением (transaction-пулер LISTEN не переживает).
+> Пинг 25 с — меньше ~100 с, после которых Cloudflare рвёт простой.
+> Пропущенное не переигрывается: при реконнекте клиент перечитывает ключи.
+
+Типы сигналов (контракт клиента, имена не «чинятся» — отмена приёма уходит
+как `appointment.deleted`): `appointment.created {id,date,doctorId}` ·
+`appointment.updated {id,fields[]}` · `appointment.moved {id,date,time}` ·
+`appointment.deleted {id}` · `payment.created {appointmentId,amountTiyin}` ·
+`patient.updated {id}` (зарезервирован) · `inbox.new {priority}` ·
+`inbox.read {inboxId}` · `conversation.message {conversationId,direction}`.
+
 **Защита (rate-limit).** На Redis, фиксированное окно, 429 `too_many_requests` с
 `retryAfter`: вход (`/auth/login`, по IP+телефон), смена пароля, выпуск кода
 (`/auth/otp/request` и `/auth/password/forgot` — счётчики раздельные), сам сброс

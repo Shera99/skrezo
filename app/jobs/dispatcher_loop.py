@@ -77,7 +77,7 @@ async def run_dispatcher_loop() -> None:
             try:
                 async with session_factory() as session:
                     dispatcher = EventDispatcher(
-                        session, build_push_transport(), build_realtime_gateway()
+                        session, build_push_transport(), build_realtime_gateway(session)
                     )
                     processed = await dispatcher.dispatch_pending()
                     # Отложенные normal-пуши: созревшие — отправить, а сон
