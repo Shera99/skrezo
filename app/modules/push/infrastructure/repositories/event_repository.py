@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.models.event import Event
@@ -38,6 +38,19 @@ class EventRepository:
 
     def mark_processed(self, event: Event) -> None:
         event.processed_at = datetime.now(UTC)
+
+    async def delete_older_than(self, cutoff: datetime) -> int:
+        """Уборка обработанных событий по возрасту (хранение — 12 месяцев, §14).
+
+        Необработанные (упавшие все 5 попыток) не трогаем: это алерт, а не
+        мусор — их след должен пережить уборку и попасться на глаза.
+        """
+        result = await self._session.execute(
+            delete(Event)
+            .where(Event.occurred_at < cutoff, Event.processed_at.is_not(None))
+            .returning(Event.id)
+        )
+        return len(list(result.scalars()))
 
     def mark_failed(self, event: Event, error: str) -> None:
         event.attempts += 1

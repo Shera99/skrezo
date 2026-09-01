@@ -161,3 +161,26 @@ class InboxDisplayedResponse(CamelModel):
     canceled: int = Field(
         description="Сколько отложенных пушей отменено (уже отправленные не трогаются)"
     )
+
+
+class TelemetryRowOut(CamelModel):
+    """Доставляемость по паре (платформа, провайдер)."""
+
+    platform: str | None = Field(default=None, examples=["android"])
+    provider: str | None = Field(default=None, examples=["fcm"])
+    sent: int = Field(description="Отправлено успешно")
+    failed: int = Field(description="Ошибки провайдера (включая мёртвые токены)")
+    displayed: int = Field(description="Показ подтверждён приложением")
+    display_rate: float = Field(
+        description="displayed / sent, 0..1 (0 при отсутствии отправок)", examples=[0.87]
+    )
+
+
+class NotificationTelemetryResponse(CamelModel):
+    """Сводка доставляемости пушей за период (для команды Skrezo)."""
+
+    days: int
+    rows: list[TelemetryRowOut]
+    total_sent: int
+    total_failed: int
+    total_displayed: int

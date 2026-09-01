@@ -25,3 +25,7 @@ class PushTransport:
         """Доставить пуш каналом платформы; неизвестная платформа — фолбэк."""
         channel = self._channels.get(platform, self._fallback)
         await channel.send(token, message)
+
+    def channel_name(self, platform: str) -> str:
+        """Имя канала, которым уйдёт пуш этой платформы (для телеметрии)."""
+        return self._channels.get(platform, self._fallback).name

@@ -3781,6 +3781,36 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Доставляемость пушей по платформам",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/notifications/telemetry?days=7",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "notifications",
+                    "telemetry"
+                  ],
+                  "query": [
+                    {
+                      "key": "days",
+                      "value": "7",
+                      "disabled": true,
+                      "description": "Глубина периода, дней"
+                    }
+                  ]
+                },
+                "description": "Сводка телеметрии: отправлено / ошибки / показано, по платформам и\nпровайдерам. `displayRate` ниже ~0.5 на платформе — повод разбираться\n(агрессивная прошивка, протухшие токены, канал в лог-фолбэке)."
+              },
+              "response": []
             }
           ]
         }

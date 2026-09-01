@@ -43,6 +43,9 @@ from app.modules.push.domain.events import (
     stored_priority,
 )
 from app.modules.push.domain.quiet import personal_quiet
+from app.modules.push.infrastructure.repositories.delivery_repository import (
+    DeliveryRepository,
+)
 from app.modules.push.infrastructure.repositories.device_repository import DeviceRepository
 from app.modules.push.infrastructure.repositories.event_repository import EventRepository
 from app.modules.push.infrastructure.repositories.inbox_repository import InboxRepository
@@ -56,6 +59,7 @@ from app.shared.db.enums import Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.device import Device
 from app.shared.db.models.event import Event
 from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.membership import Membership
@@ -105,6 +109,7 @@ class EventDispatcher:
         self._prefs = NotificationPrefRepository(session)
         self._jobs = PushJobRepository(session)
         self._quiet = QuietService(session)
+        self._deliveries = DeliveryRepository(session)
         self._transport = transport
         self._realtime = realtime
 
@@ -449,14 +454,38 @@ class EventDispatcher:
         for device in devices:
             try:
                 await self._transport.send(device.platform, device.token, message)
+                self._record_delivery(item.clinic_id, device, item.id, error=None)
             except DeadTokenError:
                 dead.append(device.token)
+                self._record_delivery(item.clinic_id, device, item.id, error="dead_token")
             except PushDeliveryError as exc:
                 logger.warning("push_delivery_failed", type=item.type, error=str(exc))
+                self._record_delivery(item.clinic_id, device, item.id, error=str(exc))
         for token in dead:
             await self._devices.delete_dead(token)
 
     # ── Пуш critical ────────────────────────────────────────────────────────
+
+    def _record_delivery(
+        self,
+        clinic_id: uuid.UUID,
+        device: Device,
+        inbox_item_id: int | None,
+        *,
+        error: str | None,
+    ) -> None:
+        """Строка телеметрии на попытку доставки (без записи инбокса — некуда)."""
+        if inbox_item_id is None:
+            return
+        self._deliveries.add(
+            inbox_item_id=inbox_item_id,
+            clinic_id=clinic_id,
+            account_id=device.account_id,
+            platform=device.platform.value,
+            provider=self._transport.channel_name(device.platform),
+            sent_at=None if error else datetime.now(UTC),
+            error=(error or None) and error[:500],
+        )
 
     def _thread_id(self, event: Event, context: _Context) -> str | None:
         """Группировка (§10): приёмы стопкой по дню клиники, касса — одной."""
@@ -494,6 +523,18 @@ class EventDispatcher:
             account_id: await self._inbox.unread_count(account_id, event.clinic_id)
             for account_id in allowed
         }
+        # Телеметрии нужна запись инбокса адресата — берём по событию (строки
+        # уже вставлены, в том числе при повторной обработке).
+        item_ids: dict[uuid.UUID, int] = {
+            account_id: item_id
+            for item_id, account_id in (
+                await self._session.execute(
+                    select(InboxItem.id, InboxItem.account_id).where(
+                        InboxItem.event_id == event.id
+                    )
+                )
+            ).all()
+        }
         dead: list[str] = []
         for device in devices:
             texts = catalog.render(event.type, device.locale, **context.params) or {}
@@ -518,13 +559,17 @@ class EventDispatcher:
                 badge=badges.get(device.account_id),
                 thread_id=thread_id,
             )
+            item_id = item_ids.get(device.account_id)
             try:
                 await self._transport.send(device.platform, device.token, message)
+                self._record_delivery(event.clinic_id, device, item_id, error=None)
             except DeadTokenError:
                 dead.append(device.token)
+                self._record_delivery(event.clinic_id, device, item_id, error="dead_token")
             except PushDeliveryError as exc:
                 # Один недоступный провайдер не должен валить событие в ретраи
                 # целиком: инбокс уже доставлен, пуш — деградация.
                 logger.warning("push_delivery_failed", type=event.type, error=str(exc))
+                self._record_delivery(event.clinic_id, device, item_id, error=str(exc))
         for token in dead:
             await self._devices.delete_dead(token)

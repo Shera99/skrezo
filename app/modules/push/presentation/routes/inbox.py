@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.errors import ForbiddenError, NotFoundError
 from app.modules.access.presentation.deps import get_clinic_context
+from app.modules.push.infrastructure.repositories.delivery_repository import (
+    DeliveryRepository,
+)
 from app.modules.push.infrastructure.repositories.inbox_repository import InboxRepository
 from app.modules.push.infrastructure.repositories.push_job_repository import (
     PushJobRepository,
@@ -146,5 +149,9 @@ async def confirm_displayed(
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     jobs = PushJobRepository(session)
     canceled = await jobs.cancel_for_items(context.account_id, context.clinic_id, body.ids)
+    # Телеметрия: показ отправленных пушей — по нему считается доставляемость.
+    await DeliveryRepository(session).mark_displayed(
+        context.account_id, context.clinic_id, body.ids
+    )
     await session.commit()
     return InboxDisplayedResponse(canceled=canceled)

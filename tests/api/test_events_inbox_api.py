@@ -640,3 +640,125 @@ async def test_digest_skips_empty_day_and_day_off(
     # Воскресенье дефолтного графика — выходной: даже время не проверяется.
     sunday = plan_day + timedelta(days=(6 - plan_day.weekday()) % 7)
     assert await _emit(datetime.combine(sunday, dt_time(8, 3), tzinfo=_BISHKEK)) == 0
+
+
+# ── 6. Телеметрия доставки ──────────────────────────────────────────────────
+
+from app.modules.push.infrastructure.repositories.delivery_repository import (  # noqa: E402
+    DeliveryRepository,
+)
+from app.modules.push.infrastructure.repositories.event_repository import (  # noqa: E402
+    EventRepository,
+)
+from app.shared.db.models.notification_delivery import NotificationDelivery  # noqa: E402
+from app.shared.push.channels import DeadTokenError  # noqa: E402
+
+
+class _DeadChannel:
+    """Канал, у которого все токены мертвы."""
+
+    name = "dead"
+
+    async def send(self, token: str, message: PushMessage) -> None:
+        raise DeadTokenError("gone")
+
+
+async def _deliveries(resources: Resources) -> list[NotificationDelivery]:
+    async with resources.factory() as session:
+        return list(
+            (await session.execute(select(NotificationDelivery))).scalars().all()
+        )
+
+
+async def test_delivery_recorded_and_displayed(
+    admin_client: AsyncClient, client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Отправка пишет строку телеметрии; показ проставляет displayed_at."""
+    await _set_hours(client, ctx, around_clock=True)
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "telemetry-doc-1")
+
+    await _book(client, ctx, hours=2)
+    await _run(_resources, transport)
+    await _ripen_jobs(_resources)
+    await _run(_resources, transport)
+    assert any(t == "telemetry-doc-1" for t, _ in recorder.sent)
+
+    rows = await _deliveries(_resources)
+    doctor_rows = [r for r in rows if r.platform == "android" and r.sent_at is not None]
+    assert doctor_rows, rows
+    row = doctor_rows[0]
+    assert row.channel == "push"
+    assert row.provider == "rec"  # имя канала фейка — из PushTransport.channel_name
+    assert row.displayed_at is None
+
+    item_id = (await _inbox(client, ctx.doctor_headers))["items"][0]["id"]
+    confirmed = await client.post(
+        f"{API}/clinic/inbox/displayed",
+        headers=ctx.doctor_headers,
+        json={"ids": [item_id]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    rows = await _deliveries(_resources)
+    assert any(r.displayed_at is not None for r in rows)
+
+    # Сводка для команды Skrezo: android/rec с одной отправкой и одним показом.
+    summary = await admin_client.get(f"{API}/admin/notifications/telemetry?days=7")
+    assert summary.status_code == 200, summary.text
+    body = summary.json()
+    assert body["totalSent"] >= 1
+    android = next(r for r in body["rows"] if r["platform"] == "android")
+    assert android["provider"] == "rec"
+    assert android["displayed"] >= 1
+    assert 0 < android["displayRate"] <= 1
+
+
+async def test_dead_token_recorded_as_error(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Мёртвый токен: устройство снято, в телеметрии — error, не отправка (Д16)."""
+    await _set_hours(client, ctx, around_clock=True)
+    dead: dict[str, PushChannel] = {"android": _DeadChannel(), "ios": _DeadChannel()}
+    transport = PushTransport(channels=dead, fallback=_DeadChannel())
+    await _register_device(client, ctx.doctor_headers, "telemetry-dead-1")
+
+    appointment_id = await _book(client, ctx, hours=0.5)  # critical → попытка сразу
+    await _run(_resources, transport)
+
+    rows = await _deliveries(_resources)
+    errors = [r for r in rows if r.error == "dead_token"]
+    assert errors and errors[0].sent_at is None
+
+    # Устройство удалено: следующий critical (отмена за полчаса) уже не пишет
+    # телеметрию попыток — слать не на что.
+    before = len(await _deliveries(_resources))
+    cancel = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=ctx.owner_headers,
+        json={"status": "cancelled", "cancelReason": "patient_request"},
+    )
+    assert cancel.status_code == 200, cancel.text
+    await _run(_resources, transport)
+    assert len(await _deliveries(_resources)) == before
+
+
+async def test_cleanup_respects_retention(ctx: Ctx, _resources: Resources) -> None:
+    """Уборка: телеметрия старше 90 дней уходит, свежая остаётся; упавшие
+    события переживают чистку (это алерт, а не мусор)."""
+    async with _resources.factory() as session:
+        session.add(Event(clinic_id=ctx.clinic_id, type="ai.escalated"))  # необработанное
+        await session.commit()
+
+    async with _resources.factory() as session:
+        old_cut = datetime.now(UTC) - timedelta(days=1)
+        deleted_deliveries = await DeliveryRepository(session).delete_older_than(old_cut)
+        deleted_events = await EventRepository(session).delete_older_than(old_cut)
+        await session.commit()
+    assert deleted_deliveries == 0  # свежих нет вовсе, старых тем более
+    assert deleted_events == 0  # необработанное событие уборка не трогает
+
+    async with _resources.factory() as session:
+        still_there = (
+            await session.execute(select(Event).where(Event.type == "ai.escalated"))
+        ).scalar_one()
+        assert still_there.processed_at is None

@@ -39,6 +39,7 @@ from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
+from app.jobs.tasks.notifications_cleanup import cleanup_notifications
 from app.jobs.tasks.subscriptions import (
     expire_paid_periods,
     expire_trials,
@@ -94,6 +95,8 @@ class WorkerSettings:
         # оставлять без предупреждения клиентов другой.
         cron(warn_period_ending, hour=3, minute=20),
         cron(cleanup_job_runs, hour=2, minute=30),
+        # Сроки хранения контура уведомлений (§14): телеметрия 3 мес, события 12.
+        cron(cleanup_notifications, hour=2, minute=40),
         # Диалог WhatsApp без сообщений сутки — закрыт. Полчаса — компромисс:
         # правило «24 часа» не требует точности до минуты.
         cron(close_stale_conversations, minute={11, 41}),
