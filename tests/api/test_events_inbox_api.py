@@ -19,6 +19,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
 
 import pytest
@@ -370,6 +371,7 @@ async def test_normal_push_waits_then_sends_from_inbox_snapshot(
     client: AsyncClient, ctx: Ctx, _resources: Resources
 ) -> None:
     """normal не пушится сразу: job с форой, после срока — пуш снимком инбокса."""
+    await _set_hours(client, ctx, around_clock=True)  # тест не зависит от времени суток
     transport, recorder = _recording_transport()
     await _register_device(client, ctx.doctor_headers, "doc-android-1")
     await _book(client, ctx, hours=2)  # 1–4 ч = NORMAL
@@ -400,6 +402,7 @@ async def test_displayed_cancels_pending_push(
     client: AsyncClient, ctx: Ctx, _resources: Resources
 ) -> None:
     """Показ подтверждён — отложенный пуш отменяется и не уходит никогда."""
+    await _set_hours(client, ctx, around_clock=True)  # тест не зависит от времени суток
     transport, recorder = _recording_transport()
     await _register_device(client, ctx.doctor_headers, "doc-android-2")
     await _book(client, ctx, hours=2)
@@ -471,3 +474,169 @@ async def test_digest_horizon_creates_no_job(
     async with _resources.factory() as session:
         jobs = (await session.execute(select(PushJob.id))).scalars().all()
     assert jobs == []
+
+
+# ── 5. Тихие часы и сводки ──────────────────────────────────────────────────
+
+from zoneinfo import ZoneInfo  # noqa: E402
+
+from app.modules.push.application.digest_service import DigestService  # noqa: E402
+
+_BISHKEK = ZoneInfo("Asia/Bishkek")
+
+
+async def _set_hours(
+    client: AsyncClient, ctx: Ctx, *, day_off: int | None = None, around_clock: bool = False
+) -> None:
+    """Задать график клиники: конкретный выходной либо работа почти круглосуточно."""
+    days = []
+    for weekday in range(7):
+        if around_clock:
+            days.append(
+                {
+                    "weekday": weekday,
+                    "opensAt": "00:00:00",
+                    "closesAt": "23:59:59",
+                    "isWorking": True,
+                }
+            )
+        else:
+            days.append(
+                {
+                    "weekday": weekday,
+                    "opensAt": "09:00:00",
+                    "closesAt": "18:00:00",
+                    "isWorking": weekday != day_off,
+                }
+            )
+    resp = await client.put(
+        f"{API}/clinic/schedule/working-hours", headers=ctx.owner_headers, json={"days": days}
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_clinic_quiet_hours_defer_normal_but_not_critical(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Клиника «спит» (выходной): normal без пуша и job'а, critical пробивает."""
+    today = datetime.now(_BISHKEK).weekday()
+    await _set_hours(client, ctx, day_off=today)
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "quiet-doc-1")
+
+    await _book(client, ctx, hours=2)  # NORMAL
+    await _run(_resources, transport)
+    async with _resources.factory() as session:
+        jobs = (await session.execute(select(PushJob.id))).scalars().all()
+    assert jobs == []  # тихие часы: отложенный пуш даже не ставится
+    assert recorder.sent == []
+    assert (await _inbox(client, ctx.doctor_headers))["unreadCount"] == 1  # инбокс — всегда
+
+    await _book(client, ctx, hours=0.5)  # CRITICAL — проходит всегда
+    await _run(_resources, transport)
+    assert any(t == "quiet-doc-1" for t, _ in recorder.sent)
+
+
+async def test_personal_quiet_hours_mute_only_that_person(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Персональная тишина врача глушит его пуш; владельцу уходит как обычно."""
+    await _set_hours(client, ctx, around_clock=True)  # клиника «не спит»
+    prefs = await client.put(
+        f"{API}/clinic/notifications/prefs",
+        headers=ctx.doctor_headers,
+        json={"quietFrom": "00:00:00", "quietTo": "23:59:59"},
+    )
+    assert prefs.status_code == 200, prefs.text
+
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "quiet-doc-2")
+    await _register_device(client, ctx.owner_headers, "quiet-owner-2")
+
+    await _book(client, ctx, hours=2)
+    await _run(_resources, transport)
+    await _ripen_jobs(_resources)
+    await _run(_resources, transport)
+
+    tokens = [t for t, _ in recorder.sent]
+    assert "quiet-owner-2" in tokens  # владелец получил
+    assert "quiet-doc-2" not in tokens  # врач в персональной тишине
+
+
+async def test_daily_digests_personal_plans(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Сводки: врачу — свой план, владельцу — вся клиника; повтор давится."""
+    # День приёма: не воскресенье и не понедельник — чтобы и он сам, и канун
+    # были рабочими днями дефолтного графика (вс — выходной).
+    plan_day = datetime.now(_BISHKEK).date() + timedelta(days=2)
+    while plan_day.weekday() in (0, 6):
+        plan_day += timedelta(days=1)
+    at_14 = datetime.combine(plan_day, dt_time(14, 0), tzinfo=_BISHKEK)
+
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.owner_headers,
+        json={
+            "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": at_14.isoformat(),
+            "items": [],
+            "force": True,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    await _run(_resources)  # разобрать appointment.created, чтобы не мешал счёту
+
+    async def _emit(now_local: datetime) -> int:
+        async with _resources.factory() as session:
+            return await DigestService(session).run(now=now_local)
+
+    # Утро дня приёма: 08:03 (за час до открытия 09:00, окно 15 минут).
+    morning_now = datetime.combine(plan_day, dt_time(8, 3), tzinfo=_BISHKEK)
+    emitted = await _emit(morning_now)
+    assert emitted == 2  # врач + владелец
+    assert await _emit(morning_now) == 0  # одна сводка на клинику в день
+
+    # Вечер кануна: 18:03 — план на завтра (= день приёма).
+    evening_now = datetime.combine(
+        plan_day - timedelta(days=1), dt_time(18, 3), tzinfo=_BISHKEK
+    )
+    assert await _emit(evening_now) == 2
+
+    await _run(_resources)
+    doctor_items = (await _inbox(client, ctx.doctor_headers))["items"]
+    morning = next(i for i in doctor_items if i["type"] == "digest.morning")
+    assert morning["title"] == "План на сегодня"
+    assert "14:00" in morning["body"]
+    assert "1" in morning["body"]
+    assert morning["priority"] == "normal"
+    evening = next(i for i in doctor_items if i["type"] == "digest.evening")
+    assert evening["priority"] == "low"
+
+    owner_morning = next(
+        i
+        for i in (await _inbox(client, ctx.owner_headers))["items"]
+        if i["type"] == "digest.morning"
+    )
+    assert "1" in owner_morning["body"]  # весь план клиники (здесь совпадает)
+
+
+async def test_digest_skips_empty_day_and_day_off(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Пустой план — никому ничего; выходной — сводок нет вовсе."""
+    plan_day = datetime.now(_BISHKEK).date() + timedelta(days=2)
+    while plan_day.weekday() == 6:
+        plan_day += timedelta(days=1)
+
+    async def _emit(now_local: datetime) -> int:
+        async with _resources.factory() as session:
+            return await DigestService(session).run(now=now_local)
+
+    # Приёмов нет — утренняя сводка не эмитится (нулевой день = шум).
+    assert await _emit(datetime.combine(plan_day, dt_time(8, 3), tzinfo=_BISHKEK)) == 0
+
+    # Воскресенье дефолтного графика — выходной: даже время не проверяется.
+    sunday = plan_day + timedelta(days=(6 - plan_day.weekday()) % 7)
+    assert await _emit(datetime.combine(sunday, dt_time(8, 3), tzinfo=_BISHKEK)) == 0

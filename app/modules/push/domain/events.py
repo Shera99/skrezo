@@ -29,6 +29,9 @@ class Audience(enum.StrEnum):
     DOCTOR = "doctor"  # врач приёма — только «свои»
     MANAGER = "manager"  # админ/ресепшен = системная роль manager
     OWNER = "owner"
+    # Конкретный аккаунт из payload["accountId"] — для персональных событий
+    # (сводки): текст у каждого свой, поэтому событие эмитится на адресата.
+    ACCOUNT = "account"
 
 
 class Rung(enum.IntEnum):
@@ -73,6 +76,21 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         Rung.LOW,
         android_channel="cash.v1",
         ttl_seconds=24 * _HOUR,
+    ),
+    # Сводки — персональные события от cron'а (план дня посчитан на адресата).
+    # Утренняя — normal: уйдёт пушем с форой и отменой по показу; вечерняя —
+    # low: только инбокс. TTL 4 часа: сводка в 08:00 протухает к полудню.
+    "digest.morning": EventSpec(
+        frozenset({Audience.ACCOUNT}),
+        Rung.NORMAL,
+        android_channel="appointments-digest.v1",
+        ttl_seconds=4 * _HOUR,
+    ),
+    "digest.evening": EventSpec(
+        frozenset({Audience.ACCOUNT}),
+        Rung.LOW,
+        android_channel="appointments-digest.v1",
+        ttl_seconds=4 * _HOUR,
     ),
 }
 

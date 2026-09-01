@@ -30,6 +30,7 @@ import structlog
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.push.application.quiet_service import QuietService
 from app.modules.push.domain import catalog
 from app.modules.push.domain.events import (
     EVENT_CATALOG,
@@ -41,6 +42,7 @@ from app.modules.push.domain.events import (
     resolve_rung,
     stored_priority,
 )
+from app.modules.push.domain.quiet import personal_quiet
 from app.modules.push.infrastructure.repositories.device_repository import DeviceRepository
 from app.modules.push.infrastructure.repositories.event_repository import EventRepository
 from app.modules.push.infrastructure.repositories.inbox_repository import InboxRepository
@@ -102,6 +104,7 @@ class EventDispatcher:
         self._devices = DeviceRepository(session)
         self._prefs = NotificationPrefRepository(session)
         self._jobs = PushJobRepository(session)
+        self._quiet = QuietService(session)
         self._transport = transport
         self._realtime = realtime
 
@@ -183,9 +186,40 @@ class EventDispatcher:
             # Пуш с форой: отправит send_due_jobs(), если показ не подтвердят.
             # Job'ы — только на ВСТАВЛЕННЫЕ строки: повторная обработка события
             # не дублирует ни инбокс, ни отложенные пуши.
-            await self._jobs.schedule(
-                inserted_ids, send_after=datetime.now(UTC) + NORMAL_PUSH_DELAY
+            await self._schedule_normal_push(event, inserted_ids)
+
+    async def _schedule_normal_push(self, event: Event, inserted_ids: list[int]) -> None:
+        """Поставить отложенные пуши, если сейчас не тихие часы (§13).
+
+        Клиника спит (вне рабочего окна, выходной) — normal-пуш не ставится
+        вовсе: событие лежит в инбоксе, бейдж донесёт его следующим пушем, а
+        утренняя сводка соберёт план дня. Персональные тихие часы сотрудника
+        снимают job только ему. Сводки (``digest.*``) под подавление не
+        подпадают — иначе утренняя сводка не пробилась бы никогда.
+        """
+        if not inserted_ids:
+            return
+        now = datetime.now(UTC)
+        is_digest = event.type.startswith("digest.")
+        moment = await self._quiet.moment(event.clinic_id, now)
+        if not is_digest and moment.quiet:
+            return
+        ids = inserted_ids
+        if not is_digest:
+            ids = []
+            rows = await self._session.execute(
+                select(InboxItem.id, InboxItem.account_id).where(
+                    InboxItem.id.in_(inserted_ids)
+                )
             )
+            for item_id, account_id in rows:
+                pref = await self._prefs.get(account_id, event.clinic_id)
+                if pref is not None and personal_quiet(
+                    pref.quiet_from, pref.quiet_to, moment.local_time
+                ):
+                    continue
+                ids.append(item_id)
+        await self._jobs.schedule(ids, send_after=now + NORMAL_PUSH_DELAY)
 
     # ── Контекст события ────────────────────────────────────────────────────
 
@@ -197,6 +231,17 @@ class EventDispatcher:
         временем, а не с тем, что было на момент записи события.
         """
         tz = await self._clinic_tz(event.clinic_id)
+        if event.type.startswith("digest."):
+            # Персональная сводка: цифры уже посчитаны cron'ом на адресата.
+            return _Context(
+                scheduled_at=None,
+                doctor_membership_id=None,
+                params={
+                    "count": str(event.payload.get("count") or 0),
+                    "firstTime": str(event.payload.get("firstTime") or ""),
+                },
+                tz=tz,
+            )
         if event.type.startswith("appointment."):
             row = (
                 await self._session.execute(
@@ -295,6 +340,18 @@ class EventDispatcher:
             for account_id, lang in rows:
                 recipients[account_id] = _Recipient(account_id=account_id, lang=lang)
 
+        if Audience.ACCOUNT in spec.audience:
+            raw = event.payload.get("accountId")
+            if raw:
+                account_id = uuid.UUID(str(raw))
+                lang = (
+                    await self._session.execute(
+                        select(Account.lang).where(Account.id == account_id)
+                    )
+                ).scalar_one_or_none()
+                if lang is not None:
+                    recipients[account_id] = _Recipient(account_id=account_id, lang=lang)
+
         if Audience.DOCTOR in spec.audience and context.doctor_membership_id is not None:
             row = (
                 await self._session.execute(
@@ -377,7 +434,11 @@ class EventDispatcher:
             data=data,
             title=item.title or None,
             body=item.body or None,
-            collapse_key=f"{item.entity_type}:{item.entity_id}",
+            collapse_key=(
+                item.type
+                if item.type.startswith("digest.")
+                else f"{item.entity_type}:{item.entity_id}"
+            ),
             urgent=False,
             android_channel=spec.android_channel if spec else "schedule-changes.v1",
             ttl_seconds=ttl,
@@ -420,7 +481,11 @@ class EventDispatcher:
         if not devices:
             return
 
-        collapse_key = f"{event.entity_type}:{event.entity_id}"
+        collapse_key = (
+            event.type
+            if event.type.startswith("digest.")
+            else f"{event.entity_type}:{event.entity_id}"
+        )
         ttl = push_ttl_seconds(spec, context.scheduled_at, datetime.now(UTC))
         thread_id = self._thread_id(event, context)
         # Бейдж — в каждый пуш: счётчик на устройстве самовосстанавливается

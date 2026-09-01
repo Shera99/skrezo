@@ -48,8 +48,8 @@ PUSH_EVENT_TYPES: frozenset[str] = frozenset(
         "appointment.created",
         "appointment.status_changed",
         "payment.created",
-        "day.morning",
-        "day.evening",
+        "digest.morning",
+        "digest.evening",
         "debt.created",
         "debt.settled",
         "cash.dayClosed",
@@ -149,28 +149,28 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
             "speak": "{patientName} пациенттен {amount} сом төлөм кабыл алынды",
         },
     },
-    "day.morning": {
+    "digest.morning": {
         Lang.RU: {
-            "title": "Ваш день",
-            "body": "Сегодня {count} приёмов, первый в {time}",
-            "speak": "Сегодня у вас {count} приёмов, первый начинается в {time}",
+            "title": "План на сегодня",
+            "body": "Приёмов: {count}, первый в {firstTime}",
+            "speak": "Сегодня {count} приёмов, первый начинается в {firstTime}",
         },
         Lang.KG: {
-            "title": "Бүгүнкү күнүңүз",
-            "body": "Бүгүн {count} кабылдоо, биринчиси саат {time}",
-            "speak": "Бүгүн сизде {count} кабылдоо, биринчиси саат {time} башталат",
+            "title": "Бүгүнкү план",
+            "body": "Кабыл алуулар: {count}, биринчиси саат {firstTime}",
+            "speak": "Бүгүн {count} кабыл алуу, биринчиси саат {firstTime} башталат",
         },
     },
-    "day.evening": {
+    "digest.evening": {
         Lang.RU: {
-            "title": "Итоги дня",
-            "body": "Завершено приёмов: {count}",
-            "speak": "Сегодня вы завершили {count} приёмов",
+            "title": "План на завтра",
+            "body": "Приёмов: {count}, первый в {firstTime}",
+            "speak": "Завтра {count} приёмов, первый начинается в {firstTime}",
         },
         Lang.KG: {
-            "title": "Күндүн жыйынтыгы",
-            "body": "Аяктаган кабылдоолор: {count}",
-            "speak": "Бүгүн сиз {count} кабылдоону аяктадыңыз",
+            "title": "Эртеңки план",
+            "body": "Кабыл алуулар: {count}, биринчиси саат {firstTime}",
+            "speak": "Эртең {count} кабыл алуу, биринчиси саат {firstTime} башталат",
         },
     },
     # ── Деньги ───────────────────────────────────────────────────────────────
