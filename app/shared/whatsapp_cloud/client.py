@@ -22,6 +22,18 @@ class SentMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class TemplateInfo:
+    """Шаблон из кабинета Meta (как его отдаёт Graph API)."""
+
+    meta_name: str
+    lang: str  # код языка Meta (ru, ky_KG…)
+    category: str
+    body_preview: str
+    variables: list[str]  # имена плейсхолдеров тела: ["1", "2", …]
+    status: str  # approved | pending | rejected | paused | disabled
+
+
+@dataclass(frozen=True, slots=True)
 class DownloadedMedia:
     """Скачанное медиа: содержимое и MIME, который сообщила Meta."""
 
@@ -52,5 +64,14 @@ class WhatsAppCloudClient(Protocol):
 
         ``None`` — штатный ответ лог-фолбэка (нет кредов), а не ошибка: ссылка
         Meta живёт минуты, и «не скачали сейчас» значит «останется только id».
+        """
+        ...
+
+    async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
+        """Шаблоны WABA из кабинета Meta; ``None`` — синхронизация недоступна.
+
+        ``None`` (лог-фолбэк без кредов) отличён от пустого списка намеренно:
+        пустой список — «в кабинете шаблонов нет» и стирает локальный каталог,
+        ``None`` — «не смогли спросить», и трогать каталог нельзя.
         """
         ...

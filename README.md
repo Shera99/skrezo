@@ -732,8 +732,10 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 
 > **Окно 24 часов.** Свободный текст доступен сутки после последнего сообщения
 > ПАЦИЕНТА (собственные ответы окно не продлевают). Дальше — 422
-> `window_closed` и только одобренные шаблоны (`whatsapp_template`,
-> синхронизация из Meta — следующий инкремент). Право на переписку —
+> `window_closed` и только одобренные шаблоны: каталог синхронизируется из
+> кабинета Meta полной сверкой (удалённый там — пропадает и у нас; недоступный
+> Graph API каталог НЕ трогает), отправка — только `status: approved` и со
+> строгим числом переменных. Право на переписку —
 > `conversations.manage` (владелец и менеджер; врач по умолчанию пациентам не
 > отвечает). Медиа скачивается сразу при приёме (ссылка Meta живёт минуты) и
 > отдаётся только через ручку с проверкой доступа. Режим Coexistence учтён
@@ -746,6 +748,9 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `GET` | `/clinic/conversations?status=&page=` | Диалоги клиники: превью, статус, `windowOpen` (`conversations.manage`) |
 | `GET` | `/clinic/conversations/{id}/messages?beforeId=&limit=` | История (новые сверху, курсор «старше id») |
 | `POST` | `/clinic/conversations/{id}/messages` | Ответ свободным текстом; окно закрыто → 422 `window_closed` |
+| `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы |
+| `POST` | `/clinic/whatsapp/templates/sync` | Сверка с кабинетом Meta по WABA привязки (без кредов → 502) |
+| `POST` | `/clinic/conversations/{id}/templates` | Отправить одобренный шаблон — работает и в закрытое окно |
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
 | `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
 

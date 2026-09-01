@@ -12,6 +12,8 @@ from app.modules.whatsapp.application.use_cases.list_conversations import (
     ListConversationsUseCase,
 )
 from app.modules.whatsapp.application.use_cases.send_message import SendMessageUseCase
+from app.modules.whatsapp.application.use_cases.send_template import SendTemplateUseCase
+from app.modules.whatsapp.application.use_cases.sync_templates import SyncTemplatesUseCase
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -54,3 +56,19 @@ def get_connect_whatsapp_use_case(
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> ConnectWhatsAppUseCase:
     return ConnectWhatsAppUseCase(session, repository)
+
+
+def get_sync_templates_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+    client: WhatsAppCloudClient = Depends(get_whatsapp_client),
+) -> SyncTemplatesUseCase:
+    return SyncTemplatesUseCase(session, repository, client)
+
+
+def get_send_template_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+    client: WhatsAppCloudClient = Depends(get_whatsapp_client),
+) -> SendTemplateUseCase:
+    return SendTemplateUseCase(session, repository, client)

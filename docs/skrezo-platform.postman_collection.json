@@ -4255,6 +4255,88 @@
           "response": []
         },
         {
+          "name": "Шаблоны WhatsApp клиники",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "whatsapp",
+                "templates"
+              ]
+            },
+            "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`."
+          },
+          "response": []
+        },
+        {
+          "name": "Синхронизировать шаблоны из кабинета Meta",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/sync",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "whatsapp",
+                "templates",
+                "sync"
+              ]
+            },
+            "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка\nне трогает. Дёргать после правок шаблонов в кабинете — расписания нет."
+          },
+          "response": []
+        },
+        {
+          "name": "Отправить шаблон в диалог",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "templates"
+              ]
+            },
+            "description": "Единственный способ написать пациенту в **закрытое** 24-часовое окно.\n\nШаблон обязан быть `approved`, переменные — по числу плейсхолдеров тела.\nВ открытое окно шаблон тоже отправится — запрета нет.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"templateId\": \"00000000-0000-0000-0000-000000000000\",\n  \"variables\": [\n    \"Айгүл\",\n    \"завтра в 11:00\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Вложение сообщения (голосовое, снимок, документ)",
           "request": {
             "method": "GET",

@@ -8,16 +8,50 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
 import structlog
 
-from app.shared.whatsapp_cloud.client import DownloadedMedia, SentMessage, WhatsAppSendError
+from app.shared.whatsapp_cloud.client import (
+    DownloadedMedia,
+    SentMessage,
+    TemplateInfo,
+    WhatsAppSendError,
+)
 
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 15.0
+
+#: Плейсхолдеры тела шаблона Meta: {{1}}, {{2}}, …
+_PLACEHOLDER_RE = re.compile(r"\{\{(\d+)\}\}")
+
+
+def _parse_template(row: dict[str, Any]) -> TemplateInfo:
+    """Собрать :class:`TemplateInfo` из ответа Graph API.
+
+    Превью — текст BODY-компонента; переменные — его плейсхолдеры по порядку
+    номеров. Статус Meta приходит в верхнем регистре — храним в нижнем.
+    """
+    body = next(
+        (
+            str(c.get("text") or "")
+            for c in row.get("components") or []
+            if (c.get("type") or "").upper() == "BODY"
+        ),
+        "",
+    )
+    variables = sorted(set(_PLACEHOLDER_RE.findall(body)), key=int)
+    return TemplateInfo(
+        meta_name=str(row.get("name") or ""),
+        lang=str(row.get("language") or ""),
+        category=str(row.get("category") or ""),
+        body_preview=body,
+        variables=variables,
+        status=str(row.get("status") or "pending").lower(),
+    )
 
 
 class GraphWhatsAppClient:
@@ -118,3 +152,37 @@ class GraphWhatsAppClient:
             # голосового сохранятся, файл просто не скачается.
             logger.error("wa_cloud_media_error", media_id=media_id, error=str(exc))
             return None
+
+    async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
+        """Все шаблоны WABA (с пагинацией); ``None`` — Graph API недоступен."""
+        url: str | None = f"{self._api_url}/{waba_id}/message_templates"
+        params: dict[str, str] | None = {
+            "fields": "name,language,status,category,components",
+            "limit": "100",
+        }
+        items: list[TemplateInfo] = []
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                # Потолок страниц — защита от бесконечного paging.next; тысяча
+                # шаблонов на WABA в жизни не встречается.
+                for _ in range(10):
+                    if url is None:
+                        break
+                    resp = await client.get(url, params=params, headers=self._headers())
+                    if resp.status_code >= 400:
+                        logger.error(
+                            "wa_cloud_templates_failed",
+                            status=resp.status_code,
+                            body=resp.text[:500],
+                        )
+                        return None
+                    data = resp.json()
+                    items.extend(
+                        _parse_template(row) for row in data.get("data") or []
+                    )
+                    url = (data.get("paging") or {}).get("next")
+                    params = None  # next уже содержит все параметры
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.error("wa_cloud_templates_error", waba_id=waba_id, error=str(exc))
+            return None
+        return items

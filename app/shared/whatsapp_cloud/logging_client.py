@@ -11,7 +11,7 @@ import uuid
 
 import structlog
 
-from app.shared.whatsapp_cloud.client import DownloadedMedia, SentMessage
+from app.shared.whatsapp_cloud.client import DownloadedMedia, SentMessage, TemplateInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -42,4 +42,9 @@ class LoggingWhatsAppClient:
 
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         logger.info("wa_cloud_media_skipped", media_id=media_id)
+        return None
+
+    async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
+        # None, а не []: пустой список стёр бы локальный каталог шаблонов.
+        logger.info("wa_cloud_templates_skipped", waba_id=waba_id)
         return None

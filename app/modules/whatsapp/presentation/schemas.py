@@ -14,6 +14,7 @@ from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang, Whats
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 
 
 class ConversationListItem(CamelModel):
@@ -180,3 +181,48 @@ class ClinicWhatsAppResponse(CamelModel):
             mode=b.mode,
             active=b.active,
         )
+
+
+class TemplateOut(CamelModel):
+    """Одобренный (или ожидающий) шаблон WhatsApp."""
+
+    id: uuid.UUID
+    meta_name: str = Field(description="Имя шаблона в кабинете Meta")
+    lang: str = Field(description="Код языка Meta", examples=["ru"])
+    category: str = Field(examples=["utility"])
+    body_preview: str = Field(description="Текст тела с плейсхолдерами {{1}}, {{2}}…")
+    variables: list[str] = Field(
+        description="Плейсхолдеры тела по порядку — столько переменных ждёт отправка"
+    )
+    status: str = Field(
+        description="approved | pending | rejected | paused | disabled; отправка — только approved"
+    )
+    shared: bool = Field(description="Общий шаблон платформы (доступен всем клиникам)")
+
+    @classmethod
+    def from_orm_template(cls, t: WhatsAppTemplate) -> TemplateOut:
+        return cls(
+            id=t.id,
+            meta_name=t.meta_name,
+            lang=t.lang,
+            category=t.category,
+            body_preview=t.body_preview,
+            variables=[str(v) for v in t.variables],
+            status=t.status,
+            shared=t.clinic_id is None,
+        )
+
+
+class TemplatesResponse(CamelModel):
+    list: list[TemplateOut]
+
+
+class SendTemplateRequest(CamelModel):
+    """Отправка шаблона — единственный способ писать в закрытое окно."""
+
+    template_id: uuid.UUID
+    variables: list[str] = Field(
+        default_factory=list,
+        description="Значения плейсхолдеров {{1}}, {{2}}… по порядку",
+        examples=[["Айгүл", "завтра в 11:00"]],
+    )

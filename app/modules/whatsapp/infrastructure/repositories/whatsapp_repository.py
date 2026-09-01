@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,8 @@ from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.patient import Patient
+from app.shared.db.models.whatsapp_template import WhatsAppTemplate
+from app.shared.whatsapp_cloud import TemplateInfo
 
 
 class WhatsAppRepository:
@@ -287,6 +289,79 @@ class WhatsAppRepository:
                     AiMessage.id == message_id,
                     AiMessage.conversation_id == conversation_id,
                     AiMessage.clinic_id == clinic_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    # ── Шаблоны ─────────────────────────────────────────────────────────────
+
+    async def replace_templates(
+        self, clinic_id: uuid.UUID, items: list[TemplateInfo]
+    ) -> None:
+        """Привести каталог шаблонов клиники к списку из кабинета Meta.
+
+        Полная сверка, а не только upsert: шаблон, удалённый в кабинете,
+        должен пропасть и у нас — иначе клиника отправляет в несуществующее
+        и получает молчаливый отказ Graph API. Общие шаблоны платформы
+        (``clinic_id IS NULL``) сверка не трогает.
+        """
+        keys = [(t.meta_name, t.lang) for t in items]
+        stale = delete(WhatsAppTemplate).where(WhatsAppTemplate.clinic_id == clinic_id)
+        if keys:
+            stale = stale.where(
+                tuple_(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang).not_in(keys)
+            )
+        await self._session.execute(stale)
+
+        existing = {
+            (t.meta_name, t.lang): t
+            for t in (
+                await self._session.execute(
+                    select(WhatsAppTemplate).where(WhatsAppTemplate.clinic_id == clinic_id)
+                )
+            ).scalars()
+        }
+        for info in items:
+            row = existing.get((info.meta_name, info.lang))
+            if row is None:
+                row = WhatsAppTemplate(
+                    clinic_id=clinic_id, meta_name=info.meta_name, lang=info.lang
+                )
+                self._session.add(row)
+            row.category = info.category
+            row.body_preview = info.body_preview
+            row.variables = list(info.variables)
+            row.status = info.status
+        await self._session.flush()
+
+    async def list_templates(self, clinic_id: uuid.UUID) -> list[WhatsAppTemplate]:
+        """Шаблоны, доступные клинике: свои + общие платформы."""
+        rows = (
+            await self._session.execute(
+                select(WhatsAppTemplate)
+                .where(
+                    or_(
+                        WhatsAppTemplate.clinic_id == clinic_id,
+                        WhatsAppTemplate.clinic_id.is_(None),
+                    )
+                )
+                .order_by(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang)
+            )
+        ).scalars()
+        return list(rows)
+
+    async def template(
+        self, clinic_id: uuid.UUID, template_id: uuid.UUID
+    ) -> WhatsAppTemplate | None:
+        """Шаблон по id — свой либо общий (чужой клиники не отдаём)."""
+        return (
+            await self._session.execute(
+                select(WhatsAppTemplate).where(
+                    WhatsAppTemplate.id == template_id,
+                    or_(
+                        WhatsAppTemplate.clinic_id == clinic_id,
+                        WhatsAppTemplate.clinic_id.is_(None),
+                    ),
                 )
             )
         ).scalar_one_or_none()

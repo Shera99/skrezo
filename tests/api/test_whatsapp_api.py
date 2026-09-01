@@ -466,3 +466,188 @@ async def test_binding_conflict_and_deactivation(
         ),
     )
     assert (await _conversations(client, ctx))["totalCount"] == 0
+
+
+# ── 6. Шаблоны ──────────────────────────────────────────────────────────────
+
+from collections.abc import AsyncIterator  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+
+from app.main import app  # noqa: E402
+from app.modules.whatsapp.presentation.deps import get_whatsapp_client  # noqa: E402
+from app.shared.whatsapp_cloud import (  # noqa: E402
+    DownloadedMedia,
+    SentMessage,
+    TemplateInfo,
+)
+
+
+class _FakeGraphClient:
+    """Фейковый Cloud API: отдаёт заданные шаблоны, копит отправленное."""
+
+    def __init__(self, templates: list[TemplateInfo]) -> None:
+        self.templates = templates
+        self.sent_templates: list[tuple[str, str, list[str]]] = []
+
+    async def send_text(self, phone_number_id: str, to_phone: str, body: str) -> SentMessage:
+        return SentMessage(wa_message_id=f"fake-text-{len(self.sent_templates)}")
+
+    async def send_template(
+        self,
+        phone_number_id: str,
+        to_phone: str,
+        template_name: str,
+        lang_code: str,
+        variables: list[str],
+    ) -> SentMessage:
+        self.sent_templates.append((template_name, to_phone, variables))
+        return SentMessage(wa_message_id=f"fake-tpl-{len(self.sent_templates)}")
+
+    async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
+        return None
+
+    async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
+        return self.templates
+
+
+_REMINDER = TemplateInfo(
+    meta_name="visit_reminder",
+    lang="ru",
+    category="UTILITY",
+    body_preview="Здравствуйте, {{1}}! Напоминаем о приёме {{2}}.",
+    variables=["1", "2"],
+    status="approved",
+)
+_PENDING = TemplateInfo(
+    meta_name="promo",
+    lang="ru",
+    category="MARKETING",
+    body_preview="Акция месяца!",
+    variables=[],
+    status="pending",
+)
+
+
+@pytest_asyncio.fixture
+async def fake_graph() -> AsyncIterator[_FakeGraphClient]:
+    """Подменить клиента Cloud API фейком с двумя шаблонами."""
+    fake = _FakeGraphClient([_REMINDER, _PENDING])
+    app.dependency_overrides[get_whatsapp_client] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(get_whatsapp_client, None)
+
+
+async def _bind_with_waba(admin_client: AsyncClient, ctx: ClinicCtx) -> None:
+    bound = await admin_client.put(
+        f"{API}/admin/clients/{ctx.clinic_id}/whatsapp",
+        json={
+            "phoneNumberId": ctx.phone_number_id,
+            "displayPhone": "+996700999000",
+            "wabaId": "waba-100",
+        },
+    )
+    assert bound.status_code == 200, bound.text
+
+
+async def test_templates_sync_full_reconciliation(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    fake_graph: _FakeGraphClient,
+) -> None:
+    """Синк приводит каталог к кабинету Meta: новые появляются, удалённые пропадают."""
+    await _bind_with_waba(admin_client, ctx)
+    synced = await client.post(
+        f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers
+    )
+    assert synced.status_code == 200, synced.text
+    names = {t["metaName"]: t for t in synced.json()["list"]}
+    assert set(names) == {"visit_reminder", "promo"}
+    assert names["visit_reminder"]["status"] == "approved"
+    assert names["visit_reminder"]["variables"] == ["1", "2"]
+
+    # Шаблон удалили в кабинете — после повторного синка он пропадает и у нас.
+    fake_graph.templates = [_REMINDER]
+    again = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    assert {t["metaName"] for t in again.json()["list"]} == {"visit_reminder"}
+
+    listed = await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
+    assert listed.status_code == 200
+    assert {t["metaName"] for t in listed.json()["list"]} == {"visit_reminder"}
+
+
+async def test_sync_without_creds_keeps_catalog(
+    admin_client: AsyncClient, client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Лог-фолбэк (нет кредов Meta) — синк отвечает 502 и каталог не трогает."""
+    await _bind_with_waba(admin_client, ctx)
+    resp = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    assert resp.status_code == 502, resp.text
+    assert resp.json()["error"] == "wa_templates_unavailable"
+
+
+async def test_sync_requires_waba(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Привязка без WABA — 422 waba_id_missing: шаблоны спросить не у кого."""
+    resp = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "waba_id_missing"
+
+
+async def test_send_template_into_closed_window(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    fake_graph: _FakeGraphClient,
+) -> None:
+    """Окно закрыто: текст — 422, одобренный шаблон уходит и виден в истории."""
+    await _bind_with_waba(admin_client, ctx)
+    await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700113111",
+            text="старое",
+            ts=int(time.time()) - 30 * 3600,
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    assert conv["windowOpen"] is False
+
+    templates = (
+        await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
+    ).json()["list"]
+    approved = next(t for t in templates if t["status"] == "approved")
+    pending = next(t for t in templates if t["status"] == "pending")
+
+    sent = await client.post(
+        f"{API}/clinic/conversations/{conv['id']}/templates",
+        headers=ctx.headers,
+        json={"templateId": approved["id"], "variables": ["Айгүл", "завтра в 11:00"]},
+    )
+    assert sent.status_code == 201, sent.text
+    msg = sent.json()
+    assert msg["role"] == "admin"
+    assert msg["body"] == "Здравствуйте, Айгүл! Напоминаем о приёме завтра в 11:00."
+    assert fake_graph.sent_templates == [
+        ("visit_reminder", "+996700113111", ["Айгүл", "завтра в 11:00"])
+    ]
+
+    # Неодобренный шаблон и несовпадение переменных — 422 со своими кодами.
+    rejected = await client.post(
+        f"{API}/clinic/conversations/{conv['id']}/templates",
+        headers=ctx.headers,
+        json={"templateId": pending["id"], "variables": []},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error"] == "template_not_approved"
+
+    mismatch = await client.post(
+        f"{API}/clinic/conversations/{conv['id']}/templates",
+        headers=ctx.headers,
+        json={"templateId": approved["id"], "variables": ["только одна"]},
+    )
+    assert mismatch.status_code == 422
+    assert mismatch.json()["error"] == "template_variables_mismatch"

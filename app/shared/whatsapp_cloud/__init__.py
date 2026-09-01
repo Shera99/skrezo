@@ -10,6 +10,7 @@ from __future__ import annotations
 from app.shared.whatsapp_cloud.client import (
     DownloadedMedia,
     SentMessage,
+    TemplateInfo,
     WhatsAppCloudClient,
     WhatsAppSendError,
 )
@@ -18,6 +19,7 @@ from app.shared.whatsapp_cloud.factory import build_whatsapp_client
 __all__ = [
     "DownloadedMedia",
     "SentMessage",
+    "TemplateInfo",
     "WhatsAppCloudClient",
     "WhatsAppSendError",
     "build_whatsapp_client",
