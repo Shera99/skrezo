@@ -743,6 +743,16 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 > `push_event` (одна сводка на клинику в день); cron — раз в 5 минут,
 > tz-aware, окно совпадения 15 минут.
 
+> **Серверный план локальных напоминаний** (ADR-5: «сервер решает, устройство
+> исполняет»): `GET /clinic/notifications/plan` — на каждый приём дня со
+> статусом `scheduled`/`confirmed` два напоминания: `soon` за 15 минут до
+> начала и `arrival` через 5 после; тексты (`title`/`body`/`speak`) готовы к
+> показу на языке запроса, id стабильны (`soon:<appointmentId>` — замена, не
+> дубль). Горизонт один день; `generatedAt` старше 6 часов — клиент
+> деградирует тексты («Проверьте расписание»). RBAC — контур расписания:
+> `view_own` — только своё (можно без `doctorId`), `view_all` — любой врач
+> клиники.
+
 > **Телеметрия доставки** (`notification_delivery`): строка на каждую попытку
 > пуша — отправка, ошибка провайдера (мёртвый токен в том числе), показ,
 > подтверждённый приложением через `/clinic/inbox/displayed`. Хранение 3
@@ -759,6 +769,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `POST` | `/clinic/inbox/read-all` | «Пока вас не было…» — всё прочитано одной кнопкой |
 | `POST` | `/clinic/inbox/displayed` | Подтвердить ПОКАЗ записей (пачкой, идемпотентно) — отменяет отложенные normal-пуши и пишет телеметрию |
 | `GET` | `/admin/notifications/telemetry?days=` | Skrezo: доставляемость пушей по платформам (sent/failed/displayed, `displayRate`) |
+| `GET` | `/clinic/notifications/plan?date=&doctorId=` | План локальных напоминаний врача на день (soon/arrival, готовые тексты) |
 | `POST` | `/clinic/devices` | Зарегистрировать/обновить токен устройства (звать при входе и каждом запуске) |
 | `DELETE` | `/clinic/devices/{token}` | Снять токен — **обязательно при выходе из аккаунта** (общий планшет ресепшена) |
 | `PUT` | `/clinic/notifications/prefs` | Отключённые типы и тихие часы (по времени клиники) |

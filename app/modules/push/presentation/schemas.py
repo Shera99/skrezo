@@ -7,6 +7,9 @@ from datetime import datetime, time
 
 from pydantic import Field
 
+from app.modules.push.application.use_cases.get_notification_plan import (
+    NotificationPlan,
+)
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import DEFAULT_LANG, DevicePlatform, EventPriority, Lang
 from app.shared.db.models.device import Device
@@ -184,3 +187,41 @@ class NotificationTelemetryResponse(CamelModel):
     total_sent: int
     total_failed: int
     total_displayed: int
+
+
+class PlanItemOut(CamelModel):
+    """Одно локальное уведомление серверного плана (контракт PlannedNotify)."""
+
+    id: str = Field(
+        description="Стабильный id (`soon:<appointmentId>`) — замена, не дубль",
+        examples=["soon:6f1e…"],
+    )
+    type: str = Field(description="`soon` (за 15 мин) | `arrival` (+5 мин)")
+    at: int = Field(description="Момент срабатывания, unix-секунды (UTC)")
+    payload: dict[str, str] = Field(
+        description="Готовые тексты и контекст: title/body/speak, appointmentId, patientName, time"
+    )
+
+
+class NotificationPlanResponse(CamelModel):
+    """План напоминаний врача на день."""
+
+    generated_at: datetime = Field(
+        description="Когда план собран; старше 6 часов — клиент деградирует тексты"
+    )
+    items: list[PlanItemOut]
+
+    @classmethod
+    def from_plan(cls, plan: NotificationPlan) -> NotificationPlanResponse:
+        return cls(
+            generated_at=plan.generated_at,
+            items=[
+                PlanItemOut(
+                    id=i.id,
+                    type=i.type,
+                    at=int(i.at.timestamp()),
+                    payload=i.payload,
+                )
+                for i in plan.items
+            ],
+        )

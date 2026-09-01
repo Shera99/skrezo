@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import itertools
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
@@ -762,3 +763,154 @@ async def test_cleanup_respects_retention(ctx: Ctx, _resources: Resources) -> No
             await session.execute(select(Event).where(Event.type == "ai.escalated"))
         ).scalar_one()
         assert still_there.processed_at is None
+
+
+# ── 7. Серверный план локальных напоминаний ─────────────────────────────────
+
+
+async def _book_at(client: AsyncClient, ctx: Ctx, when: datetime) -> str:
+    resp = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.owner_headers,
+        json={
+            "patientId": ctx.patient_id,
+            "doctorMembershipId": ctx.doctor_id,
+            "scheduledAt": when.isoformat(),
+            "items": [],
+            "force": True,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["id"])
+
+
+async def test_notification_plan_soon_and_arrival(
+    client: AsyncClient, ctx: Ctx
+) -> None:
+    """План дня: на приём — soon (−15 мин) и arrival (+5) с готовыми текстами."""
+    tomorrow = datetime.now(_BISHKEK).date() + timedelta(days=1)
+    at_14 = datetime.combine(tomorrow, dt_time(14, 0), tzinfo=_BISHKEK)
+    appointment_id = await _book_at(client, ctx, at_14)
+
+    # Врач с view_own может не передавать doctorId — подставится своё членство.
+    resp = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.doctor_headers,
+        params={"date": tomorrow.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["items"]) == 2
+    soon, arrival = body["items"]  # отсортированы по времени срабатывания
+    assert soon["id"] == f"soon:{appointment_id}"
+    assert soon["type"] == "soon"
+    assert soon["at"] == int((at_14 - timedelta(minutes=15)).timestamp())
+    assert arrival["id"] == f"arrival:{appointment_id}"
+    assert arrival["at"] == int((at_14 + timedelta(minutes=5)).timestamp())
+    payload = soon["payload"]
+    assert payload["appointmentId"] == appointment_id
+    assert "Инбоксова" in payload["body"]
+    assert payload["time"] == "14:00"
+    assert payload["title"] and payload["speak"]
+
+    generated = datetime.fromisoformat(body["generatedAt"])
+    assert (datetime.now(UTC) - generated).total_seconds() < 60
+
+
+async def test_notification_plan_excludes_touched_statuses(
+    client: AsyncClient, ctx: Ctx
+) -> None:
+    """Идущие и отменённые приёмы напоминаний не получают."""
+    tomorrow = datetime.now(_BISHKEK).date() + timedelta(days=1)
+    first = await _book_at(
+        client, ctx, datetime.combine(tomorrow, dt_time(9, 0), tzinfo=_BISHKEK)
+    )
+    second = await _book_at(
+        client, ctx, datetime.combine(tomorrow, dt_time(11, 0), tzinfo=_BISHKEK)
+    )
+    started = await client.patch(
+        f"{API}/clinic/appointments/{second}",
+        headers=ctx.owner_headers,
+        json={"status": "in_progress"},
+    )
+    assert started.status_code == 200, started.text
+
+    resp = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.doctor_headers,
+        params={"date": tomorrow.isoformat()},
+    )
+    ids = {i["id"].split(":", 1)[1] for i in resp.json()["items"]}
+    assert ids == {first}  # идущий приём выпал из плана
+
+    cancel = await client.patch(
+        f"{API}/clinic/appointments/{first}",
+        headers=ctx.owner_headers,
+        json={"status": "cancelled", "cancelReason": "patient_request"},
+    )
+    assert cancel.status_code == 200, cancel.text
+    resp = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.doctor_headers,
+        params={"date": tomorrow.isoformat()},
+    )
+    assert resp.json()["items"] == []
+
+
+async def test_notification_plan_rbac(
+    admin_client: AsyncClient, client: AsyncClient, ctx: Ctx
+) -> None:
+    """view_own — только своё; view_all обязан назвать врача; чужая клиника — 404."""
+    tomorrow = (datetime.now(_BISHKEK).date() + timedelta(days=1)).isoformat()
+
+    foreign = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.doctor_headers,
+        params={"date": tomorrow, "doctorId": str(uuid.uuid4())},
+    )
+    assert foreign.status_code == 403
+    assert foreign.json()["error"] == "not_own_schedule"
+
+    no_doctor = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.owner_headers,
+        params={"date": tomorrow},
+    )
+    assert no_doctor.status_code == 422
+    assert no_doctor.json()["error"] == "doctor_required"
+
+    ok = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=ctx.owner_headers,
+        params={"date": tomorrow, "doctorId": ctx.doctor_id},
+    )
+    assert ok.status_code == 200, ok.text
+
+    other = await _make_other_clinic(admin_client, client)
+    stranger = await client.get(
+        f"{API}/clinic/notifications/plan",
+        headers=other,
+        params={"date": tomorrow, "doctorId": ctx.doctor_id},
+    )
+    assert stranger.status_code == 404
+
+
+async def _make_other_clinic(
+    admin_client: AsyncClient, client: AsyncClient
+) -> dict[str, str]:
+    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
+    phone = _phone()
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={
+            "type": "clinic",
+            "adminFullName": "Соседний Владелец",
+            "adminPhone": phone,
+            "name": "Клиника Соседняя",
+            "cityId": city,
+            "businessPhone": "0700000001",
+            "seats": 3,
+        },
+    )
+    assert created.status_code == 201, created.text
+    return await otp_login(client, phone)

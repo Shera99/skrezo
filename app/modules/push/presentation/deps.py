@@ -6,12 +6,18 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.push.application.use_cases.get_notification_plan import (
+    GetNotificationPlanUseCase,
+)
 from app.modules.push.application.use_cases.register_device import RegisterDeviceUseCase
 from app.modules.push.application.use_cases.unregister_device import UnregisterDeviceUseCase
 from app.modules.push.application.use_cases.update_prefs import UpdatePrefsUseCase
 from app.modules.push.infrastructure.repositories.device_repository import DeviceRepository
 from app.modules.push.infrastructure.repositories.notification_pref_repository import (
     NotificationPrefRepository,
+)
+from app.modules.schedule.application.services.availability_service import (
+    build_availability_service,
 )
 
 
@@ -44,3 +50,10 @@ def get_update_prefs_use_case(
     prefs: NotificationPrefRepository = Depends(get_notification_pref_repository),
 ) -> UpdatePrefsUseCase:
     return UpdatePrefsUseCase(session, prefs)
+
+
+def get_notification_plan_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> GetNotificationPlanUseCase:
+    """План локальных напоминаний; доступность врача — сервисом расписания."""
+    return GetNotificationPlanUseCase(session, build_availability_service(session))

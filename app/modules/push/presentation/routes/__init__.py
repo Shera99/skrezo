@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.modules.push.presentation.routes import (
     inbox,
+    notification_plan,
     register_device,
     telemetry,
     unregister_device,
@@ -18,3 +19,4 @@ router.include_router(unregister_device.router)
 router.include_router(update_prefs.router)
 router.include_router(inbox.router)
 router.include_router(telemetry.router)
+router.include_router(notification_plan.router)
