@@ -19,6 +19,7 @@ from app.modules.appointments.domain.models import ItemInput
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.push.application.outbox import emit_event
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     span_of,
@@ -174,5 +175,19 @@ class CreateAppointmentUseCase:
                 service_prices=prices,
                 status=data.status,
             )
+            # Событие — в ЭТОЙ ЖЕ транзакции (outbox): откат забирает и его.
+            # Черновик записи не событие: даты нет — уведомлять не о чем.
+            if not is_draft:
+                await emit_event(
+                    self._session,
+                    clinic_id=clinic_id,
+                    type_="appointment.created",
+                    entity_type="appointment",
+                    entity_id=appointment.id,
+                    payload={
+                        "doctorMembershipId": str(data.doctor_membership_id),
+                        "scheduledAt": scheduled_at.isoformat() if scheduled_at else None,
+                    },
+                )
             await self._session.commit()
         return appointment

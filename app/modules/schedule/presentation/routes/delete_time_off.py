@@ -9,8 +9,6 @@ from fastapi import APIRouter, Depends
 
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
-from app.modules.push.application.emitter import PushEmitter
-from app.modules.push.presentation.deps import get_push_emitter
 from app.modules.schedule.application.use_cases.delete_time_off import DeleteTimeOffUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -61,7 +59,6 @@ async def delete_time_off(
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: DeleteTimeOffUseCase = Depends(get_delete_time_off_use_case),
     audit: AuditService = Depends(get_audit_service),
-    emitter: PushEmitter = Depends(get_push_emitter),
 ) -> TimeOffDeletedResponse:
     """Удалить отсутствие врача по id.
 
@@ -79,6 +76,4 @@ async def delete_time_off(
         entity_id=membership_id,
         payload={"timeOffId": str(time_off_id)},
     )
-    # Отсутствие снято — тихо просим приложения перечитать день (sync.day).
-    await emitter.emit_sync_day(scope.clinic_id)
     return TimeOffDeletedResponse(id=time_off_id)

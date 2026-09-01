@@ -10,8 +10,6 @@ from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
-from app.modules.push.application.emitter import PushEmitter
-from app.modules.push.presentation.deps import get_push_emitter
 from app.modules.schedule.application.use_cases.set_working_hours import SetWorkingHoursUseCase
 from app.modules.schedule.presentation.deps import get_set_working_hours_use_case
 from app.modules.schedule.presentation.schemas import (
@@ -50,7 +48,6 @@ async def set_working_hours(
     context: ClientContext = Depends(require_permission("settings.edit")),
     use_case: SetWorkingHoursUseCase = Depends(get_set_working_hours_use_case),
     audit: AuditService = Depends(get_audit_service),
-    emitter: PushEmitter = Depends(get_push_emitter),
 ) -> WorkingHoursResponse:
     """Заменить часы работы клиники: все 7 дней передаются разом.
 
@@ -69,6 +66,4 @@ async def set_working_hours(
         entity_id=context.clinic_id,
         payload=None,
     )
-    # Часы клиники изменились — тихо просим приложения перечитать день (sync.day).
-    await emitter.emit_sync_day(context.clinic_id)
     return WorkingHoursResponse(days=[WorkingHoursItem.from_hours(d) for d in saved])

@@ -12,9 +12,7 @@
    ``{amount}``, ``{count}``... Подставляются через ``str.format(**params)`` в
    :func:`render`. Имена плейсхолдеров держим одинаковыми между языками одного
    типа (иначе рендер молча оставит фигурные скобки как есть — см. ниже).
-3. ``sync.day`` в словаре НЕТ и не будет: это тихий data-only пуш
-   (``content-available``), видимого текста у него никогда не бывает.
-4. Никаких медданных в тексте — только имя пациента, дата/время, сумма,
+3. Никаких медданных в тексте — только имя пациента, дата/время, сумма,
    количество (см. ADR §2 «Никаких медданных»). Диагнозы, жалобы — нельзя.
 
 ⚠️ Значения ``kg`` — базовые черновики (не носитель языка), требуют вычитки
@@ -38,16 +36,18 @@ logger = structlog.get_logger(__name__)
 #: собственный текст (``texts.ts``), поэтому это безопасный дефолт, а не баг.
 _EMPTY_TEXT: dict[str, str] = {"title": "", "body": "", "speak": ""}
 
-#: Все типы пуш-событий каталога (см. ADR §4), включая ``sync.day`` — он тут
-#: только для полноты списка «что вообще шлём», текста у него нет и не будет.
+#: Все типы событий, у которых бывает видимое уведомление (тексты ниже).
+#: Тихого ``sync.day`` больше нет: новый ADR запрещает content-available пуши —
+#: живой экран делают сокет (Ф4) и 30-секундный фолбэк клиента.
 PUSH_EVENT_TYPES: frozenset[str] = frozenset(
     {
-        "sync.day",
         "appointment.soon",
         "appointment.arrival",
         "appointment.moved",
         "appointment.canceled",
         "appointment.created",
+        "appointment.status_changed",
+        "payment.created",
         "day.morning",
         "day.evening",
         "debt.created",
@@ -125,6 +125,30 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
         },
     },
     # ── Сводки дня ───────────────────────────────────────────────────────────
+    "appointment.status_changed": {
+        Lang.RU: {
+            "title": "Статус приёма изменён",
+            "body": "{patientName} — {time}",
+            "speak": "Статус приёма пациента {patientName} изменён",
+        },
+        Lang.KG: {
+            "title": "Кабыл алуунун абалы өзгөрдү",
+            "body": "{patientName} — {time}",
+            "speak": "{patientName} пациенттин кабылдоосунун абалы өзгөрдү",
+        },
+    },
+    "payment.created": {
+        Lang.RU: {
+            "title": "Платёж принят",
+            "body": "{patientName} — {amount} сом",
+            "speak": "Принят платёж {amount} сом от пациента {patientName}",
+        },
+        Lang.KG: {
+            "title": "Төлөм кабыл алынды",
+            "body": "{patientName} — {amount} сом",
+            "speak": "{patientName} пациенттен {amount} сом төлөм кабыл алынды",
+        },
+    },
     "day.morning": {
         Lang.RU: {
             "title": "Ваш день",

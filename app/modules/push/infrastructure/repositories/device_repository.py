@@ -78,6 +78,21 @@ class DeviceRepository:
         result = await self._session.execute(select(Device).where(Device.clinic_id == clinic_id))
         return result.scalars().all()
 
+    async def list_by_accounts(
+        self, clinic_id: uuid.UUID, account_ids: Sequence[uuid.UUID]
+    ) -> Sequence[Device]:
+        """Устройства конкретных адресатов в клинике (рассылка события)."""
+        if not account_ids:
+            return []
+        rows = (
+            await self._session.execute(
+                select(Device).where(
+                    Device.clinic_id == clinic_id, Device.account_id.in_(account_ids)
+                )
+            )
+        ).scalars()
+        return list(rows)
+
     async def delete_dead(self, token: str) -> None:
         """Удалить мёртвый токен (FCM/APNs ответили ``NotRegistered``) — безусловно.
 

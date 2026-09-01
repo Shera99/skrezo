@@ -26,21 +26,18 @@ use-case'ах модулей. Воркер — тонкий адаптер, и �
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from typing import Any, ClassVar
 
 from arq import cron, func
 from arq.connections import RedisSettings
 
 from app.core.config import settings
-from app.core.jobs import (
-    DISPATCH_PUSH,
-    PROCESS_WA_INBOUND,
-    SEND_NOTIFICATION,
-    SEND_TEAM_NOTIFICATION,
-)
+from app.core.jobs import PROCESS_WA_INBOUND, SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
+from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
-from app.jobs.tasks.push import dispatch_push
 from app.jobs.tasks.subscriptions import (
     expire_paid_periods,
     expire_trials,
@@ -50,19 +47,30 @@ from app.jobs.tasks.subscriptions import (
 from app.jobs.tasks.whatsapp import close_stale_conversations, process_wa_inbound
 
 
+async def _startup(ctx: dict[str, Any]) -> None:
+    """Поднять цикл диспетчера событий рядом с воркером (см. dispatcher_loop)."""
+    ctx["event_dispatcher_loop"] = asyncio.create_task(run_dispatcher_loop())
+
+
+async def _shutdown(ctx: dict[str, Any]) -> None:
+    task = ctx.pop("event_dispatcher_loop", None)
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 class WorkerSettings:
     """Настройки arq-воркера."""
 
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    on_startup = _startup
+    on_shutdown = _shutdown
     functions: ClassVar[list[Any]] = [
         # Доставка повторяется: провайдер мог не ответить. Таймаут с запасом на
         # всю цепочку каналов (каждый со своим таймаутом запроса).
         func(send_notification, name=SEND_NOTIFICATION, max_tries=5, timeout=60),
         func(send_team_notification, name=SEND_TEAM_NOTIFICATION, max_tries=5, timeout=60),
-        # Рассылка пушей: недоставку повторяем (провайдер мог не ответить), но
-        # реже, чем текст, — тихий sync.day не критичен, а мёртвый токен диспетчер
-        # снимает сам, без ретраев.
-        func(dispatch_push, name=DISPATCH_PUSH, max_tries=3, timeout=60),
         # Разбор вебхука WhatsApp: повтор безопасен (дедуп по wa_message_id), а
         # таймаут с запасом на скачивание медиа с серверов Meta.
         func(process_wa_inbound, name=PROCESS_WA_INBOUND, max_tries=5, timeout=120),

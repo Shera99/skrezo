@@ -1,0 +1,118 @@
+"""Роуты инбокса: лента, счётчик непрочитанного, отметки прочтения.
+
+Инбокс — источник истины «что произошло»; пуш и сокет на него лишь указывают.
+Право не требуется: лента и без того СВОЯ (снимок на аккаунт+клинику), чужие
+записи не видны и не отмечаются в принципе — фильтр в репозитории, не в UI.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_session
+from app.core.errors import ForbiddenError, NotFoundError
+from app.modules.access.presentation.deps import get_clinic_context
+from app.modules.push.infrastructure.repositories.inbox_repository import InboxRepository
+from app.modules.push.presentation.schemas import (
+    InboxItemOut,
+    InboxReadResponse,
+    InboxResponse,
+)
+from app.shared.auth import ClientContext
+
+router = APIRouter()
+
+
+def get_inbox_repository(session: AsyncSession = Depends(get_session)) -> InboxRepository:
+    return InboxRepository(session)
+
+
+_NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    404: {
+        "description": "Запись не найдена (или принадлежит другому сотруднику)",
+        "content": {
+            "application/json": {"example": {"error": "inbox_item_not_found"}}
+        },
+    },
+}
+
+
+@router.get(
+    "/clinic/inbox",
+    response_model=InboxResponse,
+    summary="Инбокс уведомлений",
+    response_description="Страница ленты + счётчик непрочитанного",
+)
+async def list_inbox(
+    unread: bool = Query(default=False, description="Только непрочитанные"),
+    before_id: int | None = Query(
+        default=None, alias="beforeId", description="Курсор «старше этого id»"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    context: ClientContext = Depends(get_clinic_context),
+    inbox: InboxRepository = Depends(get_inbox_repository),
+) -> InboxResponse:
+    """Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.
+
+    Прочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на
+    телефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету).
+    """
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    items = await inbox.list_page(
+        context.account_id,
+        context.clinic_id,
+        unread_only=unread,
+        before_id=before_id,
+        limit=limit,
+    )
+    count = await inbox.unread_count(context.account_id, context.clinic_id)
+    return InboxResponse(
+        items=[InboxItemOut.from_orm_item(i) for i in items], unread_count=count
+    )
+
+
+@router.post(
+    "/clinic/inbox/{item_id}/read",
+    response_model=InboxReadResponse,
+    summary="Отметить запись прочитанной",
+    response_description="Счётчик непрочитанного после отметки",
+    responses=_NOT_FOUND,
+)
+async def mark_read(
+    item_id: int,
+    context: ClientContext = Depends(get_clinic_context),
+    inbox: InboxRepository = Depends(get_inbox_repository),
+    session: AsyncSession = Depends(get_session),
+) -> InboxReadResponse:
+    """Идемпотентно: повторная отметка уже прочитанной записи ничего не меняет."""
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    item = await inbox.mark_read(context.account_id, context.clinic_id, item_id)
+    if item is None:
+        raise NotFoundError("Запись не найдена", code="inbox_item_not_found")
+    await session.commit()
+    count = await inbox.unread_count(context.account_id, context.clinic_id)
+    return InboxReadResponse(unread_count=count)
+
+
+@router.post(
+    "/clinic/inbox/read-all",
+    response_model=InboxReadResponse,
+    summary="Отметить всё прочитанным",
+    response_description="Счётчик после отметки (всегда 0)",
+)
+async def mark_all_read(
+    context: ClientContext = Depends(get_clinic_context),
+    inbox: InboxRepository = Depends(get_inbox_repository),
+    session: AsyncSession = Depends(get_session),
+) -> InboxReadResponse:
+    """«Пока вас не было: …» — одна кнопка вместо тапа по каждой записи."""
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    await inbox.mark_all_read(context.account_id, context.clinic_id)
+    await session.commit()
+    return InboxReadResponse(unread_count=0)

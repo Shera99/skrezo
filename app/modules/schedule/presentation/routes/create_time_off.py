@@ -9,8 +9,6 @@ from fastapi import APIRouter, Depends, status
 
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
-from app.modules.push.application.emitter import PushEmitter
-from app.modules.push.presentation.deps import get_push_emitter
 from app.modules.schedule.application.use_cases.create_time_off import CreateTimeOffUseCase
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
@@ -73,7 +71,6 @@ async def create_time_off(
     scope: ScheduleScope = Depends(require_schedule_manage),
     use_case: CreateTimeOffUseCase = Depends(get_create_time_off_use_case),
     audit: AuditService = Depends(get_audit_service),
-    emitter: PushEmitter = Depends(get_push_emitter),
 ) -> TimeOffItem:
     """Отпуск, больничный или разовая недоступность врача.
 
@@ -96,6 +93,4 @@ async def create_time_off(
         entity_id=membership_id,
         payload={"startsAt": body.starts_at.isoformat(), "endsAt": body.ends_at.isoformat()},
     )
-    # Появилось отсутствие врача — тихо просим приложения перечитать день (sync.day).
-    await emitter.emit_sync_day(scope.clinic_id)
     return TimeOffItem.from_record(record)

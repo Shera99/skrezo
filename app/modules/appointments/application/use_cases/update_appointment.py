@@ -21,6 +21,7 @@ from app.modules.appointments.infrastructure.repositories.appointment_repository
     AppointmentRepository,
 )
 from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.push.application.outbox import emit_event
 from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     span_of,
@@ -48,6 +49,36 @@ def _affects_booking(appointment: Appointment, fields: dict[str, Any]) -> bool:
     new_status = fields.get("status", appointment.status)
     was_free = appointment.status in (AppointmentStatus.CANCELLED, AppointmentStatus.DRAFT)
     return was_free and new_status != appointment.status
+
+
+def _event_type_for(appointment: Appointment, fields: dict[str, Any]) -> str | None:
+    """Каким событием каталога является эта правка (до применения fields).
+
+    Отмена и неявка важнее переноса: если PATCH одновременно двигает время и
+    отменяет, врачу нужно «приём отменён», а не «перенесён». Черновик,
+    доведённый до записи, для расписания — новая запись: appointment.created.
+    Правка комментария или чека событием не является.
+    """
+    old_status = appointment.status
+    target = fields.get("status", old_status)
+    if target is not old_status and target in (
+        AppointmentStatus.CANCELLED,
+        AppointmentStatus.NO_SHOW,
+    ):
+        return "appointment.canceled"
+    if old_status is AppointmentStatus.DRAFT and target is AppointmentStatus.SCHEDULED:
+        return "appointment.created"
+    moved = (
+        "scheduled_at" in fields and fields["scheduled_at"] != appointment.scheduled_at
+    ) or (
+        "doctor_membership_id" in fields
+        and fields["doctor_membership_id"] != appointment.doctor_membership_id
+    )
+    if moved:
+        return "appointment.moved"
+    if target is not old_status:
+        return "appointment.status_changed"
+    return None
 
 
 def _apply_cancel_reason(appointment: Appointment, fields: dict[str, Any]) -> None:
@@ -172,6 +203,8 @@ class UpdateAppointmentUseCase:
             and appointment.status is not AppointmentStatus.COMPLETED
         )
 
+        event_type = _event_type_for(appointment, fields)
+
         # Гвард накрывает и update() (внутри флашит UPDATE — там и срабатывает
         # констрейнт), и commit(): ловить только коммит недостаточно.
         async with booking_guard(self._session):
@@ -179,6 +212,16 @@ class UpdateAppointmentUseCase:
             if closing:
                 await self._appointments.mark_items_done(appointment_id)
                 await self._appointments.sync_odontogram(appointment_id)
+            # Событие — в этой же транзакции (outbox); тип определён ДО update,
+            # пока старые значения ещё были видны.
+            if event_type is not None:
+                await emit_event(
+                    self._session,
+                    clinic_id=clinic_id,
+                    type_=event_type,
+                    entity_type="appointment",
+                    entity_id=appointment_id,
+                )
             await self._session.commit()
 
         # Одна запись на операцию, но разная по подробности: откат — подотчётное

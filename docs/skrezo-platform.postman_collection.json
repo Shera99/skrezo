@@ -3659,6 +3659,92 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Инбокс уведомлений",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/inbox?unread=False&beforeId=0&limit=50",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "inbox"
+                  ],
+                  "query": [
+                    {
+                      "key": "unread",
+                      "value": "False",
+                      "disabled": true,
+                      "description": "Только непрочитанные"
+                    },
+                    {
+                      "key": "beforeId",
+                      "value": "0",
+                      "disabled": true,
+                      "description": "Курсор «старше этого id»"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.\n\nПрочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на\nтелефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету)."
+              },
+              "response": []
+            },
+            {
+              "name": "Отметить запись прочитанной",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/inbox/{{item_id}}/read",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "inbox",
+                    "{{item_id}}",
+                    "read"
+                  ]
+                },
+                "description": "Идемпотентно: повторная отметка уже прочитанной записи ничего не меняет."
+              },
+              "response": []
+            },
+            {
+              "name": "Отметить всё прочитанным",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/inbox/read-all",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "inbox",
+                    "read-all"
+                  ]
+                },
+                "description": "«Пока вас не было: …» — одна кнопка вместо тапа по каждой записи."
+              },
+              "response": []
             }
           ]
         }
@@ -4459,6 +4545,11 @@
     },
     {
       "key": "file_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "item_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

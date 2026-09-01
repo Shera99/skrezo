@@ -15,6 +15,7 @@ from app.modules.appointments.infrastructure.repositories.appointment_repository
     AppointmentRepository,
 )
 from app.modules.cash.application.services.cash_service import CashService
+from app.modules.push.application.outbox import emit_event
 from app.shared.db.enums import AppointmentStatus, PaymentMethod
 
 
@@ -90,14 +91,35 @@ class CompleteAppointmentUseCase:
         await self._appointments.mark_items_done(appointment_id)
         # Карта зубов догоняет историю: вылеченный зуб перестаёт числиться больным.
         await self._appointments.sync_odontogram(appointment_id)
+        # События — в этой же транзакции (outbox): завершение — смена статуса,
+        # оплата — отдельное событие кассы (адресаты у них разные).
+        await emit_event(
+            self._session,
+            clinic_id=clinic_id,
+            type_="appointment.status_changed",
+            entity_type="appointment",
+            entity_id=appointment_id,
+        )
         if payment is not None:
-            await self._cash.record_payment(
+            record = await self._cash.record_payment(
                 clinic_id=clinic_id,
                 account_id=account_id,
                 appointment_id=appointment_id,
                 amount=payment.amount,
                 method=payment.method,
                 comment=payment.comment,
+            )
+            await emit_event(
+                self._session,
+                clinic_id=clinic_id,
+                type_="payment.created",
+                entity_type="payment",
+                entity_id=record.id,
+                payload={
+                    "appointmentId": str(appointment_id),
+                    "patientId": str(record.patient_id),
+                    "amountTiyin": record.amount_tiyin,
+                },
             )
         await self._session.commit()
 

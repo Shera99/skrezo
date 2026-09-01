@@ -1,4 +1,4 @@
-"""Схемы модуля пушей: устройства и настройки уведомлений."""
+"""Схемы модуля уведомлений: устройства, настройки, инбокс."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from datetime import datetime, time
 from pydantic import Field
 
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import DEFAULT_LANG, DevicePlatform, Lang
+from app.shared.db.enums import DEFAULT_LANG, DevicePlatform, EventPriority, Lang
 from app.shared.db.models.device import Device
+from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.notification_pref import NotificationPref
 
 _DISABLED_DESCRIPTION = (
@@ -91,3 +92,48 @@ class PrefsResponse(CamelModel):
     @classmethod
     def from_pref(cls, p: NotificationPref) -> PrefsResponse:
         return cls(disabled=list(p.disabled), quiet_from=p.quiet_from, quiet_to=p.quiet_to)
+
+
+class InboxItemOut(CamelModel):
+    """Запись инбокса — источник истины «что произошло и прочитано ли»."""
+
+    id: int
+    type: str = Field(description="Тип события каталога", examples=["appointment.created"])
+    priority: EventPriority
+    title: str
+    body: str
+    entity_type: str | None = Field(
+        default=None, description="Куда ведёт запись (`appointment`, `payment`…)"
+    )
+    entity_id: uuid.UUID | None = None
+    read_at: datetime | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_orm_item(cls, i: InboxItem) -> InboxItemOut:
+        return cls(
+            id=i.id,
+            type=i.type,
+            priority=i.priority,
+            title=i.title,
+            body=i.body,
+            entity_type=i.entity_type,
+            entity_id=i.entity_id,
+            read_at=i.read_at,
+            created_at=i.created_at,
+        )
+
+
+class InboxResponse(CamelModel):
+    """Страница инбокса + счётчик непрочитанного (= бейдж приложения)."""
+
+    items: list[InboxItemOut] = Field(
+        description="Новые сверху; продолжение — `beforeId` = id последнего"
+    )
+    unread_count: int = Field(description="Непрочитанных всего (для бейджа)", examples=[3])
+
+
+class InboxReadResponse(CamelModel):
+    """Результат отметки прочитанности."""
+
+    unread_count: int = Field(description="Непрочитанных после операции")

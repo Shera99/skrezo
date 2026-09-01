@@ -6,8 +6,6 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.jobs import JobQueue, get_job_queue
-from app.modules.push.application.emitter import PushEmitter
 from app.modules.push.application.use_cases.register_device import RegisterDeviceUseCase
 from app.modules.push.application.use_cases.unregister_device import UnregisterDeviceUseCase
 from app.modules.push.application.use_cases.update_prefs import UpdatePrefsUseCase
@@ -15,11 +13,6 @@ from app.modules.push.infrastructure.repositories.device_repository import Devic
 from app.modules.push.infrastructure.repositories.notification_pref_repository import (
     NotificationPrefRepository,
 )
-
-
-def get_push_emitter(queue: JobQueue = Depends(get_job_queue)) -> PushEmitter:
-    """Эмиттер пуш-событий: ставит рассылку в очередь воркера."""
-    return PushEmitter(queue)
 
 
 def get_device_repository(session: AsyncSession = Depends(get_session)) -> DeviceRepository:

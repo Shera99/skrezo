@@ -184,6 +184,19 @@ class AiMessageRole(enum.StrEnum):
     SYSTEM = "system"  # служебные вставки (шаблон, пометки)
 
 
+class EventPriority(enum.StrEnum):
+    """Приоритет уведомления: определяет каналы доставки (ТЗ-СУ §3).
+
+    ``critical`` — инбокс + сокет + пуш немедленно; ``normal`` — пуш с
+    задержкой и отменой по подтверждению показа; ``low`` — только инбокс и
+    сокет, пуша не бывает.
+    """
+
+    CRITICAL = "critical"
+    NORMAL = "normal"
+    LOW = "low"
+
+
 class WhatsAppMode(enum.StrEnum):
     """Режим подключения номера клиники к Cloud API (§2.3 ТЗ ассистента)."""
 
@@ -248,4 +261,7 @@ AiMessageRoleType = SAEnum(
 )
 WhatsAppModeType = SAEnum(
     WhatsAppMode, name="whatsapp_mode", values_callable=lambda e: [m.value for m in e]
+)
+EventPriorityType = SAEnum(
+    EventPriority, name="event_priority", values_callable=lambda e: [m.value for m in e]
 )
