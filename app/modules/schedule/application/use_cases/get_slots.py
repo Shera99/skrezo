@@ -23,12 +23,17 @@ class GetSlotsUseCase:
         doctor_membership_id: uuid.UUID | None,
         day: date,
         service_id: uuid.UUID | None,
+        teeth_count: int = 1,
     ) -> DaySlots:
         """Слоты одного врача либо всех, кто выполняет услугу.
 
         Без ``doctor_membership_id`` нужна услуга: подбирать «ближайшее свободное»
         по всей клинике без неё — это сетка регистратуры, а не запись, и врача в
         ней всё равно пришлось бы выбирать руками.
+
+        ``teeth_count`` умножает длительность услуги: она задана на один зуб, и
+        без множителя регистратор выбирал бы слот на один зуб для работы по трём —
+        запись в него потом не помещается.
         """
         if doctor_membership_id is None and service_id is None:
             raise ValidationAppError(
@@ -48,7 +53,9 @@ class GetSlotsUseCase:
                 raise ValidationAppError("Услуга не из этой клиники", code="invalid_service")
 
         tz = await self._availability.clinic_timezone(clinic_id)
-        duration_min = await self._availability.resolve_duration(clinic_id, service_id, None)
+        duration_min = await self._availability.resolve_duration(
+            clinic_id, service_id, None, units=teeth_count
+        )
         if doctor_membership_id is not None:
             doctors = [doctor_membership_id]
         else:

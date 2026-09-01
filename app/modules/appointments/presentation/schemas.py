@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, model_validator
 
+from app.modules.appointments.domain.duration import MAX_DURATION_MIN
 from app.modules.appointments.domain.models import (
     AppointmentDetail,
     AppointmentItemRow,
@@ -24,8 +25,7 @@ from app.shared.db.enums import (
 
 # Верхняя граница длительности приёма — сутки. Без неё durationMin: 999999999
 # проходит (у приёма без врача проверок занятости нет) и растягивает карточку
-# на годы вперёд.
-MAX_DURATION_MIN = 24 * 60
+# на годы вперёд. Живёт в домене: тот же потолок ограничивает расчёт по составу.
 # Потолок количества в позиции: столько единиц одной услуги за приём не оказывают,
 # а без границы опечатка в количестве раздувает чек и выручку в отчётах.
 MAX_ITEM_QUANTITY = 999
@@ -145,7 +145,11 @@ class CreateAppointmentRequest(CamelModel):
         ),
     )
     service_id: uuid.UUID | None = Field(
-        default=None, description="Основная услуга приёма — источник длительности"
+        default=None,
+        description=(
+            "Основная услуга приёма. На деньги не влияет (их считает `items`) и "
+            "на длительность — только если её не из чего посчитать по составу"
+        ),
     )
     appointment_type: AppointmentType = AppointmentType.TREATMENT
     status: Literal[AppointmentStatus.SCHEDULED, AppointmentStatus.DRAFT] = Field(
@@ -176,7 +180,11 @@ class CreateAppointmentRequest(CamelModel):
         le=MAX_DURATION_MIN,
         description=(
             f"Длительность, минуты (не больше {MAX_DURATION_MIN} — сутки). "
-            "По умолчанию — из услуги, иначе 30"
+            "Без него считается ПО СОСТАВУ: длительность услуги задана на один "
+            "зуб, поэтому позиция даёт `duration × число зубов` (а работа вне "
+            "зуба — `duration × quantity`), и всё это суммируется. Позиции без "
+            "услуги или без заданной длительности времени не добавляют; если "
+            "считать не по чему — берётся длительность `serviceId`, иначе 30"
         ),
         examples=[45],
     )

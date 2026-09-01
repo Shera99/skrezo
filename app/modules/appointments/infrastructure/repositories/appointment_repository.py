@@ -457,6 +457,23 @@ class AppointmentRepository:
         ).all()
         return {r[0]: r[1] for r in rows}
 
+    async def service_durations(
+        self, service_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int | None]:
+        """Длительности услуг позиций — минуты на ОДНУ процедуру (на один зуб).
+
+        ``None`` у услуги, которой длительность не задали: такая позиция времени
+        приёму не добавляет (см. ``domain/duration``).
+        """
+        if not service_ids:
+            return {}
+        rows = (
+            await self._session.execute(
+                select(Service.id, Service.duration).where(Service.id.in_(service_ids))
+            )
+        ).all()
+        return {r[0]: r[1] for r in rows}
+
     async def update(self, appointment: Appointment, fields: dict[str, Any]) -> None:
         """Записать разрешённые поля приёма."""
         apply_updates(

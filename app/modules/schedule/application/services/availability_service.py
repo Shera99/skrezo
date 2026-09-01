@@ -151,15 +151,24 @@ class AvailabilityService:
         clinic_id: uuid.UUID,
         service_id: uuid.UUID | None,
         explicit: int | None,
+        *,
+        units: int = 1,
     ) -> int:
-        """Длительность приёма: явная → из услуги → дефолт."""
+        """Длительность приёма: явная → длительность услуги × ``units`` → дефолт.
+
+        ``units`` — сколько раз процедура выполняется за приём (сколько зубов):
+        длительность услуги клиника задаёт на ОДИН зуб, поэтому работа по трём
+        зубам занимает втрое больше времени. По умолчанию 1 — поведение прежних
+        вызовов не меняется.
+        """
         if explicit is not None:
             return explicit
+        units = max(units, 1)
         if service_id is not None:
             _, duration = await self._schedule.service_duration(clinic_id, service_id)
             if duration:
-                return duration
-        return DEFAULT_DURATION_MIN
+                return duration * units
+        return DEFAULT_DURATION_MIN * units
 
 
 def build_availability_service(session: AsyncSession) -> AvailabilityService:

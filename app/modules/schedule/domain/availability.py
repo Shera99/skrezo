@@ -19,6 +19,9 @@ from app.modules.schedule.domain.models import DoctorHours, TimeSpan, WorkingHou
 DEFAULT_DURATION_MIN = 30
 # Шаг сетки предлагаемых слотов (09:00, 09:15, 09:30 …).
 SLOT_STEP_MIN = 15
+# Потолок множителя слота: больше 32 зубов (постоянный прикус) не бывает, а без
+# границы `teethCount` из запроса растягивает слот на произвольную длину.
+MAX_TEETH_COUNT = 32
 
 _SUNDAY = 6
 

@@ -14,6 +14,7 @@ from app.modules.appointments.application.services.items import (
     ensure_items_valid,
     resolve_service_prices,
 )
+from app.modules.appointments.domain.duration import MAX_DURATION_MIN, duration_from_items
 from app.modules.appointments.domain.models import ItemInput
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
@@ -52,6 +53,38 @@ class CreateAppointmentUseCase:
         self._appointments = appointments
         self._availability = availability
 
+    async def _resolve_duration(
+        self, clinic_id: uuid.UUID, data: CreateAppointmentInput
+    ) -> int:
+        """Длительность приёма: явная → по составу → из услуги приёма → дефолт.
+
+        Состав важнее ``serviceId`` по той же причине, по которой из него
+        считаются деньги: ``serviceId`` — это одна процедура, а приём идут
+        столько, сколько работ в чеке. Время услуги задано на один зуб, поэтому
+        позиция на три зуба стоит в расписании втрое дороже (``domain/duration``).
+
+        Явный ``durationMin`` не пересчитывается никогда: он и нужен затем, чтобы
+        врач мог сказать «мне хватит сорока минут» вопреки арифметике.
+        """
+        if data.duration_min is not None:
+            return data.duration_min
+        durations = await self._appointments.service_durations(
+            [item.service_id for item in data.items if item.service_id is not None]
+        )
+        by_items = duration_from_items(data.items, durations)
+        if by_items is None:
+            return await self._availability.resolve_duration(clinic_id, data.service_id, None)
+        if by_items > MAX_DURATION_MIN:
+            # Молча обрезать нельзя: приём встал бы в расписание короче, чем
+            # работы в нём. Такой объём разносят на несколько приёмов.
+            raise ValidationAppError(
+                "Состав приёма не помещается в сутки: разнесите работы "
+                "на несколько приёмов либо задайте durationMin явно",
+                code="duration_too_long",
+                extra={"durationMin": by_items, "maxDurationMin": MAX_DURATION_MIN},
+            )
+        return by_items
+
     async def execute(
         self, clinic_id: uuid.UUID, data: CreateAppointmentInput, *, can_force: bool = False
     ) -> Appointment:
@@ -71,9 +104,6 @@ class CreateAppointmentUseCase:
         ):
             raise ValidationAppError("Услуга не из этой клиники", code="invalid_service")
 
-        duration_min = await self._availability.resolve_duration(
-            clinic_id, data.service_id, data.duration_min
-        )
         # Черновик — пациент заведён, но дата ещё не выбрана: слот не занимается,
         # проверять нечего. Это ЕДИНСТВЕННЫЙ приём без даты.
         #
@@ -114,6 +144,10 @@ class CreateAppointmentUseCase:
         await ensure_items_valid(
             clinic_id, data.items, self._appointments, doctor_id=doctor_id, force=data.force
         )
+        # Длительность — после проверки состава: считается она из услуг позиций,
+        # и брать их длительность до того, как подтверждено, что услуги из этой
+        # клиники, значит читать чужой прайс.
+        duration_min = await self._resolve_duration(clinic_id, data)
 
         scheduled_at = None if is_draft else data.scheduled_at
         # Занятость проверяем только у назначенного врача: без врача слот не занимается.

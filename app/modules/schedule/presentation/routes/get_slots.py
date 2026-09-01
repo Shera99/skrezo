@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.modules.schedule.application.use_cases.get_slots import GetSlotsUseCase
+from app.modules.schedule.domain.availability import MAX_TEETH_COUNT
 from app.modules.schedule.presentation.access import (
     ScheduleScope,
     require_schedule_read,
@@ -78,6 +79,18 @@ async def get_slots(
             "ещё и круг врачей, среди которых искать"
         ),
     ),
+    teeth_count: int = Query(
+        default=1,
+        ge=1,
+        le=MAX_TEETH_COUNT,
+        alias="teethCount",
+        description=(
+            "Сколько зубов лечим за приём. Длительность услуги задана НА ОДИН "
+            "зуб, поэтому размер слота умножается на это число: работа по трём "
+            "зубам требует втрое больше времени. По умолчанию 1"
+        ),
+        examples=[3],
+    ),
     scope: ScheduleScope = Depends(require_schedule_read),
     use_case: GetSlotsUseCase = Depends(get_get_slots_use_case),
 ) -> ScheduleSlotsResponse:
@@ -101,10 +114,13 @@ async def get_slots(
     и подбор по услуге сводятся к своему членству.
 
     Длительность слота — из ``Service.duration`` при переданном ``serviceId``,
-    иначе 30 минут. Слоты нарезаются с шагом 15 минут.
+    иначе 30 минут, **умноженная на `teethCount`**: длительность услуги клиника
+    задаёт на один зуб, и слот под лечение трёх зубов втрое длиннее. Итоговый
+    размер слота возвращается в `durationMin` — по нему видно, что подобрано.
+    Слоты нарезаются с шагом 15 минут.
     """
     # own-контур: и явный doctorId, и подбор по услуге сводим к своему членству,
     # иначе врач увидел бы свободное время коллег в обход 403 на явный запрос.
     doctor_id = resolve_scope_doctor(scope, doctor_id) or doctor_id
-    slots = await use_case.execute(scope.clinic_id, doctor_id, day, service_id)
+    slots = await use_case.execute(scope.clinic_id, doctor_id, day, service_id, teeth_count)
     return ScheduleSlotsResponse.from_day_slots(slots)
