@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -47,11 +47,15 @@ from app.modules.push.infrastructure.repositories.inbox_repository import InboxR
 from app.modules.push.infrastructure.repositories.notification_pref_repository import (
     NotificationPrefRepository,
 )
+from app.modules.push.infrastructure.repositories.push_job_repository import (
+    PushJobRepository,
+)
 from app.shared.db.enums import Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
+from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.role import Role
@@ -61,6 +65,10 @@ from app.shared.push.transport import PushTransport
 from app.shared.realtime import RealtimeGateway
 
 logger = structlog.get_logger(__name__)
+
+#: Фора normal-пуша: если за это время приложение подтвердило ПОКАЗ записи
+#: (человек уже смотрит в экран), пуш не нужен и job отменяется (ТЗ-СУ §3).
+NORMAL_PUSH_DELAY = timedelta(seconds=10)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +101,7 @@ class EventDispatcher:
         self._inbox = InboxRepository(session)
         self._devices = DeviceRepository(session)
         self._prefs = NotificationPrefRepository(session)
+        self._jobs = PushJobRepository(session)
         self._transport = transport
         self._realtime = realtime
 
@@ -160,7 +169,7 @@ class EventDispatcher:
                     "entity_id": event.entity_id,
                 }
             )
-        await self._inbox.insert_items(rows)
+        inserted_ids = await self._inbox.insert_items(rows)
 
         # Сигнал открытым экранам (Ф4). Идёт до пушей: он дешевле и мгновенный.
         await self._realtime.emit(
@@ -170,6 +179,13 @@ class EventDispatcher:
 
         if rung is Rung.CRITICAL:
             await self._push_now(event, spec, recipients, context)
+        elif rung is Rung.NORMAL:
+            # Пуш с форой: отправит send_due_jobs(), если показ не подтвердят.
+            # Job'ы — только на ВСТАВЛЕННЫЕ строки: повторная обработка события
+            # не дублирует ни инбокс, ни отложенные пуши.
+            await self._jobs.schedule(
+                inserted_ids, send_after=datetime.now(UTC) + NORMAL_PUSH_DELAY
+            )
 
     # ── Контекст события ────────────────────────────────────────────────────
 
@@ -293,6 +309,91 @@ class EventDispatcher:
             if row is not None:
                 recipients[row[0]] = _Recipient(account_id=row[0], lang=row[1])
         return list(recipients.values())
+
+    # ── Отложенные пуши (normal) ────────────────────────────────────────────
+
+    async def send_due_jobs(self, limit: int = 50) -> int:
+        """Отправить созревшие push_job'ы; вернуть число обработанных.
+
+        Захват атомарный (``claim_due`` сразу ставит ``sent_at``), поэтому
+        упавшая доставка НЕ возвращает job в очередь: пуш — деградация, инбокс
+        уже доставлен, а повторный пуш хуже пропущенного дубля.
+        """
+        claimed = await self._jobs.claim_due(limit)
+        for _job, item in claimed:
+            try:
+                await self._send_job_push(item)
+            except Exception as exc:  # одна ошибка не валит пачку
+                logger.error("push_job_send_failed", inbox_item_id=item.id, error=str(exc))
+        if claimed:
+            await self._session.commit()
+        return len(claimed)
+
+    async def next_job_due_at(self) -> datetime | None:
+        """Ближайший срок отправки — цикл воркера подбирает под него сон."""
+        return await self._jobs.next_due_at()
+
+    async def _send_job_push(self, item: InboxItem) -> None:
+        """Пуш по снимку инбокса: текст уже зафиксирован на языке адресата.
+
+        Пер-устройственного рендера здесь нет намеренно: показанное в пуше
+        обязано совпадать с записью в инбоксе, на которую он указывает.
+        """
+        pref = await self._prefs.get(item.account_id, item.clinic_id)
+        if pref is not None and item.type in (pref.disabled or []):
+            return
+        devices = await self._devices.list_by_accounts(item.clinic_id, [item.account_id])
+        if not devices:
+            return
+
+        spec = EVENT_CATALOG.get(item.type)
+        scheduled_at: datetime | None = None
+        tz = await self._clinic_tz(item.clinic_id)
+        if item.entity_type == "appointment" and item.entity_id is not None:
+            scheduled_at = (
+                await self._session.execute(
+                    select(Appointment.scheduled_at).where(Appointment.id == item.entity_id)
+                )
+            ).scalar_one_or_none()
+        now = datetime.now(UTC)
+        ttl = push_ttl_seconds(spec, scheduled_at, now) if spec else 4 * 3600
+        thread_id = None
+        if item.entity_type == "appointment" and scheduled_at is not None:
+            thread_id = f"day:{scheduled_at.astimezone(tz).date().isoformat()}"
+        elif item.type.startswith("payment."):
+            thread_id = "cash"
+        badge = await self._inbox.unread_count(item.account_id, item.clinic_id)
+
+        data: dict[str, str] = {
+            # Тот же id, что у critical-пути: клиент дедуплицирует по событию.
+            "type": item.type,
+            "id": f"evt_{item.event_id}",
+            "clinicId": str(item.clinic_id),
+        }
+        if item.entity_type and item.entity_id:
+            data["entityType"] = item.entity_type
+            data["entityId"] = str(item.entity_id)
+        message = PushMessage(
+            data=data,
+            title=item.title or None,
+            body=item.body or None,
+            collapse_key=f"{item.entity_type}:{item.entity_id}",
+            urgent=False,
+            android_channel=spec.android_channel if spec else "schedule-changes.v1",
+            ttl_seconds=ttl,
+            badge=badge,
+            thread_id=thread_id,
+        )
+        dead: list[str] = []
+        for device in devices:
+            try:
+                await self._transport.send(device.platform, device.token, message)
+            except DeadTokenError:
+                dead.append(device.token)
+            except PushDeliveryError as exc:
+                logger.warning("push_delivery_failed", type=item.type, error=str(exc))
+        for token in dead:
+            await self._devices.delete_dead(token)
 
     # ── Пуш critical ────────────────────────────────────────────────────────
 

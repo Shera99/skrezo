@@ -16,7 +16,12 @@ from app.core.db import get_session
 from app.core.errors import ForbiddenError, NotFoundError
 from app.modules.access.presentation.deps import get_clinic_context
 from app.modules.push.infrastructure.repositories.inbox_repository import InboxRepository
+from app.modules.push.infrastructure.repositories.push_job_repository import (
+    PushJobRepository,
+)
 from app.modules.push.presentation.schemas import (
+    InboxDisplayedRequest,
+    InboxDisplayedResponse,
     InboxItemOut,
     InboxReadResponse,
     InboxResponse,
@@ -116,3 +121,30 @@ async def mark_all_read(
     await inbox.mark_all_read(context.account_id, context.clinic_id)
     await session.commit()
     return InboxReadResponse(unread_count=0)
+
+
+@router.post(
+    "/clinic/inbox/displayed",
+    response_model=InboxDisplayedResponse,
+    summary="Подтвердить показ записей (отменяет отложенные пуши)",
+    response_description="Сколько отложенных пушей отменено",
+)
+async def confirm_displayed(
+    body: InboxDisplayedRequest,
+    context: ClientContext = Depends(get_clinic_context),
+    session: AsyncSession = Depends(get_session),
+) -> InboxDisplayedResponse:
+    """Приложение подтверждает, что записи ОТРИСОВАНЫ на переднем плане.
+
+    Это и есть отмена normal-пуша (ТЗ-СУ §3): человек уже увидел событие
+    живьём — толкать его пушем через 10 секунд незачем. Подтверждать можно
+    пачкой (экран отрисовал ленту) и повторно (идемпотентно); чужие id молча
+    пропускаются. Уже отправленный пуш не отзывается — это невозможно ни на
+    одной платформе.
+    """
+    if context.clinic_id is None:
+        raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+    jobs = PushJobRepository(session)
+    canceled = await jobs.cancel_for_items(context.account_id, context.clinic_id, body.ids)
+    await session.commit()
+    return InboxDisplayedResponse(canceled=canceled)

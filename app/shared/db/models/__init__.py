@@ -34,6 +34,7 @@ from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.permission import Permission
 from app.shared.db.models.push_event import PushEvent
+from app.shared.db.models.push_job import PushJob
 from app.shared.db.models.role import Role
 from app.shared.db.models.role_permission import RolePermission
 from app.shared.db.models.service import Service
@@ -75,6 +76,7 @@ __all__ = [
     "PatientTooth",
     "Permission",
     "PushEvent",
+    "PushJob",
     "Role",
     "RolePermission",
     "Service",

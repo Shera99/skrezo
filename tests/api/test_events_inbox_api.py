@@ -307,3 +307,167 @@ async def test_read_flow_and_isolation(
     assert done.status_code == 200
     assert done.json()["unreadCount"] == 0
     assert (await _inbox(client, ctx.doctor_headers))["unreadCount"] == 0
+
+
+# ── 4. Отложенные пуши (push_job) ───────────────────────────────────────────
+
+from app.shared.db.models.push_job import PushJob  # noqa: E402
+from app.shared.push.channels import PushChannel  # noqa: E402
+from app.shared.push.message import PushMessage  # noqa: E402
+from app.shared.push.transport import PushTransport  # noqa: E402
+
+
+class _RecordingChannel:
+    """Фейковый канал: копит отправленные пуши вместо сети."""
+
+    name = "rec"
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, PushMessage]] = []
+
+    async def send(self, token: str, message: PushMessage) -> None:
+        self.sent.append((token, message))
+
+
+def _recording_transport() -> tuple[PushTransport, _RecordingChannel]:
+    channel = _RecordingChannel()
+    channels: dict[str, PushChannel] = {"android": channel, "ios": channel}
+    return PushTransport(channels=channels, fallback=channel), channel
+
+
+async def _run(
+    resources: Resources, transport: PushTransport | None = None
+) -> tuple[int, int]:
+    """Полный тик воркера: события + созревшие отложенные пуши."""
+    async with resources.factory() as session:
+        dispatcher = EventDispatcher(
+            session, transport or build_push_transport(), NoopRealtimeGateway()
+        )
+        processed = await dispatcher.dispatch_pending()
+        sent = await dispatcher.send_due_jobs()
+    return processed, sent
+
+
+async def _register_device(client: AsyncClient, headers: dict[str, str], token: str) -> None:
+    resp = await client.post(
+        f"{API}/clinic/devices",
+        headers=headers,
+        json={"token": token, "platform": "android", "locale": "ru"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def _ripen_jobs(resources: Resources) -> None:
+    """Прокрутить время: все живые job'ы созревают немедленно."""
+    async with resources.factory() as session:
+        await session.execute(
+            update(PushJob).values(send_after=datetime.now(UTC) - timedelta(seconds=1))
+        )
+        await session.commit()
+
+
+async def test_normal_push_waits_then_sends_from_inbox_snapshot(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """normal не пушится сразу: job с форой, после срока — пуш снимком инбокса."""
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "doc-android-1")
+    await _book(client, ctx, hours=2)  # 1–4 ч = NORMAL
+
+    processed, sent = await _run(_resources, transport)
+    assert processed == 1
+    assert sent == 0  # фора 10 секунд ещё не вышла
+    assert recorder.sent == []
+
+    await _ripen_jobs(_resources)
+    _, sent = await _run(_resources, transport)
+    assert sent >= 1
+    tokens = [token for token, _ in recorder.sent]
+    assert "doc-android-1" in tokens
+    message = next(m for t, m in recorder.sent if t == "doc-android-1")
+    inbox_item = (await _inbox(client, ctx.doctor_headers))["items"][0]
+    assert message.title == inbox_item["title"]  # пуш = снимок инбокса
+    assert message.body == inbox_item["body"]
+    assert message.urgent is False
+    assert message.android_channel == "schedule-changes.v1"
+    assert message.data["id"].startswith("evt_")  # тот же дедуп-ключ, что у critical
+    assert message.badge == 1  # свежий unread адресата
+    assert message.ttl_seconds is not None and message.ttl_seconds > 0
+    assert message.thread_id is not None and message.thread_id.startswith("day:")
+
+
+async def test_displayed_cancels_pending_push(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Показ подтверждён — отложенный пуш отменяется и не уходит никогда."""
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "doc-android-2")
+    await _book(client, ctx, hours=2)
+    await _run(_resources, transport)
+
+    item_id = (await _inbox(client, ctx.doctor_headers))["items"][0]["id"]
+    confirmed = await client.post(
+        f"{API}/clinic/inbox/displayed",
+        headers=ctx.doctor_headers,
+        json={"ids": [item_id]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["canceled"] == 1
+
+    again = await client.post(
+        f"{API}/clinic/inbox/displayed",
+        headers=ctx.doctor_headers,
+        json={"ids": [item_id]},
+    )
+    assert again.json()["canceled"] == 0  # идемпотентно
+
+    await _ripen_jobs(_resources)
+    await _run(_resources, transport)
+    assert recorder.sent == []  # отменённый job не отправляется
+
+
+async def test_displayed_ignores_foreign_items(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Чужая запись (владельца) не отменяется врачом — и не роняет батч."""
+    await _book(client, ctx, hours=2)
+    await _run(_resources)
+    owner_item = (await _inbox(client, ctx.owner_headers))["items"][0]["id"]
+    resp = await client.post(
+        f"{API}/clinic/inbox/displayed",
+        headers=ctx.doctor_headers,
+        json={"ids": [owner_item]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["canceled"] == 0
+
+
+async def test_critical_pushes_immediately_without_job(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """critical — пуш немедленно, отложенных job'ов не заводится."""
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "doc-android-3")
+    await _book(client, ctx, hours=0.5)
+    processed, _ = await _run(_resources, transport)
+    assert processed == 1
+    assert any(t == "doc-android-3" for t, _ in recorder.sent)
+    urgent = next(m for t, m in recorder.sent if t == "doc-android-3")
+    assert urgent.urgent is True
+    async with _resources.factory() as session:
+        jobs = (await session.execute(select(PushJob.id))).scalars().all()
+    assert jobs == []
+
+
+async def test_digest_horizon_creates_no_job(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """4–48 ч (в сводку): только инбокс — ни пуша, ни отложенного job'а."""
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "doc-android-4")
+    await _book(client, ctx, hours=30)
+    await _run(_resources, transport)
+    assert recorder.sent == []
+    async with _resources.factory() as session:
+        jobs = (await session.execute(select(PushJob.id))).scalars().all()
+    assert jobs == []

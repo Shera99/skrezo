@@ -93,9 +93,10 @@ class FcmChannel:
 
     def _build_message(self, token: str, message: PushMessage) -> dict[str, Any]:
         android: dict[str, Any] = {
-            # HIGH и для обычных: Doze копит NORMAL до окна обслуживания (§7),
-            # а «неважных» пушей у нас не бывает — low вообще не шлётся.
-            "priority": "HIGH" if message.urgent else "NORMAL",
+            # ВСЕГДА HIGH: Doze копит NORMAL-приоритет до окна обслуживания
+            # (§7 «иначе Doze копит»), а «неважных» пушей у нас не бывает —
+            # low не шлётся вовсе, важность решает канал, не приоритет доставки.
+            "priority": "HIGH",
         }
         if message.collapse_key:
             android["collapse_key"] = message.collapse_key

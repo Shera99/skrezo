@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 
 import asyncpg
 import structlog
@@ -72,19 +73,28 @@ async def run_dispatcher_loop() -> None:
     logger.info("event_dispatcher_started")
     try:
         while True:
+            timeout = POLL_INTERVAL_SECONDS
             try:
                 async with session_factory() as session:
                     dispatcher = EventDispatcher(
                         session, build_push_transport(), build_realtime_gateway()
                     )
                     processed = await dispatcher.dispatch_pending()
+                    # Отложенные normal-пуши: созревшие — отправить, а сон
+                    # подобрать под ближайший срок (фора всего 10 секунд —
+                    # ждать общего 30-секундного тика значит опаздывать втрое).
+                    processed += await dispatcher.send_due_jobs()
+                    next_due = await dispatcher.next_job_due_at()
+                    if next_due is not None:
+                        left = (next_due - datetime.now(UTC)).total_seconds()
+                        timeout = min(POLL_INTERVAL_SECONDS, max(left, 0.5))
             except Exception as exc:  # БД мигнула — цикл живёт дальше
                 logger.error("event_dispatcher_tick_failed", error=str(exc))
                 processed = 0
             if processed:
                 continue  # в очереди могло остаться больше пачки — сразу ещё раз
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(wakeup.wait(), timeout=POLL_INTERVAL_SECONDS)
+                await asyncio.wait_for(wakeup.wait(), timeout=timeout)
             wakeup.clear()
     finally:
         listener.cancel()

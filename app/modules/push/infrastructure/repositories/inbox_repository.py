@@ -18,21 +18,22 @@ class InboxRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert_items(self, rows: list[dict[str, Any]]) -> int:
-        """Вставить строки адресатов; дубли (event_id, account_id) молча пропустить.
+    async def insert_items(self, rows: list[dict[str, Any]]) -> list[int]:
+        """Вставить строки адресатов; вернуть id ВСТАВЛЕННЫХ (дубли — молча мимо).
 
         Уникальный индекс + ``ON CONFLICT DO NOTHING`` и есть идемпотентность
-        диспетчера: повторная обработка события никому ничего не дублирует.
+        диспетчера: повторная обработка события никому ничего не дублирует —
+        и не ставит повторных push_job'ов (их создают только новые id).
         """
         if not rows:
-            return 0
+            return []
         result = await self._session.execute(
             pg_insert(InboxItem)
             .values(rows)
             .on_conflict_do_nothing(constraint="uq_inbox_item_event_account")
             .returning(InboxItem.id)
         )
-        return len(list(result.scalars()))
+        return list(result.scalars())
 
     async def list_page(
         self,
