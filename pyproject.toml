@@ -21,6 +21,8 @@ dependencies = [
     "structlog>=24.4",
     "orjson>=3.10",
     "python-multipart>=0.0.20",
+    "cryptography>=43",
+    "h2>=4",
 ]
 
 [dependency-groups]

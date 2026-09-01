@@ -125,8 +125,9 @@ make run           # uvicorn с автоперезагрузкой
 | `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
 | `NOTIFY_CHANNELS` | каналы уведомлений (не OTP) по приоритету: `whatsapp,sms` | — (лог) |
 | `NOTIFY_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру уведомлений | `5` |
-| `FCM_SERVICE_ACCOUNT_JSON` | пуши Android: service-account Firebase (JSON строкой) | — (лог) |
-| `APNS_KEY` / `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_USE_SANDBOX` | пуши iOS (ключ `.p8`) | — (лог) / `true` |
+| `PUSH_ENABLED` | рубильник живых пушей; `false` — всё в лог даже с кредами | `false` |
+| `FCM_SERVICE_ACCOUNT_JSON` | пуши Android: service-account Firebase — JSON строкой **или путь к файлу** | — (лог) |
+| `APNS_KEY` / `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_USE_SANDBOX` | пуши iOS: ключ `.p8` — содержимое **или путь к файлу** + идентификаторы | — (лог) / `true` |
 | `WA_CLOUD_API_URL` | Graph API Meta (переписка WhatsApp, НЕ OTP-канал) | `https://graph.facebook.com/v23.0` |
 | `WA_CLOUD_ACCESS_TOKEN` | system-user token приложения Meta | — (лог: исходящие в лог) |
 | `WA_CLOUD_APP_SECRET` | подпись вебхука `X-Hub-Signature-256` | — (⚠️ в бою обязателен) |

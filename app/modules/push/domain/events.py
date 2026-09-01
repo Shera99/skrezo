@@ -49,20 +49,42 @@ class EventSpec:
     static_rung: Rung | None
     # «+1» для переноса и отмены: ступень вверх относительно создания.
     bump: bool = False
+    # Канал Android (§10): версионированный id — настройки канала неизменяемы.
+    android_channel: str = "schedule-changes.v1"
+    # Срок годности пуша (сек); None — «до начала приёма» (динамический TTL).
+    ttl_seconds: int | None = None
 
 
 _ALL = frozenset({Audience.DOCTOR, Audience.MANAGER, Audience.OWNER})
+_HOUR = 3600
 
 #: Каталог §4 (та его часть, что уже эмитится; ai.* и digest.* добавятся сами).
 EVENT_CATALOG: dict[str, EventSpec] = {
-    "appointment.created": EventSpec(_ALL, None),
-    "appointment.moved": EventSpec(_ALL, None, bump=True),
-    "appointment.canceled": EventSpec(_ALL, None, bump=True),
+    # TTL created/moved — до начала приёма: узнать о записи после её начала
+    # уже поздно, пусть протухает у платформы, а не пугает врача задним числом.
+    "appointment.created": EventSpec(_ALL, None, ttl_seconds=None),
+    "appointment.moved": EventSpec(_ALL, None, bump=True, ttl_seconds=None),
+    "appointment.canceled": EventSpec(_ALL, None, bump=True, ttl_seconds=4 * _HOUR),
     "appointment.status_changed": EventSpec(
-        frozenset({Audience.DOCTOR, Audience.MANAGER}), Rung.LOW
+        frozenset({Audience.DOCTOR, Audience.MANAGER}), Rung.LOW, ttl_seconds=12 * _HOUR
     ),
-    "payment.created": EventSpec(frozenset({Audience.MANAGER, Audience.OWNER}), Rung.LOW),
+    "payment.created": EventSpec(
+        frozenset({Audience.MANAGER, Audience.OWNER}),
+        Rung.LOW,
+        android_channel="cash.v1",
+        ttl_seconds=24 * _HOUR,
+    ),
 }
+
+
+def push_ttl_seconds(spec: EventSpec, scheduled_at: datetime | None, now: datetime) -> int:
+    """TTL пуша: статический из каталога либо «до начала приёма» (мин. минута)."""
+    if spec.ttl_seconds is not None:
+        return spec.ttl_seconds
+    if scheduled_at is None:
+        return 4 * _HOUR
+    left = int((scheduled_at - now).total_seconds())
+    return max(left, 60)
 
 
 def horizon_rung(scheduled_at: datetime | None, now: datetime) -> Rung:

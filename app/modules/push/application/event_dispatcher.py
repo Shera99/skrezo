@@ -37,6 +37,7 @@ from app.modules.push.domain.events import (
     EventSpec,
     Rung,
     format_som,
+    push_ttl_seconds,
     resolve_rung,
     stored_priority,
 )
@@ -75,6 +76,7 @@ class _Context:
     scheduled_at: datetime | None
     doctor_membership_id: uuid.UUID | None
     params: dict[str, str]  # плейсхолдеры текста: patientName, time, amount
+    tz: ZoneInfo  # пояс клиники — время в текстах и группировка «по дню»
 
 
 class EventDispatcher:
@@ -167,7 +169,7 @@ class EventDispatcher:
         )
 
         if rung is Rung.CRITICAL:
-            await self._push_now(event, recipients, context)
+            await self._push_now(event, spec, recipients, context)
 
     # ── Контекст события ────────────────────────────────────────────────────
 
@@ -201,6 +203,7 @@ class EventDispatcher:
                     "patientName": patient_name or "пациент",
                     "time": self._format_time(scheduled_at, tz),
                 },
+                tz=tz,
             )
         if event.type == "payment.created":
             patient_name = ""
@@ -224,8 +227,9 @@ class EventDispatcher:
                     "patientName": patient_name or "пациент",
                     "amount": format_som(amount),
                 },
+                tz=tz,
             )
-        return _Context(scheduled_at=None, doctor_membership_id=None, params={})
+        return _Context(scheduled_at=None, doctor_membership_id=None, params={}, tz=tz)
 
     async def _clinic_tz(self, clinic_id: uuid.UUID) -> ZoneInfo:
         name = (
@@ -292,8 +296,17 @@ class EventDispatcher:
 
     # ── Пуш critical ────────────────────────────────────────────────────────
 
+    def _thread_id(self, event: Event, context: _Context) -> str | None:
+        """Группировка (§10): приёмы стопкой по дню клиники, касса — одной."""
+        if event.type.startswith("appointment.") and context.scheduled_at is not None:
+            local_day = context.scheduled_at.astimezone(context.tz).date().isoformat()
+            return f"day:{local_day}"
+        if event.type.startswith("payment."):
+            return "cash"
+        return None
+
     async def _push_now(
-        self, event: Event, recipients: list[_Recipient], context: _Context
+        self, event: Event, spec: EventSpec, recipients: list[_Recipient], context: _Context
     ) -> None:
         """Немедленный пуш адресатам (минус отключённые типы из префов)."""
         allowed: list[uuid.UUID] = []
@@ -307,6 +320,14 @@ class EventDispatcher:
             return
 
         collapse_key = f"{event.entity_type}:{event.entity_id}"
+        ttl = push_ttl_seconds(spec, context.scheduled_at, datetime.now(UTC))
+        thread_id = self._thread_id(event, context)
+        # Бейдж — в каждый пуш: счётчик на устройстве самовосстанавливается
+        # после любых пропусков. Считается ПОСЛЕ вставки инбокса — свежий.
+        badges: dict[uuid.UUID, int] = {
+            account_id: await self._inbox.unread_count(account_id, event.clinic_id)
+            for account_id in allowed
+        }
         dead: list[str] = []
         for device in devices:
             texts = catalog.render(event.type, device.locale, **context.params) or {}
@@ -326,7 +347,10 @@ class EventDispatcher:
                 body=texts.get("body") or None,
                 collapse_key=collapse_key,
                 urgent=True,
-                android_channel="appointments-urgent",
+                android_channel=spec.android_channel,
+                ttl_seconds=ttl,
+                badge=badges.get(device.account_id),
+                thread_id=thread_id,
             )
             try:
                 await self._transport.send(device.platform, device.token, message)
