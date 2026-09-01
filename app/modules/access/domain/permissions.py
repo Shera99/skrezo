@@ -101,6 +101,13 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef("roles.manage", "roles", "Управление ролями и правами", is_write=True),
     # Журнал действий
     PermissionDef("audit.view", "audit", "Журнал действий сотрудников клиники"),
+    # Переписка WhatsApp (канал Cloud API)
+    PermissionDef(
+        "conversations.manage",
+        "conversations",
+        "Переписка WhatsApp с пациентами",
+        is_write=True,
+    ),
 ]
 
 ALL_PERMISSION_KEYS: tuple[str, ...] = tuple(p.key for p in PERMISSION_CATALOG)
@@ -157,6 +164,9 @@ DEFAULT_ROLES: list[RoleDef] = [
             # Журнал действий — инструмент надзора: администратор разбирает
             # спорные отмены и возвраты, поэтому право у него есть по умолчанию.
             "audit.view",
+            # Переписка с пациентами — работа ресепшена (Р22: врач по умолчанию
+            # пациентам не отвечает, поэтому у роли «Работник» права нет).
+            "conversations.manage",
         ),
         20,
     ),

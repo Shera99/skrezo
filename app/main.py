@@ -53,6 +53,7 @@ from app.modules.subscriptions.presentation.routes import (
 )
 from app.modules.subscriptions.presentation.routes import router as subscription_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
+from app.modules.whatsapp.presentation.routes import router as whatsapp_router
 
 OPENAPI_DESCRIPTION = """
 Бэкенд **платформенной зоны Skrezo** (админ-панель команды) и **рабочего
@@ -187,6 +188,16 @@ OPENAPI_TAGS = [
             "Устройства сотрудника и его настройки уведомлений (тихие часы, "
             "отключённые типы) — свои, без отдельного права. Сама доставка пушей "
             "(FCM/APNs) появится в следующих инкрементах."
+        ),
+    },
+    {
+        "name": "whatsapp",
+        "x-displayName": "WhatsApp (переписка)",
+        "description": (
+            "Канал WhatsApp Cloud API: вебхук Meta, диалоги пациентов, ответы "
+            "клиники (право `conversations.manage`), привязка номера из админки. "
+            "Свободный текст — только в 24-часовое окно после сообщения пациента; "
+            "дальше — одобренные шаблоны. Не путать с OTP-каналами доставки кодов."
         ),
     },
     {
@@ -355,6 +366,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
     app.include_router(push_router, prefix=settings.api_v1_prefix)
+    app.include_router(whatsapp_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:
         """Схема OpenAPI с группами разделов ReDoc (``x-tagGroups``)."""

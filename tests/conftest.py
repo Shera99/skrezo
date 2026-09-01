@@ -94,6 +94,9 @@ _CLEAN_SQL = [
     "DELETE FROM membership",
     "DELETE FROM role WHERE clinic_id IS NOT NULL",
     "DELETE FROM lead",
+    # Общие шаблоны WhatsApp (clinic_id IS NULL) каскадом от клиники не
+    # чистятся; диалоги/сообщения/привязки уходят каскадом вместе с clinic.
+    "DELETE FROM whatsapp_template",
     "DELETE FROM clinic",
     "DELETE FROM account",
     # Журнал воркера ни на кого не ссылается, но копится между тестами и ломает

@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from app.shared.db.models.account import Account
+from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
@@ -16,6 +18,7 @@ from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_application import ClinicApplication
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
 from app.shared.db.models.device import Device
 from app.shared.db.models.doctor_schedule import DoctorSchedule
@@ -39,9 +42,12 @@ from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
 from app.shared.db.models.tariff_package import TariffPackage
 from app.shared.db.models.tariff_version import TariffVersion
+from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 
 __all__ = [
     "Account",
+    "AiConversation",
+    "AiMessage",
     "Appointment",
     "AppointmentItem",
     "AppointmentItemTooth",
@@ -51,6 +57,7 @@ __all__ = [
     "CityTranslation",
     "Clinic",
     "ClinicApplication",
+    "ClinicWhatsApp",
     "ClinicWorkingHours",
     "Device",
     "DoctorSchedule",
@@ -74,4 +81,5 @@ __all__ = [
     "SubscriptionEvent",
     "TariffPackage",
     "TariffVersion",
+    "WhatsAppTemplate",
 ]

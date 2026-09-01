@@ -1,0 +1,182 @@
+"""Схемы модуля WhatsApp (переписка с пациентами)."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+
+from pydantic import Field
+
+from app.modules.whatsapp.domain.models import ConversationRow
+from app.modules.whatsapp.domain.window import is_window_open
+from app.shared.api.schemas import CamelModel
+from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang, WhatsAppMode
+from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+
+
+class ConversationListItem(CamelModel):
+    """Строка списка диалогов."""
+
+    id: uuid.UUID
+    wa_phone: str = Field(description="Номер пациента (E.164)", examples=["+996700123456"])
+    patient_id: uuid.UUID | None = Field(
+        default=None, description="Глобальный пациент, если номер опознан"
+    )
+    patient_name: str | None = None
+    lang: Lang
+    status: AiConversationStatus
+    last_msg_at: datetime
+    last_patient_msg_at: datetime | None = None
+    window_open: bool = Field(
+        description=(
+            "Открыто ли 24-часовое окно Meta: `true` — можно свободный текст, "
+            "`false` — только одобренные шаблоны"
+        )
+    )
+    last_message_preview: str | None = Field(
+        default=None, description="Начало последнего сообщения диалога"
+    )
+
+    @classmethod
+    def from_row(cls, r: ConversationRow, *, now: datetime) -> ConversationListItem:
+        preview = (r.last_body or "").strip() or None
+        if preview is not None and len(preview) > 120:
+            preview = preview[:119] + "…"
+        return cls(
+            id=r.id,
+            wa_phone=r.wa_phone,
+            patient_id=r.patient_id,
+            patient_name=r.patient_name,
+            lang=r.lang,
+            status=r.status,
+            last_msg_at=r.last_msg_at,
+            last_patient_msg_at=r.last_patient_msg_at,
+            window_open=is_window_open(r.last_patient_msg_at, now),
+            last_message_preview=preview,
+        )
+
+
+class ConversationsResponse(CamelModel):
+    list: list[ConversationListItem]
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class MessageOut(CamelModel):
+    """Сообщение диалога."""
+
+    id: int
+    role: AiMessageRole
+    body: str
+    wa_message_id: str | None = None
+    media_type: str | None = Field(
+        default=None, description="Тип вложения по словарю Meta (audio/image/…)"
+    )
+    has_media: bool = Field(description="Скачано ли вложение (доступно ли по ручке медиа)")
+    sent_at: datetime | None = Field(
+        default=None, description="null — не отправлено (теневой режим или блок, Ф2)"
+    )
+    created_at: datetime
+
+    @classmethod
+    def from_orm_message(cls, m: AiMessage) -> MessageOut:
+        return cls(
+            id=m.id,
+            role=m.role,
+            body=m.body,
+            wa_message_id=m.wa_message_id,
+            media_type=m.media_type,
+            has_media=m.media_path is not None,
+            sent_at=m.sent_at,
+            created_at=m.created_at,
+        )
+
+
+class MessagesResponse(CamelModel):
+    """История диалога: шапка + страница сообщений (новые сверху)."""
+
+    conversation_id: uuid.UUID
+    wa_phone: str
+    patient_id: uuid.UUID | None = None
+    patient_name: str | None = None
+    lang: Lang
+    status: AiConversationStatus
+    window_open: bool
+    items: list[MessageOut] = Field(
+        description="Сообщения новыми сверху; продолжение — `beforeId` = id последнего"
+    )
+
+    @classmethod
+    def build(
+        cls,
+        conversation: AiConversation,
+        patient_name: str | None,
+        items: list[AiMessage],
+    ) -> MessagesResponse:
+        return cls(
+            conversation_id=conversation.id,
+            wa_phone=conversation.wa_phone,
+            patient_id=conversation.patient_id,
+            patient_name=patient_name,
+            lang=conversation.lang,
+            status=conversation.status,
+            window_open=is_window_open(conversation.last_patient_msg_at, datetime.now(UTC)),
+            items=[MessageOut.from_orm_message(m) for m in items],
+        )
+
+
+class SendMessageRequest(CamelModel):
+    """Свободный текст пациенту (только в открытое 24-часовое окно)."""
+
+    body: str = Field(
+        min_length=1,
+        max_length=4096,
+        description="Текст сообщения",
+        examples=["Здравствуйте! Завтра в 11:00 вас ждёт Асель Кубатовна."],
+    )
+
+
+class ConnectWhatsAppRequest(CamelModel):
+    """Привязка номера Cloud API к клинике (админка Skrezo)."""
+
+    phone_number_id: str = Field(
+        min_length=1,
+        description="Идентификатор номера в Meta — по нему вебхук находит клинику",
+        examples=["712233445566778"],
+    )
+    display_phone: str = Field(
+        min_length=1, description="Сам номер (E.164)", examples=["+996700123456"]
+    )
+    waba_id: str | None = Field(
+        default=None, description="WhatsApp Business Account — для синхронизации шаблонов"
+    )
+    mode: WhatsAppMode = Field(
+        default=WhatsAppMode.API_ONLY,
+        description="`api_only` — отдельный номер; `coexistence` — рабочий номер клиники",
+    )
+    active: bool = Field(default=True, description="`false` выключает приём вебхука")
+
+
+class ClinicWhatsAppResponse(CamelModel):
+    """Привязка номера клиники."""
+
+    clinic_id: uuid.UUID
+    phone_number_id: str
+    display_phone: str
+    waba_id: str | None = None
+    mode: WhatsAppMode
+    active: bool
+
+    @classmethod
+    def from_binding(cls, b: ClinicWhatsApp) -> ClinicWhatsAppResponse:
+        return cls(
+            clinic_id=b.clinic_id,
+            phone_number_id=b.phone_number_id,
+            display_phone=b.display_phone,
+            waba_id=b.waba_id,
+            mode=b.mode,
+            active=b.active,
+        )

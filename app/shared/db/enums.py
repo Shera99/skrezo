@@ -167,6 +167,30 @@ class DevicePlatform(enum.StrEnum):
 DEFAULT_LANG = Lang.RU
 
 # Единые типы для колонок (PG enum один на всю схему).
+class AiConversationStatus(enum.StrEnum):
+    """Статус диалога WhatsApp с пациентом (канал Cloud API)."""
+
+    ACTIVE = "active"  # идёт переписка
+    CLOSED = "closed"  # пауза больше суток — закрыт фоновой задачей
+    ESCALATED = "escalated"  # передан человеку (появится в Ф2 — ассистент)
+
+
+class AiMessageRole(enum.StrEnum):
+    """Автор сообщения в диалоге WhatsApp."""
+
+    PATIENT = "patient"
+    BOT = "bot"  # ассистент (Ф2)
+    ADMIN = "admin"  # сотрудник клиники
+    SYSTEM = "system"  # служебные вставки (шаблон, пометки)
+
+
+class WhatsAppMode(enum.StrEnum):
+    """Режим подключения номера клиники к Cloud API (§2.3 ТЗ ассистента)."""
+
+    API_ONLY = "api_only"  # отдельный номер, отвечает только наш интерфейс
+    COEXISTENCE = "coexistence"  # рабочий номер клиники + приложение WA Business
+
+
 LangType = SAEnum(Lang, name="lang_enum", values_callable=lambda e: [m.value for m in e])
 ClinicTypeType = SAEnum(
     ClinicType, name="clinic_type", values_callable=lambda e: [m.value for m in e]
@@ -213,4 +237,15 @@ JobRunStatusType = SAEnum(
 )
 DevicePlatformType = SAEnum(
     DevicePlatform, name="device_platform", values_callable=lambda e: [m.value for m in e]
+)
+AiConversationStatusType = SAEnum(
+    AiConversationStatus,
+    name="ai_conversation_status",
+    values_callable=lambda e: [m.value for m in e],
+)
+AiMessageRoleType = SAEnum(
+    AiMessageRole, name="ai_message_role", values_callable=lambda e: [m.value for m in e]
+)
+WhatsAppModeType = SAEnum(
+    WhatsAppMode, name="whatsapp_mode", values_callable=lambda e: [m.value for m in e]
 )

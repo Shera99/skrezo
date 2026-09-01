@@ -32,7 +32,12 @@ from arq import cron, func
 from arq.connections import RedisSettings
 
 from app.core.config import settings
-from app.core.jobs import DISPATCH_PUSH, SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
+from app.core.jobs import (
+    DISPATCH_PUSH,
+    PROCESS_WA_INBOUND,
+    SEND_NOTIFICATION,
+    SEND_TEAM_NOTIFICATION,
+)
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
 from app.jobs.tasks.push import dispatch_push
@@ -42,6 +47,7 @@ from app.jobs.tasks.subscriptions import (
     warn_period_ending,
     warn_trial_ending,
 )
+from app.jobs.tasks.whatsapp import close_stale_conversations, process_wa_inbound
 
 
 class WorkerSettings:
@@ -57,6 +63,9 @@ class WorkerSettings:
         # реже, чем текст, — тихий sync.day не критичен, а мёртвый токен диспетчер
         # снимает сам, без ретраев.
         func(dispatch_push, name=DISPATCH_PUSH, max_tries=3, timeout=60),
+        # Разбор вебхука WhatsApp: повтор безопасен (дедуп по wa_message_id), а
+        # таймаут с запасом на скачивание медиа с серверов Meta.
+        func(process_wa_inbound, name=PROCESS_WA_INBOUND, max_tries=5, timeout=120),
         expire_trials,
         expire_paid_periods,
         warn_trial_ending,
@@ -76,6 +85,9 @@ class WorkerSettings:
         # оставлять без предупреждения клиентов другой.
         cron(warn_period_ending, hour=3, minute=20),
         cron(cleanup_job_runs, hour=2, minute=30),
+        # Диалог WhatsApp без сообщений сутки — закрыт. Полчаса — компромисс:
+        # правило «24 часа» не требует точности до минуты.
+        cron(close_stale_conversations, minute={11, 41}),
         # Каждую минуту (все поля-заглушки, секунда 0) и сразу на старте — иначе
         # только что поднятый воркер до минуты выглядит мёртвым.
         cron(heartbeat, run_at_startup=True),

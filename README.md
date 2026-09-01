@@ -125,6 +125,12 @@ make run           # uvicorn с автоперезагрузкой
 | `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
 | `NOTIFY_CHANNELS` | каналы уведомлений (не OTP) по приоритету: `whatsapp,sms` | — (лог) |
 | `NOTIFY_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру уведомлений | `5` |
+| `FCM_SERVICE_ACCOUNT_JSON` | пуши Android: service-account Firebase (JSON строкой) | — (лог) |
+| `APNS_KEY` / `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_USE_SANDBOX` | пуши iOS (ключ `.p8`) | — (лог) / `true` |
+| `WA_CLOUD_API_URL` | Graph API Meta (переписка WhatsApp, НЕ OTP-канал) | `https://graph.facebook.com/v23.0` |
+| `WA_CLOUD_ACCESS_TOKEN` | system-user token приложения Meta | — (лог: исходящие в лог) |
+| `WA_CLOUD_APP_SECRET` | подпись вебхука `X-Hub-Signature-256` | — (⚠️ в бою обязателен) |
+| `WA_CLOUD_VERIFY_TOKEN` | подтверждение подписки вебхука (GET) | — |
 | `TRIAL_WARNING_DAYS` | за сколько дней предупредить о конце триала | `3` |
 | `JOB_RUN_RETENTION_DAYS` | сколько хранить журнал запусков джоб | `30` |
 | `STORAGE_ROOT` | каталог файлов на диске (в докере — volume `./storage`) | `storage` |
@@ -705,6 +711,43 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 |---|---|---|
 | `GET` | `/admin/reports/clinics` | Свод по всем клиникам (выручка, долг, приёмы, врачи, пациенты) — экран выбора клиники |
 | `GET` | `/admin/reports/clinics/{id}/summary·revenue·doctors·services` | Тот же набор отчётов по выбранной клинике |
+
+**Пуш-уведомления (клиент-сайд).** Токены устройств и настройки на членство
+(аккаунт + клиника). Транспорт FCM/APNs config-driven: без кредов пуши пишутся
+в лог, включение — заполнение переменных окружения. Первое событие —
+`sync.day` (тихий фан-аут «перечитай день» из мутаций расписания); каталог
+видимых событий и диспетчер — по плану Ф3 (см. `docs/PUSH_NOTIFICATIONS.md`).
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `POST` | `/clinic/devices` | Зарегистрировать/обновить токен устройства (звать при входе и каждом запуске) |
+| `DELETE` | `/clinic/devices/{token}` | Снять токен — **обязательно при выходе из аккаунта** (общий планшет ресепшена) |
+| `PUT` | `/clinic/notifications/prefs` | Отключённые типы и тихие часы (по времени клиники) |
+
+**WhatsApp-канал (Ф1): переписка с пациентами.** Официальный Cloud API Meta —
+не путать с OTP-каналами доставки кодов. Вебхук отвечает 200 мгновенно,
+разбор — в воркере (без очереди — на месте); повторная доставка Meta не
+создаёт дублей (`waMessageId` уникален). Пациент матчится с глобальной
+карточкой по номеру. Диалог без сообщений сутки закрывается cron'ом.
+
+> **Окно 24 часов.** Свободный текст доступен сутки после последнего сообщения
+> ПАЦИЕНТА (собственные ответы окно не продлевают). Дальше — 422
+> `window_closed` и только одобренные шаблоны (`whatsapp_template`,
+> синхронизация из Meta — следующий инкремент). Право на переписку —
+> `conversations.manage` (владелец и менеджер; врач по умолчанию пациентам не
+> отвечает). Медиа скачивается сразу при приёме (ссылка Meta живёт минуты) и
+> отдаётся только через ручку с проверкой доступа. Режим Coexistence учтён
+> заделом: исходящие человека из приложения WhatsApp Business (эхо синка)
+> ложатся в историю ролью `admin`.
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `GET`·`POST` | `/whatsapp/webhook` | **Публичный** вебхук Meta: верификация подписки и события; подпись `X-Hub-Signature-256` обязательна при заданном `WA_CLOUD_APP_SECRET` |
+| `GET` | `/clinic/conversations?status=&page=` | Диалоги клиники: превью, статус, `windowOpen` (`conversations.manage`) |
+| `GET` | `/clinic/conversations/{id}/messages?beforeId=&limit=` | История (новые сверху, курсор «старше id») |
+| `POST` | `/clinic/conversations/{id}/messages` | Ответ свободным текстом; окно закрыто → 422 `window_closed` |
+| `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
+| `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
 
 **Защита (rate-limit).** На Redis, фиксированное окно, 429 `too_many_requests` с
 `retryAfter`: вход (`/auth/login`, по IP+телефон), смена пароля, выпуск кода

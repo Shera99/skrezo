@@ -113,6 +113,14 @@ class Settings(BaseSettings):
     # true — слать в sandbox APNs (dev-сборки приложения); false — прод.
     apns_use_sandbox: bool = True
 
+    # ── WhatsApp Cloud API (переписка с пациентами; НЕ каналы OTP выше) ─────
+    # Пустой access token включает лог-фолбэк: входящие сохраняются, исходящие
+    # пишутся в лог — система работает без кредов Meta (как пуши без FCM/APNs).
+    wa_cloud_api_url: str = "https://graph.facebook.com/v23.0"
+    wa_cloud_access_token: str = ""  # system-user token приложения Meta
+    wa_cloud_app_secret: str = ""  # APP_SECRET — подпись вебхука X-Hub-Signature-256
+    wa_cloud_verify_token: str = ""  # проверочный токен подписки вебхука (GET)
+
     # ── Хранилище файлов ────────────────────────────────────────────────────
     # Каталог на диске сервера (относительно корня проекта или абсолютный).
     # Внутри — storage/{images|files}/ГГГГ/ММ/ДД/. В докере это volume: без него

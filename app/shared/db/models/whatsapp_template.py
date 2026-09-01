@@ -1,0 +1,59 @@
+"""Таблица одобренных шаблонов WhatsApp (для сообщений вне 24-часового окна).
+
+После суток молчания пациента свободный текст запрещён правилами Meta — можно
+отправлять только заранее одобренные шаблоны. Здесь — их локальный каталог,
+синхронизируемый из кабинета Meta: интерфейсу нужно что показывать вместо поля
+ввода, не дёргая Graph API на каждое открытие диалога.
+
+``lang``, ``category`` и ``status`` — словари Meta (в статусах бывают ещё
+``PAUSED``/``DISABLED``), поэтому текст, а не наши enum'ы: чужой словарь
+меняется без нас, и enum превращал бы каждую новинку Meta в миграцию.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from sqlalchemy import ForeignKey, Index, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
+
+
+class WhatsAppTemplate(Base, UUIDPKMixin, TimestampMixin):
+    __tablename__ = "whatsapp_template"
+    __table_args__ = (
+        # Upsert при синхронизации: шаблон определяется именем и языком. Два
+        # partial-индекса вместо одного: NULL в clinic_id (общий шаблон) в
+        # обычном unique дал бы дубли.
+        Index(
+            "uq_whatsapp_template_clinic",
+            "clinic_id",
+            "meta_name",
+            "lang",
+            unique=True,
+            postgresql_where=text("clinic_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_whatsapp_template_common",
+            "meta_name",
+            "lang",
+            unique=True,
+            postgresql_where=text("clinic_id IS NULL"),
+        ),
+    )
+
+    # NULL — общий шаблон платформы (доступен всем клиникам).
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("clinic.id", ondelete="CASCADE"), nullable=True
+    )
+    meta_name: Mapped[str] = mapped_column(Text, nullable=False)  # имя в кабинете Meta
+    lang: Mapped[str] = mapped_column(Text, nullable=False)  # код языка Meta (ru, ky_KG…)
+    category: Mapped[str] = mapped_column(Text, nullable=False)  # MARKETING/UTILITY/…
+    body_preview: Mapped[str] = mapped_column(Text, nullable=False)  # показ администратору
+    variables: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))

@@ -33,6 +33,8 @@ SEND_NOTIFICATION = "send_notification"
 SEND_TEAM_NOTIFICATION = "send_team_notification"
 #: Разослать пуш-событие на устройства клиники (FCM/APNs) — фан-аут в воркере.
 DISPATCH_PUSH = "dispatch_push"
+#: Разобрать payload вебхука WhatsApp (клиника → пациент → диалог → сообщение).
+PROCESS_WA_INBOUND = "process_wa_inbound"
 
 #: Отметка «воркер жив». Пишется чаще, чем истекает: пропущенный тик не должен
 #: выглядеть как смерть воркера, а вот остановка — должна, и быстро.

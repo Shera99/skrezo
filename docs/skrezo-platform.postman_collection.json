@@ -4073,6 +4073,250 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "whatsapp",
+      "item": [
+        {
+          "name": "Верификация вебхука (вызывает Meta)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/whatsapp/webhook?hub.mode=string&hub.verify_token=string&hub.challenge=string",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "whatsapp",
+                "webhook"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Всегда `subscribe`"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Токен, заданный при настройке подписки"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Строка, которую надо вернуть"
+                }
+              ]
+            },
+            "description": "Подтвердить подписку вебхука в кабинете Meta.\n\nТокен сверяется с ``WA_CLOUD_VERIFY_TOKEN``; пустая настройка означает\n«подписку не подтверждаем вовсе» — случайно открытой верификации нет."
+          },
+          "response": []
+        },
+        {
+          "name": "События WhatsApp (вызывает Meta)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/whatsapp/webhook",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "whatsapp",
+                "webhook"
+              ]
+            },
+            "description": "Принять пачку событий: входящие сообщения, эхо Coexistence, статусы.\n\nПодпись проверяется по сырому телу до разбора JSON. Пустой\n``WA_CLOUD_APP_SECRET`` отключает проверку — только для локальной\nразработки, в бою секрет обязателен."
+          },
+          "response": []
+        },
+        {
+          "name": "Диалоги WhatsApp клиники",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations?status=&page=1&pageSize=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Фильтр по статусу (`active` / `closed` / `escalated`)"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Список переписок с пациентами: шапка, превью и состояние 24-часового окна.\n\n`windowOpen: false` — сутки с последнего сообщения пациента прошли, поле\nввода в интерфейсе подменяется списком одобренных шаблонов."
+          },
+          "response": []
+        },
+        {
+          "name": "История диалога WhatsApp",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages?beforeId=0&limit=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "beforeId",
+                  "value": "0",
+                  "disabled": true,
+                  "description": "Курсор «старше этого id» — прокрутка истории вверх"
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Сообщения диалога новыми сверху; продолжение — `beforeId` = id последнего."
+          },
+          "response": []
+        },
+        {
+          "name": "Ответить пациенту в WhatsApp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "messages"
+              ]
+            },
+            "description": "Свободный текст пациенту — только пока открыто 24-часовое окно Meta.\n\nОкно закрыто (сутки с последнего сообщения пациента) → 422 `window_closed`:\nинтерфейс подменяет поле ввода списком одобренных шаблонов.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Здравствуйте! Завтра в 11:00 вас ждёт Асель Кубатовна.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Вложение сообщения (голосовое, снимок, документ)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages/{{message_id}}/media",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "messages",
+                "{{message_id}}",
+                "media"
+              ]
+            },
+            "description": "Отдать скачанное вложение; раздачи статикой нет — доступ идёт через право.\n\n`hasMedia: false` у сообщения означает, что вложение не скачивалось\n(например, канал работал без кредов Meta) — тогда здесь 404."
+          },
+          "response": []
+        },
+        {
+          "name": "Привязать номер WhatsApp к клинике",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/whatsapp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "clients",
+                "{{clinic_id}}",
+                "whatsapp"
+              ]
+            },
+            "description": "Завести или обновить привязку номера Cloud API (одна на клинику).\n\n`phoneNumberId` — идентификатор номера в кабинете Meta; по нему вебхук\nнаходит клинику. Секреты (access token, APP_SECRET) сюда не входят — они\nживут в переменных окружения сервиса. `active: false` выключает приём\nвебхука, сохраняя историю переписки.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumberId\": \"712233445566778\",\n  \"displayPhone\": \"+996700123456\",\n  \"wabaId\": \"string\",\n  \"mode\": \"api_only\",\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [
@@ -4122,6 +4366,11 @@
       "type": "string"
     },
     {
+      "key": "conversation_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
       "key": "doctor_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
@@ -4133,6 +4382,11 @@
     },
     {
       "key": "membership_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "message_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

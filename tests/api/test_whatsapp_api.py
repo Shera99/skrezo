@@ -1,0 +1,468 @@
+"""API-тесты WhatsApp-канала (Ф1): вебхук, диалоги, окно 24 часов.
+
+Канал — транспорт без интеллекта, и проверяется именно транспортная дисциплина:
+
+* вебхук отвечает 200 и сохраняет сообщение; повторная доставка от Meta не
+  создаёт дубль (``wa_message_id`` уникален);
+* подпись ``X-Hub-Signature-256`` обязательна, когда задан APP_SECRET, — чужой
+  POST не может подложить «сообщение пациента»;
+* неизвестный ``phone_number_id`` молча игнорируется (Meta получает 200);
+* пациент матчится по номеру с глобальной карточкой;
+* свободный текст доступен только в 24-часовое окно после сообщения пациента;
+* клиника не видит диалогов соседней (изоляция), врач без права — переписку.
+
+Очередь в тестах недоступна — вебхук обрабатывает payload на месте (это
+штатный фолбэк, а не тестовый обход).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import itertools
+import json
+import time
+from dataclasses import dataclass
+from typing import Any
+
+import pytest
+from httpx import AsyncClient
+
+from app.core.config import settings
+from tests.conftest import API, otp_login, own_membership_id
+
+_phone_seq = itertools.count(1)
+_wa_seq = itertools.count(1)
+_pnid_seq = itertools.count(1)
+
+
+def _phone() -> str:
+    return f"070076{next(_phone_seq):04d}"
+
+
+def _wamid() -> str:
+    return f"wamid.TEST{next(_wa_seq):06d}"
+
+
+@dataclass(slots=True)
+class ClinicCtx:
+    clinic_id: str
+    headers: dict[str, str]
+    phone_number_id: str
+
+
+async def _make_clinic(
+    admin_client: AsyncClient, client: AsyncClient, *, connect: bool = True
+) -> ClinicCtx:
+    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
+    phone = _phone()
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={
+            "type": "clinic",
+            "adminFullName": "Владелец Чат",
+            "adminPhone": phone,
+            "name": "Клиника Чат",
+            "cityId": city,
+            "businessPhone": "0700000000",
+            "seats": 5,
+        },
+    )
+    assert created.status_code == 201, created.text
+    clinic_id = str(created.json()["id"])
+    headers = await otp_login(client, phone)
+
+    phone_number_id = f"7000{next(_pnid_seq):06d}"
+    if connect:
+        bound = await admin_client.put(
+            f"{API}/admin/clients/{clinic_id}/whatsapp",
+            json={"phoneNumberId": phone_number_id, "displayPhone": "+996700999000"},
+        )
+        assert bound.status_code == 200, bound.text
+    return ClinicCtx(clinic_id=clinic_id, headers=headers, phone_number_id=phone_number_id)
+
+
+@pytest.fixture
+async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
+    return await _make_clinic(admin_client, client)
+
+
+def _inbound_payload(
+    phone_number_id: str,
+    *,
+    wa_message_id: str,
+    from_phone: str,
+    text: str,
+    ts: int | None = None,
+) -> dict[str, Any]:
+    """Payload вебхука Meta с одним текстовым сообщением."""
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "waba-1",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {
+                                "display_phone_number": "996700999000",
+                                "phone_number_id": phone_number_id,
+                            },
+                            "contacts": [
+                                {"profile": {"name": "Пациент"}, "wa_id": from_phone}
+                            ],
+                            "messages": [
+                                {
+                                    "from": from_phone,
+                                    "id": wa_message_id,
+                                    "timestamp": str(ts or int(time.time())),
+                                    "type": "text",
+                                    "text": {"body": text},
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+async def _post_webhook(client: AsyncClient, payload: dict[str, Any]) -> None:
+    resp = await client.post(f"{API}/whatsapp/webhook", json=payload)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"received": True}
+
+
+async def _conversations(client: AsyncClient, ctx: ClinicCtx) -> Any:
+    resp = await client.get(f"{API}/clinic/conversations", headers=ctx.headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+# ── 1. Вебхук: верификация и подпись ────────────────────────────────────────
+
+
+async def test_webhook_verify_challenge(client: AsyncClient, monkeypatch: Any) -> None:
+    """GET с правильным verify_token возвращает эхо challenge."""
+    monkeypatch.setattr(settings, "wa_cloud_verify_token", "vt-secret")
+    resp = await client.get(
+        f"{API}/whatsapp/webhook",
+        params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "vt-secret",
+            "hub.challenge": "42-challenge",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.text == "42-challenge"
+
+    wrong = await client.get(
+        f"{API}/whatsapp/webhook",
+        params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "wrong",
+            "hub.challenge": "x",
+        },
+    )
+    assert wrong.status_code == 403
+
+
+async def test_webhook_signature_required_when_secret_set(
+    client: AsyncClient, ctx: ClinicCtx, monkeypatch: Any
+) -> None:
+    """Задан APP_SECRET: POST без подписи — 403, с корректной — 200 и сообщение."""
+    monkeypatch.setattr(settings, "wa_cloud_app_secret", "top-secret")
+    payload = _inbound_payload(
+        ctx.phone_number_id,
+        wa_message_id=_wamid(),
+        from_phone="996700111222",
+        text="салам",
+    )
+    raw = json.dumps(payload).encode()
+
+    unsigned = await client.post(
+        f"{API}/whatsapp/webhook", content=raw, headers={"Content-Type": "application/json"}
+    )
+    assert unsigned.status_code == 403, unsigned.text
+
+    signature = hmac.new(b"top-secret", raw, hashlib.sha256).hexdigest()
+    signed = await client.post(
+        f"{API}/whatsapp/webhook",
+        content=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": f"sha256={signature}",
+        },
+    )
+    assert signed.status_code == 200, signed.text
+    body = await _conversations(client, ctx)
+    assert body["totalCount"] == 1
+
+
+# ── 2. Входящие ─────────────────────────────────────────────────────────────
+
+
+async def test_inbound_message_saved_and_visible(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Сообщение пациента появляется в диалогах клиники с открытым окном."""
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700111333",
+            text="Тиш ооруп жатат",
+        ),
+    )
+    body = await _conversations(client, ctx)
+    assert body["totalCount"] == 1
+    conv = body["list"][0]
+    assert conv["waPhone"] == "+996700111333"
+    assert conv["status"] == "active"
+    assert conv["windowOpen"] is True
+    assert conv["lastMessagePreview"] == "Тиш ооруп жатат"
+    assert conv["patientId"] is None  # номер пока не заведён в пациентах
+
+    messages = await client.get(
+        f"{API}/clinic/conversations/{conv['id']}/messages", headers=ctx.headers
+    )
+    assert messages.status_code == 200, messages.text
+    items = messages.json()["items"]
+    assert len(items) == 1
+    assert items[0]["role"] == "patient"
+    assert items[0]["body"] == "Тиш ооруп жатат"
+    assert items[0]["hasMedia"] is False
+
+
+async def test_duplicate_delivery_creates_no_second_message(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Meta повторила доставку — сообщение в истории одно (дедуп по wamid)."""
+    payload = _inbound_payload(
+        ctx.phone_number_id,
+        wa_message_id=_wamid(),
+        from_phone="996700111444",
+        text="повтор",
+    )
+    await _post_webhook(client, payload)
+    await _post_webhook(client, payload)
+    body = await _conversations(client, ctx)
+    conv_id = body["list"][0]["id"]
+    messages = await client.get(
+        f"{API}/clinic/conversations/{conv_id}/messages", headers=ctx.headers
+    )
+    assert len(messages.json()["items"]) == 1
+
+
+async def test_unknown_phone_number_id_ignored(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Событие незнакомого номера: Meta получает 200, диалог не заводится."""
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            "999999999", wa_message_id=_wamid(), from_phone="996700111555", text="кто тут"
+        ),
+    )
+    body = await _conversations(client, ctx)
+    assert body["totalCount"] == 0
+
+
+async def test_patient_matched_by_phone(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Номер уже есть в пациентах — диалог сразу привязан к карточке."""
+    patient = await client.post(
+        f"{API}/clinic/patients",
+        headers=ctx.headers,
+        json={"phone": "+996700111666", "firstName": "Айгүл", "lastName": "Асанова"},
+    )
+    assert patient.status_code == 201, patient.text
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700111666",
+            text="Саламатсызбы",
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    assert conv["patientId"] == patient.json()["id"]
+    assert "Айгүл" in conv["patientName"]
+
+
+async def test_coexistence_echo_saved_as_admin(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Исходящее человека из WhatsApp Business (эхо синка) ложится ролью admin."""
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700111777",
+            text="здравствуйте",
+        ),
+    )
+    echo = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "smb_message_echoes",
+                        "value": {
+                            "metadata": {"phone_number_id": ctx.phone_number_id},
+                            "message_echoes": [
+                                {
+                                    "id": _wamid(),
+                                    "to": "996700111777",
+                                    "timestamp": str(int(time.time())),
+                                    "type": "text",
+                                    "text": {"body": "Ответил из приложения"},
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+    await _post_webhook(client, echo)
+    conv = (await _conversations(client, ctx))["list"][0]
+    messages = await client.get(
+        f"{API}/clinic/conversations/{conv['id']}/messages", headers=ctx.headers
+    )
+    items = messages.json()["items"]
+    assert [m["role"] for m in items] == ["admin", "patient"]  # новые сверху
+
+
+# ── 3. Ответ клиники и окно 24 часов ────────────────────────────────────────
+
+
+async def test_reply_within_window(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Окно открыто — свободный текст уходит (лог-фолбэк) и попадает в историю."""
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700111888",
+            text="можно записаться?",
+        ),
+    )
+    conv_id = (await _conversations(client, ctx))["list"][0]["id"]
+    sent = await client.post(
+        f"{API}/clinic/conversations/{conv_id}/messages",
+        headers=ctx.headers,
+        json={"body": "Конечно! Завтра в 11:00 удобно?"},
+    )
+    assert sent.status_code == 201, sent.text
+    msg = sent.json()
+    assert msg["role"] == "admin"
+    assert msg["sentAt"] is not None
+    assert msg["waMessageId"].startswith("log-")  # канал без кредов пишет в лог
+
+    items = (
+        await client.get(
+            f"{API}/clinic/conversations/{conv_id}/messages", headers=ctx.headers
+        )
+    ).json()["items"]
+    assert [m["role"] for m in items] == ["admin", "patient"]
+
+
+async def test_window_closed_rejects_free_text(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Сутки с сообщения пациента прошли — 422 window_closed, только шаблоны."""
+    stale_ts = int(time.time()) - 25 * 3600
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700111999",
+            text="давнее сообщение",
+            ts=stale_ts,
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    assert conv["windowOpen"] is False
+    resp = await client.post(
+        f"{API}/clinic/conversations/{conv['id']}/messages",
+        headers=ctx.headers,
+        json={"body": "простите, что поздно"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"] == "window_closed"
+
+
+# ── 4. Доступ ───────────────────────────────────────────────────────────────
+
+
+async def test_clinics_are_isolated(
+    admin_client: AsyncClient, client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Диалог клиники А не виден клинике Б: ни в списке, ни по прямому id."""
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700112111",
+            text="приватное",
+        ),
+    )
+    conv_id = (await _conversations(client, ctx))["list"][0]["id"]
+
+    other = await _make_clinic(admin_client, client)
+    listed = await _conversations(client, other)
+    assert listed["totalCount"] == 0
+    stranger = await client.get(
+        f"{API}/clinic/conversations/{conv_id}/messages", headers=other.headers
+    )
+    assert stranger.status_code == 404
+
+
+async def test_worker_role_has_no_access(client: AsyncClient, ctx: ClinicCtx) -> None:
+    """Врач (роль «Работник») переписку не видит — Р22: отвечает ресепшен."""
+    doctor_phone = None
+    # own_membership_id заводит врача и возвращает членство; телефон нужен для
+    # входа — вытащим его из списка сотрудников.
+    await own_membership_id(client, ctx.headers)
+    staff = await client.get(f"{API}/clinic/staff", headers=ctx.headers)
+    doctor = next(m for m in staff.json() if m["specializationId"])
+    doctor_phone = doctor["phone"]
+    doctor_headers = await otp_login(client, doctor_phone)
+    resp = await client.get(f"{API}/clinic/conversations", headers=doctor_headers)
+    assert resp.status_code == 403, resp.text
+
+
+# ── 5. Привязка номера (админка Skrezo) ─────────────────────────────────────
+
+
+async def test_binding_conflict_and_deactivation(
+    admin_client: AsyncClient, client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """Один номер — одна клиника; выключенная привязка перестаёт принимать вебхук."""
+    other = await _make_clinic(admin_client, client, connect=False)
+    conflict = await admin_client.put(
+        f"{API}/admin/clients/{other.clinic_id}/whatsapp",
+        json={"phoneNumberId": ctx.phone_number_id, "displayPhone": "+996700999111"},
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert conflict.json()["error"] == "phone_number_taken"
+
+    off = await admin_client.put(
+        f"{API}/admin/clients/{ctx.clinic_id}/whatsapp",
+        json={
+            "phoneNumberId": ctx.phone_number_id,
+            "displayPhone": "+996700999000",
+            "active": False,
+        },
+    )
+    assert off.status_code == 200, off.text
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700112333",
+            text="в закрытую дверь",
+        ),
+    )
+    assert (await _conversations(client, ctx))["totalCount"] == 0
