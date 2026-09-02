@@ -81,8 +81,9 @@ def build_system_prompt(
     lang: str | None,
     glossary: list[tuple[str, str]],
     kb_documents: list[tuple[str, str]],
+    summaries: list[str] | None = None,
 ) -> str:
-    """Собрать префикс: правила → карточка → глоссарий → база знаний.
+    """Собрать префикс: правила → карточка → глоссарий → база знаний → резюме.
 
     ``lang=None`` — язык диалога ещё не определён (первое сообщение): модель
     сама распознаёт язык собеседника (§10.2) и отвечает на нём.
@@ -111,5 +112,12 @@ def build_system_prompt(
     if kb_documents:
         docs = "\n\n".join(f"### {title}\n{body}" for title, body in kb_documents)
         blocks.append(f"БАЗА ЗНАНИЙ КЛИНИКИ (пересказывай, не добавляя от себя):\n{docs}")
+
+    if summaries:
+        past = "\n".join(f"— {s}" for s in summaries)
+        blocks.append(
+            "О ЧЁМ ГОВОРИЛИ РАНЬШЕ (прошлые обращения этого номера, свежие "
+            f"сверху; фон, а не факты для ответа):\n{past}"
+        )
 
     return "\n\n".join(blocks)

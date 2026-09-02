@@ -32,6 +32,7 @@ from app.shared.ai import AiMessagePart, AiResult, AiToolDecl, ToolCallRequest
 from app.shared.db.enums import AiConversationStatus, AiMessageRole
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.ai_summary import AiSummary
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
@@ -805,3 +806,99 @@ async def test_message_flood_answers_once_then_hands_over(
     # Диалог у человека — следующее сообщение бот пропускает.
     after = await _simulate(admin_client, ctx, "ещё одно", phone)
     assert after["outcome"] == "skipped"
+
+
+# ── 9. Резюме закрытого диалога (§3.3) ──────────────────────────────────────
+
+
+def _patch_job(
+    monkeypatch: pytest.MonkeyPatch, module: Any, provider: _FakeProvider, res: Resources
+) -> None:
+    """Фоновая задача живёт вне приложения: у неё своя сессия и свой провайдер."""
+    monkeypatch.setattr(module, "session_factory", res.factory)
+    monkeypatch.setattr(module, "build_ai_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.modules.jobs.application.services.job_recorder.session_factory", res.factory
+    )
+
+
+async def test_closed_conversation_gets_summary_and_next_talk_sees_it(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Диалог закрылся — появилось резюме; следующий разговор видит его в промпте."""
+    from app.jobs.tasks import whatsapp as wa_job
+    from app.jobs.tasks.whatsapp import WINDOW, close_stale_conversations
+
+    _patch_job(monkeypatch, wa_job, fake, _resources)
+
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200050"
+    fake.script = [AiResult(text=_reply_json("Записал вас на четверг."))]
+    await _simulate(admin_client, ctx, "Хочу записаться", phone)
+
+    # Сутки тишины: отматываем время последнего сообщения назад.
+    async with _resources.factory() as session:
+        conv = (
+            await session.execute(select(AiConversation).where(AiConversation.wa_phone == phone))
+        ).scalar_one()
+        conv.last_msg_at = datetime.now(UTC) - WINDOW - timedelta(minutes=5)
+        await session.commit()
+
+    fake.script = [AiResult(text="Пациентка записалась на чистку в четверг.")]
+    closed = await close_stale_conversations({})
+    assert closed >= 1
+
+    async with _resources.factory() as session:
+        summaries = list((await session.execute(select(AiSummary))).scalars())
+    assert len(summaries) == 1
+    assert "чистку" in summaries[0].body
+    assert summaries[0].wa_phone == phone
+
+    # Новый разговор с того же номера: резюме уехало в системный промпт.
+    fake.script = [AiResult(text=_reply_json("Здравствуйте снова!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    system = fake.calls[-1]["system"]
+    assert "О ЧЁМ ГОВОРИЛИ РАНЬШЕ" in system
+    assert "записалась на чистку" in system
+
+
+async def test_summary_is_built_once(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Повторный прогон задачи не плодит резюме одного диалога."""
+    from app.jobs.tasks import whatsapp as wa_job
+    from app.jobs.tasks.whatsapp import WINDOW, close_stale_conversations
+
+    _patch_job(monkeypatch, wa_job, fake, _resources)
+
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200051"
+    fake.script = [AiResult(text=_reply_json("Хорошо."))]
+    await _simulate(admin_client, ctx, "Добрый день", phone)
+    async with _resources.factory() as session:
+        conv = (
+            await session.execute(select(AiConversation).where(AiConversation.wa_phone == phone))
+        ).scalar_one()
+        conv.last_msg_at = datetime.now(UTC) - WINDOW - timedelta(minutes=5)
+        await session.commit()
+
+    fake.script = [AiResult(text="Пациент поздоровался, вопросов не было.")]
+    await close_stale_conversations({})
+    # Второй прогон: диалог уже closed, но подстрахуемся и от прямого вызова.
+    async with _resources.factory() as session:
+        from app.modules.ai.application.summary import ConversationSummaryService
+
+        again = await ConversationSummaryService(session, fake).build(conv.id)
+        assert again is None
+
+    async with _resources.factory() as session:
+        count = len(list((await session.execute(select(AiSummary))).scalars()))
+    assert count == 1

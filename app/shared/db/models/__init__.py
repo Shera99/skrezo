@@ -10,6 +10,7 @@ from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.ai_summary import AiSummary
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
@@ -58,6 +59,7 @@ __all__ = [
     "AiConversation",
     "AiEscalation",
     "AiMessage",
+    "AiSummary",
     "AiToolCall",
     "Appointment",
     "AppointmentItem",

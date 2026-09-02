@@ -5,8 +5,8 @@
 идемпотентна — сообщения дедуплицируются по ``wa_message_id``.
 
 ``close_stale_conversations`` — cron: диалог без сообщений сутки переходит в
-``closed``. Резюме закрытого диалога появится в Ф2 (ассистент) — здесь только
-смена статуса.
+``closed``, и по нему строится резюме (§3.3) — контекст следующего разговора
+с тем же номером.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from app.core.db import session_factory
 from app.core.jobs import PROCESS_WA_INBOUND
 from app.jobs.tasks.context import attempt
 from app.modules.ai.application.reply_service import ProcessAiReplyService
+from app.modules.ai.application.summary import ConversationSummaryService
 from app.modules.jobs.application.services.job_recorder import JobRunRecorder
 from app.modules.whatsapp.application.services.inbound import InboundProcessor
 from app.modules.whatsapp.domain.window import WINDOW
@@ -55,11 +56,24 @@ async def process_wa_inbound(ctx: dict[str, Any], payload: dict[str, Any]) -> in
 
 
 async def close_stale_conversations(ctx: dict[str, Any]) -> int:
-    """Закрыть диалоги, молчащие дольше суток; вернуть число закрытых."""
+    """Закрыть диалоги, молчащие дольше суток, и составить их резюме (§3.3)."""
     async with JobRunRecorder("close_stale_conversations", attempt(ctx)) as run:
         async with session_factory() as session:
             repository = WhatsAppRepository(session)
             closed = await repository.close_stale(datetime.now(UTC) - WINDOW)
             await session.commit()
-        run.note(f"закрыто диалогов: {closed}")
-        return closed
+
+        summarized = 0
+        provider = build_ai_provider()
+        for conversation_id in closed:
+            # Каждое резюме — своя сессия и свой коммит: неудача на одном
+            # диалоге не должна отменять закрытие остальных.
+            async with session_factory() as session:
+                summary = await ConversationSummaryService(session, provider).build(
+                    conversation_id
+                )
+                if summary is not None:
+                    await session.commit()
+                    summarized += 1
+        run.note(f"закрыто диалогов: {len(closed)}, резюме: {summarized}")
+        return len(closed)

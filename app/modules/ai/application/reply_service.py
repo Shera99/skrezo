@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.modules.ai.application.booking import BookingService
+from app.modules.ai.application.summary import recent_summaries
 from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
 from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
@@ -117,7 +118,7 @@ class ProcessAiReplyService:
         lang: str | None = None if first_reply else (
             "ky" if conversation.lang is Lang.KG else "ru"
         )
-        system = await self._build_system(clinic, lang)
+        system = await self._build_system(clinic, lang, conversation)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
         binding = await self._whatsapp.binding_by_clinic(clinic.id)
@@ -206,16 +207,20 @@ class ProcessAiReplyService:
 
     # ── Контекст ────────────────────────────────────────────────────────────
 
-    async def _build_system(self, clinic: Clinic, lang: str | None) -> str:
+    async def _build_system(
+        self, clinic: Clinic, lang: str | None, conversation: AiConversation
+    ) -> str:
         glossary = await self._repository.approved_glossary(clinic.id)
         kb = await self._repository.kb_for_prompt(clinic.id, lang or "ru")
+        # §4.1: последние пять резюме по номеру — разговор не с чистого листа.
+        summaries = await recent_summaries(self._session, clinic.id, conversation.wa_phone)
         card = ClinicCard(
             name=clinic.name,
             address=clinic.address,
             phone=clinic.business_phone,
             working_hours=None,  # человекочитаемый график — вместе с KB-редактором
         )
-        return build_system_prompt(card, lang, glossary, kb)
+        return build_system_prompt(card, lang, glossary, kb, summaries)
 
     async def _history_parts(self, conversation: AiConversation) -> list[AiMessagePart]:
         """Последние 20 сообщений диалога → реплики хода (§4.1, блок 7)."""

@@ -192,11 +192,12 @@ class WhatsAppRepository:
         ]
         return items, total
 
-    async def close_stale(self, cutoff: datetime) -> int:
-        """Закрыть диалоги без сообщений с ``cutoff``; вернуть число закрытых.
+    async def close_stale(self, cutoff: datetime) -> list[uuid.UUID]:
+        """Закрыть диалоги без сообщений с ``cutoff``; вернуть их идентификаторы.
 
         Закрываются и ``escalated``: сутки тишины после вмешательства человека —
-        разговор кончился (§8.4 ТЗ ассистента). Резюме диалога появится в Ф2.
+        разговор кончился (§8.4 ТЗ ассистента). По возвращённым id фоновая
+        задача строит резюме (§3.3).
         """
         result = await self._session.execute(
             update(AiConversation)
@@ -207,7 +208,7 @@ class WhatsAppRepository:
             .values(status=AiConversationStatus.CLOSED)
             .returning(AiConversation.id)
         )
-        return len(list(result.scalars()))
+        return list(result.scalars())
 
     # ── Сообщения ───────────────────────────────────────────────────────────
 

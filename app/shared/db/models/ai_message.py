@@ -20,7 +20,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Float,
+    ForeignKey,
+    Identity,
+    Index,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -55,6 +65,8 @@ class AiMessage(Base):
     media_mime: Mapped[str | None] = mapped_column(Text, nullable=True)
     # ── Заполняет Ф2 (ассистент) ────────────────────────────────────────────
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Уверенность ASR 0..1 (§11): низкая уводит в эскалацию, а не в догадку.
+    transcript_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     used_facts: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB, nullable=True)
     validator: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model: Mapped[str | None] = mapped_column(Text, nullable=True)
