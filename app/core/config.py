@@ -128,7 +128,10 @@ class Settings(BaseSettings):
     # для улучшения продуктов Google — до реальных пациентов включить платный.
     ai_provider: str = "off"  # off | gemini
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.6-flash"
+    # Уровень размышлений Gemini: у фактических ответов мысли не нужны (валидатор
+    # проверяет и так), а free-tier токены и латентность — нужны. Пусто — дефолт модели.
+    gemini_thinking_level: str = "minimal"
     # Фактические ответы: низкая температура + короткие ответы (§4.3, §5).
     ai_temperature: float = 0.2
     ai_max_tokens: int = 1024

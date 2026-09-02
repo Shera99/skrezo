@@ -15,5 +15,9 @@ def build_ai_provider() -> AiProvider | None:
     человека, как до Ф2.
     """
     if settings.ai_provider == "gemini" and settings.gemini_api_key:
-        return GeminiProvider(settings.gemini_api_key, settings.gemini_model)
+        return GeminiProvider(
+            settings.gemini_api_key,
+            settings.gemini_model,
+            thinking_level=settings.gemini_thinking_level,
+        )
     return None

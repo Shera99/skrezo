@@ -133,7 +133,7 @@ make run           # uvicorn с автоперезагрузкой
 | `WA_CLOUD_APP_SECRET` | подпись вебхука `X-Hub-Signature-256` | — (⚠️ в бою обязателен) |
 | `WA_CLOUD_VERIFY_TOKEN` | подтверждение подписки вебхука (GET) | — |
 | `AI_PROVIDER` | провайдер ассистента: `off` \| `gemini` | `off` |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | ключ Google AI Studio и модель | — / `gemini-2.0-flash` |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | ключ Google AI Studio и модель | — / `gemini-3.6-flash` |
 | `AI_TEMPERATURE` / `AI_MAX_TOKENS` / `AI_MAX_TOOL_CALLS` | параметры фактических ответов | `0.2` / `1024` / `6` |
 | `TRIAL_WARNING_DAYS` | за сколько дней предупредить о конце триала | `3` |
 | `JOB_RUN_RETENTION_DAYS` | сколько хранить журнал запусков джоб | `30` |

@@ -35,10 +35,15 @@ class GeminiProvider:
     """REST-клиент ``generateContent`` с function calling."""
 
     def __init__(
-        self, api_key: str, model: str, client: httpx.AsyncClient | None = None
+        self,
+        api_key: str,
+        model: str,
+        client: httpx.AsyncClient | None = None,
+        thinking_level: str = "",
     ) -> None:
         self._api_key = api_key
         self.model_name = model
+        self._thinking_level = thinking_level
         self._client = client or httpx.AsyncClient(timeout=_TIMEOUT)
 
     def _url(self) -> str:
@@ -97,13 +102,18 @@ class GeminiProvider:
         temperature: float,
         max_tokens: int,
     ) -> AiResult:
+        generation_config: dict[str, Any] = {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        }
+        if self._thinking_level:
+            # «minimal» гасит размышления: у thinking-моделей мысли тратят
+            # токены ответа — крошечный бюджет заканчивался ДО первого слова.
+            generation_config["thinkingConfig"] = {"thinkingLevel": self._thinking_level}
         body: dict[str, Any] = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": self._contents(parts),
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
+            "generationConfig": generation_config,
         }
         if tools:
             body["tools"] = [
