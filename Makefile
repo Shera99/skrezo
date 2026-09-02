@@ -1,4 +1,4 @@
-.PHONY: install up down infra logs migrate revision seed run worker create-admin postman lint fmt typecheck test check
+.PHONY: install up down infra logs migrate revision seed run worker create-admin postman ai-regression lint fmt typecheck test check
 
 install:            ## Установить зависимости (uv)
 	uv sync
@@ -32,6 +32,9 @@ create-admin:       ## Создать/обновить админа Skrezo: make
 
 postman:            ## Сгенерировать Postman-коллекцию из OpenAPI → docs/
 	uv run python scripts/gen_postman_collection.py
+
+ai-regression:      ## Регрессия ассистента — ОБЯЗАТЕЛЬНО перед правкой промпта
+	uv run python scripts/run_ai_regression.py
 
 lint:
 	uv run ruff check app tests
