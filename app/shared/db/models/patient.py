@@ -34,3 +34,6 @@ class Patient(Base, UUIDPKMixin, TimestampMixin):
     # сквозную историю зуба. Клинические предупреждения важнее, чем изоляция
     # заметок; для внутриклинических пометок нужна отдельная сущность.
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Кто завёл карточку: manual (человек) | assistant (бот, §6.5). Карточки
+    #: ассистента администратор просматривает — имя записано со слов пациента.
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")

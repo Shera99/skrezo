@@ -7,6 +7,7 @@
   показали. Это единственная защита от выдуманной цены — сама модель о своей
   выдумке не сообщит;
 * V04 — запрещённые утверждения (гарантии, «не больно», препараты);
+* V09 — упоминание чужой клиники: блок и оповещение нам;
 * V05 — конкретика (числа, время) при пустом ``used_facts``;
 * V06 — ``confidence=low`` / ``needs_human`` → эскалация;
 * V07 — язык ответа не совпал с языком диалога → одна перегенерация;
@@ -22,8 +23,12 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+import structlog
+
 from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.reply import BotReply
+
+logger = structlog.get_logger(__name__)
 
 
 class VerdictAction(StrEnum):
@@ -113,5 +118,13 @@ def _check_facts(text: str, facts: TurnFacts) -> Verdict | None:
     if doctors:
         return Verdict(
             VerdictAction.BLOCK, ["V03"], notes=f"врач не из справочника: {sorted(doctors)[:3]}"
+        )
+    foreign = facts.foreign_mentions(text)
+    if foreign:
+        # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
+        # клиники значит либо утечку контекста, либо галлюцинацию промпта.
+        logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
+        return Verdict(
+            VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}"
         )
     return None

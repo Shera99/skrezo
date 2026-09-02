@@ -39,6 +39,7 @@ from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
+from app.shared.db.models.patient import Patient
 from app.shared.db.models.service import Service
 from app.shared.db.models.specialization_translation import SpecializationTranslation
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
@@ -267,29 +268,73 @@ class ToolExecutor:
         self, context: ToolContext, args: dict[str, Any]
     ) -> dict[str, Any]:
         """Карточка пациента диалога: имя ДОСЛОВНО (§6.5), номер — из чата."""
-        if context.patient_id is not None:
-            return {"patientId": str(context.patient_id), "existing": True}
         first_name = str(args.get("firstName") or "").strip()
+        last_name = str(args["lastName"]).strip() if args.get("lastName") else None
         if not first_name:
             return {"error": "нужно имя пациента"}
         patients = PatientRepository(self._session)
         phone = context.conversation.wa_phone
         existing = await patients.find_by_phone(phone)
         if existing is not None:
+            # §6.5 «чужой телефон»: пишут с номера мужа или дочери. Угадывать
+            # нельзя — запись уйдёт не тому, поэтому эскалация, а не догадка.
+            if not _same_person(first_name, existing.first_name):
+                return {
+                    "error": (
+                        "номер записан на другого человека — уточните у "
+                        "администратора, не записывайте"
+                    ),
+                    "_escalate": "identity_mismatch",
+                }
             context.conversation.patient_id = existing.id
             return {"patientId": str(existing.id), "existing": True}
+
         patient = await patients.create(
             phone=phone,
             first_name=first_name,
-            last_name=(str(args["lastName"]).strip() if args.get("lastName") else None),
+            last_name=last_name,
             middle_name=None,
             gender=None,
             birth_date=None,
             email=None,
+            source="assistant",
         )
         context.conversation.patient_id = patient.id
         await self._session.flush()
-        return {"patientId": str(patient.id), "existing": False}
+        duplicate = await self._possible_duplicate(context, patient, first_name, last_name)
+        return {
+            "patientId": str(patient.id),
+            "existing": False,
+            # Пометку разбирает администратор: карточки ассистент не объединяет.
+            "possibleDuplicate": duplicate,
+        }
+
+    async def _possible_duplicate(
+        self,
+        context: ToolContext,
+        created: Patient,
+        first_name: str,
+        last_name: str | None,
+    ) -> bool:
+        """Тот же человек уже лечился здесь под другим номером? (§6.5)
+
+        Сравниваем по имени, а не по похожести номера: смысл проверки ровно в
+        том, что вернувшийся пациент пишет с ДРУГОГО телефона — на схожесть
+        номеров тут рассчитывать не на что.
+        """
+        stmt = (
+            select(Patient.id)
+            .join(Appointment, Appointment.patient_id == Patient.id)
+            .where(
+                Appointment.clinic_id == context.clinic_id,
+                Patient.id != created.id,
+                func.lower(Patient.first_name) == first_name.lower(),
+            )
+            .limit(1)
+        )
+        if last_name:
+            stmt = stmt.where(func.lower(Patient.last_name) == last_name.lower())
+        return (await self._session.execute(stmt)).first() is not None
 
     async def _propose(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         booking = BookingService(self._session)
@@ -447,3 +492,19 @@ class ToolExecutor:
             }
             for r in rows
         ]
+
+
+def _same_person(said: str, on_card: str) -> bool:
+    """Имя из сообщения и имя в карточке — про одного человека?
+
+    Сравнение мягкое: «Айгуль» и «Айгүл» пишут по-разному, и разрывать из-за
+    буквы разговор незачем. Но заметно разные имена — сигнал, что телефон
+    чужой, и тогда решает человек.
+    """
+    a, b = said.strip().lower(), (on_card or "").strip().lower()
+    if not a or not b:
+        return True
+    if a == b or a.startswith(b) or b.startswith(a):
+        return True
+    stem = min(len(a), len(b), 4)
+    return stem >= 3 and a[:stem] == b[:stem]

@@ -50,6 +50,9 @@ from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
 
 logger = structlog.get_logger(__name__)
 
+#: Сколько чужих клиник тянем для V09 — проверка подстрокой, список короткий.
+_FOREIGN_LIMIT = 500
+
 #: Шаблон «уточню у администратора» — двуязычный, моделью НЕ переводится (§10.2).
 _ESCALATION_TEXTS: dict[str, str] = {
     "ru": "Уточню у администратора и вернусь с ответом.",
@@ -162,6 +165,11 @@ class ProcessAiReplyService:
                 outcome = await executor.execute(
                     conversation.id, tool_context, call.name, call.args
                 )
+                # Инструмент может потребовать человека сам (§6.5 «чужой
+                # телефон»): такие случаи не отдаём на усмотрение модели.
+                if isinstance(outcome, dict) and outcome.get("_escalate"):
+                    escalate_call = {"reason": str(outcome["_escalate"])}
+                    break
                 parts.append(
                     AiMessagePart(
                         role="model",
@@ -471,6 +479,13 @@ class ProcessAiReplyService:
                 sources.append(part.text)
             if part.tool_result is not None:
                 sources.append(json.dumps(part.tool_result, ensure_ascii=False))
+        # V09: названия остальных клиник платформы — их упоминание в ответе
+        # означает либо утечку контекста, либо выдумку.
+        foreign = (
+            await self._session.execute(
+                select(Clinic.name).where(Clinic.id != clinic.id).limit(_FOREIGN_LIMIT)
+            )
+        ).scalars()
         doctors = (
             await self._session.execute(
                 select(Account.full_name)
@@ -482,7 +497,11 @@ class ProcessAiReplyService:
                 )
             )
         ).scalars()
-        return TurnFacts.build(sources, [name for name in doctors if name])
+        return TurnFacts.build(
+            sources,
+            [name for name in doctors if name],
+            [name for name in foreign if name],
+        )
 
     # ── Лимит потока (§14) ──────────────────────────────────────────────────
 

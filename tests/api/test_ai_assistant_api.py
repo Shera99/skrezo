@@ -44,6 +44,7 @@ from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
+from app.shared.db.models.patient import Patient
 from app.shared.db.models.slot_hold import SlotHold
 from tests.conftest import API, Resources, otp_login, own_membership_id
 
@@ -1130,3 +1131,131 @@ async def test_silence_of_busy_clinic_is_flagged(
     fake.script = [AiResult(text="ок")]
     report = await _health(_resources, fake)
     assert ctx.clinic_id in report.silent_clinics
+
+
+# ── 12. Идентификация пациента (§6.5) и V09 ─────────────────────────────────
+
+
+async def test_new_patient_card_is_marked_as_assistant(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Карточка бота помечена source=assistant — администратор её проверит."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Айгүл"})),
+        AiResult(text=_reply_json("Записал имя, Айгүл.")),
+    ]
+    body = await _simulate(admin_client, ctx, "Меня зовут Айгүл", "+996700200080")
+    assert body["outcome"] == "sent"
+
+    async with _resources.factory() as session:
+        patient = (
+            await session.execute(select(Patient).where(Patient.phone == "+996700200080"))
+        ).scalar_one()
+    # Имя дословно: модель не «исправляет» Айгүл на Айгуль (§6.5).
+    assert patient.first_name == "Айгүл"
+    assert patient.source == "assistant"
+
+
+async def test_foreign_phone_escalates_instead_of_guessing(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Пишут с чужого телефона: имя не сходится с карточкой — зовём человека.
+
+    §6.5: угадывать нельзя, запись уйдёт не тому.
+    """
+    phone = "0700200081"
+    created = await client.post(
+        f"{API}/clinic/patients",
+        headers=ctx.owner_headers,
+        json={"phone": phone, "firstName": "Нурлан", "lastName": "Осмонов"},
+    )
+    assert created.status_code == 201, created.text
+
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Айгуль"})),
+        AiResult(text=_reply_json("Этого ответа быть не должно.")),
+    ]
+    body = await _simulate(admin_client, ctx, "Я Айгуль, запишите меня", f"+996{phone[1:]}")
+
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "identity_mismatch"
+    # Модель до ответа не дошла: эскалация решена детерминированно.
+    assert len(fake.calls) == 1
+
+
+async def test_same_name_returns_possible_duplicate(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Тот же человек под другим номером — пометка «возможно дубль» (§6.5)."""
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    old = await client.post(
+        f"{API}/clinic/patients",
+        headers=ctx.owner_headers,
+        json={"phone": "0700200082", "firstName": "Бакыт", "lastName": "Токтогулов"},
+    )
+    assert old.status_code == 201, old.text
+    # Пациент считается «этой клиники», когда у него есть здесь приём.
+    booked = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.owner_headers,
+        json={
+            "patientId": old.json()["id"],
+            "doctorMembershipId": doctor_id,
+            "scheduledAt": _workday_ten(),
+        },
+    )
+    assert booked.status_code == 201, booked.text
+
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="create_patient",
+                args={"firstName": "Бакыт", "lastName": "Токтогулов"},
+            )
+        ),
+        AiResult(text=_reply_json("Записал вас.")),
+    ]
+    await _simulate(admin_client, ctx, "Я Бакыт Токтогулов", "+996700200083")
+
+    result = _tool_result(fake.calls[1]["parts"], "create_patient")
+    assert result["possibleDuplicate"] is True
+    assert result["existing"] is False  # карточки бот не объединяет
+
+
+async def test_other_clinic_mention_is_blocked(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """V09: упоминание чужой клиники не уходит пациенту."""
+    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
+    other = await admin_client.post(
+        f"{API}/admin/clients",
+        json={
+            "type": "clinic",
+            "adminFullName": "Чужой Владелец",
+            "adminPhone": _phone(),
+            "name": "Стоматология Аврора",
+            "cityId": city,
+            "businessPhone": "0700000001",
+            "seats": 3,
+        },
+    )
+    assert other.status_code == 201, other.text
+
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(text=_reply_json("Попробуйте Стоматология Аврора, там дешевле."))
+    ]
+    body = await _simulate(admin_client, ctx, "А где ещё лечат?", "+996700200084")
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "validator_blocked"

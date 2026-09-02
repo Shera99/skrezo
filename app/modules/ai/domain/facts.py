@@ -77,9 +77,17 @@ class TurnFacts:
     times: frozenset[str]
     dates: frozenset[str]
     doctors: frozenset[str]
+    #: Названия ЧУЖИХ клиник платформы (V09): упоминание любого из них в
+    #: ответе — утечка или галлюцинация, и то и другое наружу не уходит.
+    foreign_clinics: frozenset[str] = frozenset()
 
     @classmethod
-    def build(cls, sources: Iterable[str], doctors: Iterable[str]) -> TurnFacts:
+    def build(
+        cls,
+        sources: Iterable[str],
+        doctors: Iterable[str],
+        foreign_clinics: Iterable[str] = (),
+    ) -> TurnFacts:
         numbers: set[str] = set()
         times: set[str] = set()
         dates: set[str] = set()
@@ -94,6 +102,10 @@ class TurnFacts:
             times=frozenset(times),
             dates=frozenset(dates),
             doctors=frozenset(name.lower() for name in doctors if name),
+            # Короткие названия отсеиваем: «Дент» встретится в обычной фразе.
+            foreign_clinics=frozenset(
+                name.strip().lower() for name in foreign_clinics if name and len(name.strip()) >= 5
+            ),
         )
 
     # ── Проверки, которые зовёт валидатор ───────────────────────────────────
@@ -103,6 +115,11 @@ class TurnFacts:
 
     def unknown_times(self, text: str) -> set[str]:
         return (_times(text) - self.times) | (_dates(text) - self.dates)
+
+    def foreign_mentions(self, text: str) -> set[str]:
+        """Названия чужих клиник, найденные в ответе (V09)."""
+        lowered = text.lower()
+        return {name for name in self.foreign_clinics if name in lowered}
 
     def unknown_doctors(self, text: str) -> set[str]:
         return {name for name in _mentioned_doctors(text) if not self._known_name(name)}

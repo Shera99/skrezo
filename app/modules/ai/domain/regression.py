@@ -84,7 +84,11 @@ def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
         needs_human=bool(case.get("needsHuman")),
         human_reason=None,
     )
-    facts = TurnFacts.build(list(case.get("facts") or []), _CASE_DOCTORS)
+    facts = TurnFacts.build(
+        list(case.get("facts") or []),
+        _CASE_DOCTORS,
+        list(case.get("foreignClinics") or []),
+    )
     verdict = validate(reply, case.get("conversationLang"), facts)
     actual = verdict.action.value
     if verdict.codes:

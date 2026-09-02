@@ -505,3 +505,28 @@ cases:
   lang: ru
   contains: не обещай результат
   note: запрет обещаний дублирует V04 на уровне промпта
+- id: val-020
+  kind: validator
+  lang: ru
+  reply: Попробуйте Стоматология Аврора, там дешевле.
+  foreignClinics:
+  - Стоматология Аврора
+  usedFacts: []
+  expect:
+    action: block
+    code: V09
+  note: упоминание чужой клиники — утечка или выдумка
+- id: val-021
+  kind: validator
+  lang: ky
+  reply: Биздин клиникада тазалоо 2 500 сом.
+  facts:
+  - Тазалоо — 2 500 сом
+  foreignClinics:
+  - Стоматология Аврора
+  usedFacts:
+  - s
+  conversationLang: ky
+  expect:
+    action: pass
+  note: своя клиника и своя цена — проходит
