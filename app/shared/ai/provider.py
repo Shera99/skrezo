@@ -37,6 +37,9 @@ class AiMessagePart:
     # role=model с вызовом инструмента:
     tool_name: str | None = None
     tool_args: dict[str, Any] | None = None
+    # Подпись рассуждения (Gemini 3.x требует вернуть её вместе с functionCall
+    # в истории хода — без неё API отвечает 400 thought_signature missing).
+    tool_signature: str | None = None
     # role=tool — результат исполнения:
     tool_result: dict[str, Any] | list[Any] | None = None
 
@@ -47,6 +50,8 @@ class ToolCallRequest:
 
     name: str
     args: dict[str, Any]
+    # Провайдерская подпись вызова — вернуть в истории как пришла.
+    signature: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

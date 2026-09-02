@@ -57,8 +57,13 @@ _SPECIFICS = re.compile(r"\d{3,}|\b\d{1,2}:\d{2}\b")
 _MAX_REPLY_LEN = 1000
 
 
-def validate(reply: BotReply, conversation_lang: str) -> Verdict:
-    """Проверить ответ; порядок правил — от блокирующих к мягким."""
+def validate(reply: BotReply, conversation_lang: str | None) -> Verdict:
+    """Проверить ответ; порядок правил — от блокирующих к мягким.
+
+    ``conversation_lang=None`` — язык диалога ещё не зафиксирован (первый
+    ответ): V07 не применяется, язык определяет сама модель по сообщению
+    пациента (§10.2), и мы его запоминаем.
+    """
     codes: list[str] = []
     for label, pattern in _FORBIDDEN:
         if pattern.search(reply.reply):
@@ -68,8 +73,10 @@ def validate(reply: BotReply, conversation_lang: str) -> Verdict:
         return Verdict(VerdictAction.BLOCK, ["V05"], notes="конкретика без used_facts")
     if reply.confidence == "low" or reply.needs_human:
         return Verdict(VerdictAction.ESCALATE, ["V06"], notes=reply.human_reason)
-    if reply.lang != conversation_lang:
-        return Verdict(VerdictAction.REGENERATE, ["V07"], notes=f"{reply.lang}≠{conversation_lang}")
+    if conversation_lang is not None and reply.lang != conversation_lang:
+        return Verdict(
+            VerdictAction.REGENERATE, ["V07"], notes=f"{reply.lang}≠{conversation_lang}"
+        )
     if len(reply.reply) > _MAX_REPLY_LEN:
         return Verdict(VerdictAction.REGENERATE, ["V08"])
     return Verdict(VerdictAction.PASS)

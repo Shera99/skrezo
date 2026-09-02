@@ -71,19 +71,17 @@ class GeminiProvider:
                     }
                 )
             elif part.role == "model" and part.tool_name is not None:
-                contents.append(
-                    {
-                        "role": "model",
-                        "parts": [
-                            {
-                                "functionCall": {
-                                    "name": part.tool_name,
-                                    "args": part.tool_args or {},
-                                }
-                            }
-                        ],
+                call_part: dict[str, Any] = {
+                    "functionCall": {
+                        "name": part.tool_name,
+                        "args": part.tool_args or {},
                     }
-                )
+                }
+                if part.tool_signature:
+                    # Gemini 3.x: functionCall в истории обязан нести подпись
+                    # рассуждения, иначе 400 «missing thought_signature».
+                    call_part["thoughtSignature"] = part.tool_signature
+                contents.append({"role": "model", "parts": [call_part]})
             else:
                 contents.append(
                     {
@@ -154,7 +152,9 @@ class GeminiProvider:
             if call:
                 return AiResult(
                     tool_call=ToolCallRequest(
-                        name=str(call.get("name") or ""), args=dict(call.get("args") or {})
+                        name=str(call.get("name") or ""),
+                        args=dict(call.get("args") or {}),
+                        signature=item.get("thoughtSignature"),
                     ),
                     model=self.model_name,
                     usage=usage,

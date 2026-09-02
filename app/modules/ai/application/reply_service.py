@@ -90,7 +90,12 @@ class ProcessAiReplyService:
             logger.warning("ai_provider_missing", clinic_id=str(clinic.id))
             return ReplyOutcome(status="skipped")
 
-        lang = "ky" if conversation.lang is Lang.KG else "ru"
+        # Язык фиксируется первым ПРОШЕДШИМ ответом бота (§10.2): до него
+        # модель распознаёт язык сама, и V07 не применяется.
+        first_reply = await self._repository.bot_replies_count(conversation.id) == 0
+        lang: str | None = None if first_reply else (
+            "ky" if conversation.lang is Lang.KG else "ru"
+        )
         system = await self._build_system(clinic, lang)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
@@ -121,7 +126,12 @@ class ProcessAiReplyService:
                     conversation.id, tool_context, call.name, call.args
                 )
                 parts.append(
-                    AiMessagePart(role="model", tool_name=call.name, tool_args=call.args)
+                    AiMessagePart(
+                        role="model",
+                        tool_name=call.name,
+                        tool_args=call.args,
+                        tool_signature=call.signature,
+                    )
                 )
                 parts.append(
                     AiMessagePart(role="tool", tool_name=call.name, tool_result=outcome)
@@ -154,7 +164,11 @@ class ProcessAiReplyService:
         )
         if reply is None or verdict is None:
             return await self._escalate(
-                conversation, clinic, "validator_blocked", {"note": "непарсибельный ответ"}
+                conversation,
+                clinic,
+                "validator_blocked",
+                # Хвост сырого текста — иначе «непарсибельный» нечем разбирать.
+                {"note": "непарсибельный ответ", "raw": (raw_text or "")[:300]},
             )
         if verdict.action is VerdictAction.BLOCK:
             return await self._blocked(conversation, clinic, reply, verdict, model_name)
@@ -164,9 +178,9 @@ class ProcessAiReplyService:
 
     # ── Контекст ────────────────────────────────────────────────────────────
 
-    async def _build_system(self, clinic: Clinic, lang: str) -> str:
+    async def _build_system(self, clinic: Clinic, lang: str | None) -> str:
         glossary = await self._repository.approved_glossary(clinic.id)
-        kb = await self._repository.kb_for_prompt(clinic.id, lang)
+        kb = await self._repository.kb_for_prompt(clinic.id, lang or "ru")
         card = ClinicCard(
             name=clinic.name,
             address=clinic.address,
@@ -208,7 +222,7 @@ class ProcessAiReplyService:
         system: str,
         parts: list[AiMessagePart],
         raw_text: str,
-        lang: str,
+        lang: str | None,
     ) -> tuple[BotReply | None, Verdict | None]:
         """Разобрать ответ; V07/V08 и битый JSON — одна перегенерация (§7, §14)."""
         for attempt in range(2):
@@ -228,7 +242,7 @@ class ProcessAiReplyService:
                     return reply, Verdict(VerdictAction.ESCALATE, verdict.codes, verdict.notes)
                 return reply, verdict
             instruction = (
-                f"Ответь на языке диалога ({lang}) и не длиннее 1000 символов. "
+                f"Ответь на языке диалога ({lang or 'ru'}) и не длиннее 1000 символов. "
                 "Верни строго один JSON."
             )
             raw_text = await self._retry(system, parts, raw_text, instruction)
