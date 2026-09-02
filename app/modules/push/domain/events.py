@@ -84,6 +84,13 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         android_channel="patients-inbox.v1",
         ttl_seconds=15 * 60,
     ),
+    # §9.2: неотложное состояние — громче всего, что есть, и владельцу тоже.
+    "ai.urgent": EventSpec(
+        frozenset({Audience.MANAGER, Audience.OWNER}),
+        Rung.CRITICAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=15 * 60,
+    ),
     "conversation.inbound": EventSpec(
         frozenset({Audience.MANAGER}),
         Rung.LOW,

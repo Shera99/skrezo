@@ -22,9 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.modules.ai.application.booking import BookingService
 from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
+from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
+from app.modules.ai.domain.texts import medical_text
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.push.application.outbox import emit_event
@@ -86,6 +89,15 @@ class ProcessAiReplyService:
         if conversation.status is not AiConversationStatus.ACTIVE:
             # escalated: человек ведёт разговор, бот молчит до возврата (§8.4).
             return ReplyOutcome(status="skipped")
+        # §9: медицинский фильтр — детерминированно и ДО модели. Стоит выше
+        # проверки провайдера намеренно: неотложное состояние пациента не
+        # должно зависеть от того, доступна ли сейчас модель.
+        medical = classify(await self._last_patient_text(conversation))
+        if medical.kind is MedicalKind.URGENT:
+            return await self._urgent(conversation, clinic, medical)
+        if medical.kind is MedicalKind.COMPLAINT:
+            return await self._complaint(conversation, clinic, medical)
+
         if self._provider is None:
             logger.warning("ai_provider_missing", clinic_id=str(clinic.id))
             return ReplyOutcome(status="skipped")
@@ -411,6 +423,126 @@ class ProcessAiReplyService:
                     logger.warning("ai_escalation_notice_failed", error=str(exc))
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
+
+    # ── Медицинский фильтр (§9) ─────────────────────────────────────────────
+
+    async def _last_patient_text(self, conversation: AiConversation) -> str:
+        """Текст последнего сообщения пациента — вход медицинского фильтра."""
+        return (
+            await self._session.execute(
+                select(AiMessage.body)
+                .where(
+                    AiMessage.conversation_id == conversation.id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                )
+                .order_by(AiMessage.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none() or ""
+
+    async def _send_filter_reply(
+        self, conversation: AiConversation, clinic: Clinic, body: str
+    ) -> bool:
+        """Отправить шаблон фильтра пациенту и записать его в диалог.
+
+        Уходит только в ``auto``: в теневом режиме пациент бота ещё не видел,
+        писать ему от имени клиники нельзя. Возвращает, ушло ли сообщение.
+        """
+        sent_at: datetime | None = None
+        wa_message_id: str | None = None
+        if clinic.ai_mode is AiMode.AUTO:
+            binding = await self._whatsapp.binding_by_clinic(clinic.id)
+            if binding is not None and binding.active:
+                try:
+                    sent = await self._wa.send_text(
+                        binding.phone_number_id, conversation.wa_phone, body
+                    )
+                    sent_at = datetime.now(UTC)
+                    wa_message_id = sent.wa_message_id
+                    conversation.last_msg_at = sent_at
+                except WhatsAppSendError as exc:
+                    logger.warning("ai_medical_reply_failed", error=str(exc))
+        message = await self._whatsapp.add_message(
+            conversation,
+            role=AiMessageRole.BOT,
+            body=body,
+            wa_message_id=wa_message_id,
+            sent_at=sent_at,
+        )
+        # Метка в журнале: этот ответ написал фильтр, а не модель.
+        message.validator = {"passed": True, "codes": [], "notes": "medical_filter"}
+        return sent_at is not None
+
+    async def _urgent(
+        self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
+    ) -> ReplyOutcome:
+        """§9.2: телефон клиники, срочное уведомление, никакого диалога."""
+        lang = "ky" if conversation.lang is Lang.KG else "ru"
+        phone = (clinic.business_phone or "").strip()
+        body = (
+            medical_text("urgent", lang).format(phone=phone)
+            if phone
+            else medical_text("urgent_no_phone", lang)
+        )
+        await self._send_filter_reply(conversation, clinic, body)
+        # Бот замолкает: уточняющих вопросов при неотложном не задают.
+        self._repository.add_escalation(
+            conversation.id,
+            conversation.clinic_id,
+            reason="urgent_medical",
+            payload={"trigger": medical.label, "proposedMessageId": None},
+        )
+        conversation.status = AiConversationStatus.ESCALATED
+        await emit_event(
+            self._session,
+            clinic_id=conversation.clinic_id,
+            type_="ai.urgent",
+            entity_type="conversation",
+            entity_id=conversation.id,
+            payload={"trigger": medical.label},
+        )
+        await self._session.commit()
+        logger.info(
+            "ai_medical_urgent",
+            conversation_id=str(conversation.id),
+            trigger=medical.label,
+        )
+        return ReplyOutcome(status="escalated", escalation_reason="urgent_medical")
+
+    async def _complaint(
+        self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
+    ) -> ReplyOutcome:
+        """§9.1: состояние не обсуждаем — зовём к врачу и сразу даём слоты."""
+        lang = "ky" if conversation.lang is Lang.KG else "ru"
+        slots = await self._nearest_slots(conversation.clinic_id)
+        body = (
+            medical_text("complaint", lang).format(slots=slots)
+            if slots
+            else medical_text("complaint_no_slots", lang)
+        )
+        auto = await self._send_filter_reply(conversation, clinic, body)
+        await self._session.commit()
+        logger.info(
+            "ai_medical_complaint",
+            conversation_id=str(conversation.id),
+            trigger=medical.label,
+        )
+        return ReplyOutcome(status="sent" if auto else "shadow", reply=body)
+
+    async def _nearest_slots(self, clinic_id: uuid.UUID) -> str:
+        """Строка «03.09 в 10:00, 04.09 в 09:30» — ближайшие свободные дни."""
+        days = await BookingService(self._session).free_days(
+            clinic_id,
+            date_from=datetime.now(UTC),
+            days=3,
+            doctor_membership_id=None,
+            service_id=None,
+        )
+        parts = []
+        for day in days[:2]:
+            iso = str(day["date"])
+            parts.append(f"{iso[8:10]}.{iso[5:7]} в {day['firstSlot']}")
+        return ", ".join(parts)
 
     async def _save_bot_message(
         self,

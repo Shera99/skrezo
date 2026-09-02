@@ -29,8 +29,11 @@ from sqlalchemy import select
 from app.main import app
 from app.modules.ai.presentation.deps import get_ai_provider
 from app.shared.ai import AiMessagePart, AiResult, AiToolDecl, ToolCallRequest
+from app.shared.db.enums import AiConversationStatus
+from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
+from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
 from app.shared.db.models.slot_hold import SlotHold
 from tests.conftest import API, Resources, otp_login, own_membership_id
@@ -610,3 +613,111 @@ async def test_propose_rejects_unknown_doctor(
     assert "get_doctors" in json.dumps(tool_result, ensure_ascii=False)
     async with _resources.factory() as session:
         assert (await session.execute(select(SlotHold))).scalar_one_or_none() is None
+
+
+# ── 6. Медицинский фильтр (§9) ──────────────────────────────────────────────
+
+
+async def test_urgent_bypasses_model_and_alerts(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Неотложное: телефон клиники, срочное событие, бот замолкает — без модели."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Этого ответа не должно быть."))]
+    body = await _simulate(
+        admin_client, ctx, "Опухла щека и температура, что делать?", "+996700200020"
+    )
+
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "urgent_medical"
+    assert fake.calls == []  # §9.2: реакция минуя модель
+
+    patient_reply = body["messages"][-1]
+    assert "0700000000" in patient_reply["body"]  # телефон клиники из карточки
+    assert patient_reply["sent"] is True
+
+    async with _resources.factory() as session:
+        types = [
+            e.type
+            for e in (await session.execute(select(Event))).scalars()
+            if e.type.startswith("ai.")
+        ]
+    assert "ai.urgent" in types
+
+    # Диалог передан человеку: следующее сообщение бот игнорирует (§8.4).
+    again = await _simulate(admin_client, ctx, "Ну так что?", "+996700200020")
+    assert again["outcome"] == "skipped"
+
+
+async def test_complaint_answers_with_template_and_slots(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Жалоба: состояние не обсуждаем, зовём к врачу и сразу предлагаем время."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Похоже на пульпит."))]
+    body = await _simulate(admin_client, ctx, "У меня болит зуб", "+996700200021")
+
+    assert body["outcome"] == "sent"
+    assert fake.calls == []  # §9.1: классификатор ДО модели
+    reply = body["messages"][-1]["body"]
+    assert "показаться врачу" in reply
+    assert "пульпит" not in reply  # никаких догадок о диагнозе
+
+    # Это обычный ответ, а не эскалация: диалог остаётся за ботом.
+    async with _resources.factory() as session:
+        conv = (await session.execute(select(AiConversation))).scalars().all()
+    assert all(c.status is AiConversationStatus.ACTIVE for c in conv)
+
+
+async def test_service_name_with_diagnosis_is_not_a_complaint(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """«Сколько стоит лечение кариеса» — вопрос о прайсе, а не жалоба.
+
+    Названия болезней есть в прайсе клиники, и фильтр не должен подменять
+    ответ о цене шаблоном про врача.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Лечение кариеса — 3 500 сом.", facts=["service:x"]))]
+    body = await _simulate(
+        admin_client, ctx, "Сколько стоит лечение кариеса?", "+996700200022"
+    )
+    assert body["outcome"] == "sent"
+    assert len(fake.calls) == 1  # модель отработала штатно
+    assert "3 500" in body["botReply"]
+
+
+async def test_procedure_question_is_not_a_complaint(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """«Больно ли удалять?» — вопрос о процедуре: отвечает модель, не фильтр.
+
+    Граница между §9 и §7: жалоба на СВОЁ состояние — к фильтру, вопрос про
+    процедуру — к модели, а обещание «не больно» ловит валидатор (V04).
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Удаление делают с анестезией.", facts=[]))]
+    body = await _simulate(admin_client, ctx, "Больно ли удалять?", "+996700200024")
+    assert body["outcome"] == "sent"
+    assert len(fake.calls) == 1
+
+
+async def test_urgent_without_clinic_phone_still_alerts(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Телефона в карточке нет — пациент всё равно получает ответ, админ — пуш."""
+    async with _resources.factory() as session:
+        clinic = await session.get(Clinic, uuid.UUID(ctx.clinic_id))
+        assert clinic is not None
+        clinic.business_phone = None
+        await session.commit()
+    await _set_mode(admin_client, ctx, "auto")
+    body = await _simulate(admin_client, ctx, "Кровотечение не останавливается", "+996700200023")
+
+    assert body["outcome"] == "escalated"
+    assert "администратору" in body["messages"][-1]["body"]
+    assert fake.calls == []
