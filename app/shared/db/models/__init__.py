@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
@@ -24,8 +26,10 @@ from app.shared.db.models.device import Device
 from app.shared.db.models.doctor_schedule import DoctorSchedule
 from app.shared.db.models.doctor_time_off import DoctorTimeOff
 from app.shared.db.models.event import Event
+from app.shared.db.models.glossary_term import GlossaryTerm
 from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.job_run import JobRun
+from app.shared.db.models.kb_document import KbDocument
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.notification_delivery import NotificationDelivery
@@ -51,7 +55,9 @@ from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 __all__ = [
     "Account",
     "AiConversation",
+    "AiEscalation",
     "AiMessage",
+    "AiToolCall",
     "Appointment",
     "AppointmentItem",
     "AppointmentItemTooth",
@@ -67,8 +73,10 @@ __all__ = [
     "DoctorSchedule",
     "DoctorTimeOff",
     "Event",
+    "GlossaryTerm",
     "InboxItem",
     "JobRun",
+    "KbDocument",
     "Lead",
     "Membership",
     "NotificationDelivery",

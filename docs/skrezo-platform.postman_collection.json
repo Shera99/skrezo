@@ -4593,6 +4593,192 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "ai",
+      "item": [
+        {
+          "name": "Глоссарий клиники (+ общий словарь платформы)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/glossary?status=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "glossary"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true,
+                  "description": "`pending` — очередь предложений бота на одобрение"
+                }
+              ]
+            },
+            "description": "Словарь, которым бот понимает пациентов.\n\nВ промпт попадают только `approved`. `pending` — предложения бота: он\nпереспросил пациента, получил подтверждение и положил пару сюда; автозаписи\nв действующий словарь нет намеренно — неверно понятая фраза стала бы\nсистемной ошибкой для всех следующих пациентов."
+          },
+          "response": []
+        },
+        {
+          "name": "Добавить термин вручную (сразу approved)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/glossary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "glossary"
+              ]
+            },
+            "description": "Термин от администратора действует сразу — человек и есть контроль.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phrase\": \"тиш ооруп жатат\",\n  \"meaning\": \"болит зуб\",\n  \"lang\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Одобрить предложение бота",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "glossary",
+                "{{term_id}}",
+                "approve"
+              ]
+            },
+            "description": "С этого момента фраза попадает в промпт — бот не переспрашивает снова."
+          },
+          "response": []
+        },
+        {
+          "name": "Удалить термин (или отклонить предложение)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "glossary",
+                "{{term_id}}"
+              ]
+            },
+            "description": "Общий словарь платформы клиника не правит — только свои термины."
+          },
+          "response": []
+        },
+        {
+          "name": "Режим AI-ассистента клиники",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/ai-mode",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "clients",
+                "{{clinic_id}}",
+                "ai-mode"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"off\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Имитировать входящее сообщение пациента",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/ai/simulate-inbound",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "ai",
+                "simulate-inbound"
+              ]
+            },
+            "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clinicId\": \"00000000-0000-0000-0000-000000000000\",\n  \"fromPhone\": \"+996700123456\",\n  \"text\": \"Канча турат чистка?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [
@@ -4688,6 +4874,11 @@
     },
     {
       "key": "service_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "term_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

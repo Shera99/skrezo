@@ -8,7 +8,15 @@ from sqlalchemy import ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
-from app.shared.db.enums import DEFAULT_LANG, ClinicType, ClinicTypeType, Lang, LangType
+from app.shared.db.enums import (
+    DEFAULT_LANG,
+    AiMode,
+    AiModeType,
+    ClinicType,
+    ClinicTypeType,
+    Lang,
+    LangType,
+)
 
 # Таймзона по умолчанию: почти все клиники — в Кыргызстане.
 DEFAULT_TIMEZONE = "Asia/Bishkek"
@@ -29,5 +37,10 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     timezone: Mapped[str] = mapped_column(Text, nullable=False, server_default=DEFAULT_TIMEZONE)
     # Лимит оплаченных мест (врачей) по тарифу — только для type=clinic.
     seats_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Режим AI-ассистента (§13.1): новая клиника — только shadow/off; auto —
+    # решение по цифрам теневого режима, включает команда Skrezo.
+    ai_mode: Mapped[AiMode] = mapped_column(
+        AiModeType, nullable=False, server_default=AiMode.OFF.value
+    )
     # Заметки саппорта — видны и правятся только в платформенной зоне.
     support_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

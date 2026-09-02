@@ -77,6 +77,19 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         android_channel="cash.v1",
         ttl_seconds=24 * _HOUR,
     ),
+    # Контур ассистента и переписки (шов Ф2→Ф3: просто строки в outbox).
+    "ai.escalated": EventSpec(
+        frozenset({Audience.MANAGER}),
+        Rung.CRITICAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=15 * 60,
+    ),
+    "conversation.inbound": EventSpec(
+        frozenset({Audience.MANAGER}),
+        Rung.LOW,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=_HOUR,
+    ),
     # Сводки — персональные события от cron'а (план дня посчитан на адресата).
     # Утренняя — normal: уйдёт пушем с форой и отменой по показу; вечерняя —
     # low: только инбокс. TTL 4 часа: сводка в 08:00 протухает к полудню.

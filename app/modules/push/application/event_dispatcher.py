@@ -58,6 +58,7 @@ from app.modules.push.infrastructure.repositories.push_job_repository import (
 )
 from app.shared.db.enums import EventPriority, Lang
 from app.shared.db.models.account import Account
+from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.device import Device
@@ -308,6 +309,26 @@ class EventDispatcher:
                     "count": str(event.payload.get("count") or 0),
                     "firstTime": str(event.payload.get("firstTime") or ""),
                 },
+                tz=tz,
+            )
+        if event.entity_type == "conversation" and event.entity_id is not None:
+            row = (
+                await self._session.execute(
+                    select(
+                        AiConversation.wa_phone,
+                        func.concat_ws(" ", Patient.last_name, Patient.first_name),
+                    )
+                    .outerjoin(Patient, Patient.id == AiConversation.patient_id)
+                    .where(AiConversation.id == event.entity_id)
+                )
+            ).first()
+            if row is None:
+                return None
+            from_name = (row[1] or "").strip() or row[0]
+            return _Context(
+                scheduled_at=None,
+                doctor_membership_id=None,
+                params={"fromName": from_name},
                 tz=tz,
             )
         if event.type.startswith("appointment."):

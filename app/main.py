@@ -25,6 +25,7 @@ from app.core.redis import redis_client
 from app.modules.access.presentation.routes import admin_router as access_admin_router
 from app.modules.access.presentation.routes import router as roles_router
 from app.modules.accounts.presentation.routes import router as accounts_router
+from app.modules.ai.presentation.routes import router as ai_router
 from app.modules.appointments.presentation.routes import router as appointments_router
 from app.modules.audit.presentation.routes import clinic_router as clinic_audit_router
 from app.modules.audit.presentation.routes import router as audit_router
@@ -192,6 +193,17 @@ OPENAPI_TAGS = [
             "Устройства сотрудника и его настройки уведомлений (тихие часы, "
             "отключённые типы) — свои, без отдельного права. Сама доставка пушей "
             "(FCM/APNs) появится в следующих инкрементах."
+        ),
+    },
+    {
+        "name": "ai",
+        "x-displayName": "AI-ассистент",
+        "description": (
+            "Ассистент в WhatsApp (Ф2): глоссарий с очередью предложений, режим "
+            "клиники (shadow/assisted/auto), симулятор входящих для Skrezo. "
+            "Модель за интерфейсом AiProvider (Gemini; смена — env). Красная зона "
+            "— только из БД через инструменты; валидатор до отправки; «не знаю» — "
+            "правильный ответ."
         ),
     },
     {
@@ -377,6 +389,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
     app.include_router(push_router, prefix=settings.api_v1_prefix)
     app.include_router(whatsapp_router, prefix=settings.api_v1_prefix)
+    app.include_router(ai_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:
         """Схема OpenAPI с группами разделов ReDoc (``x-tagGroups``)."""

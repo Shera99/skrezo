@@ -184,6 +184,26 @@ class AiMessageRole(enum.StrEnum):
     SYSTEM = "system"  # служебные вставки (шаблон, пометки)
 
 
+class AiMode(enum.StrEnum):
+    """Режим работы AI-ассистента клиники (§13.1 ТЗ ассистента).
+
+    Новая клиника подключается только в ``shadow``; переход дальше — решение
+    по цифрам теневого режима, а не расписание.
+    """
+
+    OFF = "off"  # ассистент выключен: диалоги копятся, отвечает человек
+    SHADOW = "shadow"  # бот готовит ответ, пациенту НЕ уходит — показ админу
+    ASSISTED = "assisted"  # зелёная зона — сам, остальное через админа
+    AUTO = "auto"  # отправляет всё, что прошло валидатор
+
+
+class GlossaryStatus(enum.StrEnum):
+    """Статус термина глоссария: в промпт попадают только одобренные."""
+
+    PENDING = "pending"  # предложение (от бота после подтверждения пациентом)
+    APPROVED = "approved"  # одобрен администратором — бот знает термин
+
+
 class EventPriority(enum.StrEnum):
     """Приоритет уведомления: определяет каналы доставки (ТЗ-СУ §3).
 
@@ -264,4 +284,8 @@ WhatsAppModeType = SAEnum(
 )
 EventPriorityType = SAEnum(
     EventPriority, name="event_priority", values_callable=lambda e: [m.value for m in e]
+)
+AiModeType = SAEnum(AiMode, name="ai_mode", values_callable=lambda e: [m.value for m in e])
+GlossaryStatusType = SAEnum(
+    GlossaryStatus, name="glossary_status", values_callable=lambda e: [m.value for m in e]
 )

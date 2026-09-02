@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +26,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.modules.push.application.outbox import emit_event
 from app.modules.whatsapp.application.services.media import save_media
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -89,6 +92,14 @@ def _extract_content(msg: dict[str, Any]) -> tuple[str, str | None, str | None]:
     return "", None, None
 
 
+@dataclass(frozen=True, slots=True)
+class InboundRef:
+    """Ссылка на сохранённое ВХОДЯЩЕЕ пациента — для запуска ассистента (Ф2)."""
+
+    conversation_id: uuid.UUID
+    message_id: int
+
+
 class InboundProcessor:
     """Обработчик payload'а вебхука целиком (все entry/changes)."""
 
@@ -102,34 +113,40 @@ class InboundProcessor:
         self._repository = repository
         self._client = client
 
-    async def process(self, payload: dict[str, Any]) -> int:
-        """Сохранить все сообщения из payload'а; вернуть число новых."""
-        saved = 0
+    async def process(self, payload: dict[str, Any]) -> list[InboundRef]:
+        """Сохранить все сообщения payload'а; вернуть ссылки на ВХОДЯЩИЕ пациентов.
+
+        По ссылкам вызывающий запускает ассистента (Ф2): вебхук — фоновой
+        задачей, симулятор — на месте. Эхо и статусы ссылок не порождают.
+        """
+        refs: list[InboundRef] = []
         for entry in payload.get("entry") or []:
             for change in entry.get("changes") or []:
                 value = change.get("value") or {}
-                saved += await self._process_value(value)
+                refs.extend(await self._process_value(value))
         await self._session.commit()
-        return saved
+        return refs
 
-    async def _process_value(self, value: dict[str, Any]) -> int:
+    async def _process_value(self, value: dict[str, Any]) -> list[InboundRef]:
         phone_number_id = (value.get("metadata") or {}).get("phone_number_id")
         if not phone_number_id:
-            return 0
+            return []
         binding = await self._repository.binding_by_phone_number_id(str(phone_number_id))
         if binding is None:
             # Не наша клиника (или привязка выключена): Meta получает 200,
             # чтобы не копить ретраи, событие оседает только в логе.
             logger.warning("wa_inbound_unknown_number", phone_number_id=str(phone_number_id))
-            return 0
+            return []
 
-        saved = 0
+        refs: list[InboundRef] = []
         for msg in value.get("messages") or []:
-            saved += await self._save_inbound(binding.clinic_id, msg, AiMessageRole.PATIENT)
+            ref = await self._save_inbound(binding.clinic_id, msg, AiMessageRole.PATIENT)
+            if ref is not None:
+                refs.append(ref)
         # Coexistence: исходящие человека из приложения WhatsApp Business.
         for msg in value.get("message_echoes") or []:
-            saved += await self._save_echo(binding.clinic_id, msg)
-        return saved
+            await self._save_echo(binding.clinic_id, msg)
+        return refs
 
     async def _conversation_for(self, clinic_id: Any, wa_phone: str) -> AiConversation:
         conversation = await self._repository.open_conversation(clinic_id, wa_phone)
@@ -140,11 +157,13 @@ class InboundProcessor:
             )
         return conversation
 
-    async def _save_inbound(self, clinic_id: Any, msg: dict[str, Any], role: AiMessageRole) -> int:
+    async def _save_inbound(
+        self, clinic_id: Any, msg: dict[str, Any], role: AiMessageRole
+    ) -> InboundRef | None:
         wa_message_id = msg.get("id")
         sender = msg.get("from")
         if not wa_message_id or not sender:
-            return 0
+            return None
         wa_phone = _normalize_phone(str(sender))
         ts = _message_ts(msg)
         body, media_type, media_id = _extract_content(msg)
@@ -160,7 +179,7 @@ class InboundProcessor:
             sent_at=ts,
         )
         if message_id is None:
-            return 0  # повторная доставка вебхука — уже сохранено
+            return None  # повторная доставка вебхука — уже сохранено
 
         # Пациент мог появиться в базе между сообщениями — дополняем привязку.
         if conversation.patient_id is None:
@@ -179,14 +198,22 @@ class InboundProcessor:
             "conversation.message",
             {"conversationId": str(conversation.id), "direction": "in"},
         )
-        return 1
+        # Событие §4 «новое сообщение» — админ узнаёт из инбокса/сводки (low).
+        await emit_event(
+            self._session,
+            clinic_id=conversation.clinic_id,
+            type_="conversation.inbound",
+            entity_type="conversation",
+            entity_id=conversation.id,
+        )
+        return InboundRef(conversation_id=conversation.id, message_id=message_id)
 
-    async def _save_echo(self, clinic_id: Any, msg: dict[str, Any]) -> int:
+    async def _save_echo(self, clinic_id: Any, msg: dict[str, Any]) -> None:
         """Эхо исходящего человека: диалог ищется по ПОЛУЧАТЕЛЮ (``to``)."""
         wa_message_id = msg.get("id")
         recipient = msg.get("to")
         if not wa_message_id or not recipient:
-            return 0
+            return
         wa_phone = _normalize_phone(str(recipient))
         ts = _message_ts(msg)
         body, media_type, media_id = _extract_content(msg)
@@ -202,7 +229,7 @@ class InboundProcessor:
             sent_at=ts,
         )
         if message_id is None:
-            return 0
+            return
         conversation.last_msg_at = max(conversation.last_msg_at, ts)
         await publish_realtime(
             self._session,
@@ -210,7 +237,6 @@ class InboundProcessor:
             "conversation.message",
             {"conversationId": str(conversation.id), "direction": "out"},
         )
-        return 1
 
     async def _fetch_media(self, message_id: int, media_id: str) -> None:
         """Скачать медиа сразу: ссылка Meta живёт минуты, потом только id."""
