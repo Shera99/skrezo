@@ -174,6 +174,23 @@ class GraphWhatsAppClient:
             logger.error("wa_cloud_media_error", media_id=media_id, error=str(exc))
             return None
 
+    async def check_token(self, phone_number_id: str) -> bool:
+        """Профиль номера: 200 — токен жив, 401/403 — истёк или отозван."""
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.get(
+                    f"{self._api_url}/{phone_number_id}",
+                    params={"fields": "id"},
+                    headers=self._headers(),
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("wa_token_check_failed", error=str(exc))
+            return False
+        if resp.status_code >= 400:
+            logger.warning("wa_token_invalid", status=resp.status_code)
+            return False
+        return True
+
     async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
         """Все шаблоны WABA (с пагинацией); ``None`` — Graph API недоступен."""
         url: str | None = f"{self._api_url}/{waba_id}/message_templates"

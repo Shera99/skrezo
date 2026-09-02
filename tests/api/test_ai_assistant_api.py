@@ -24,12 +24,19 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.main import app
 from app.modules.ai.presentation.deps import get_ai_provider
-from app.shared.ai import AiMessagePart, AiResult, AiToolDecl, ToolCallRequest
-from app.shared.db.enums import AiConversationStatus, AiMessageRole
+from app.modules.whatsapp.domain.window import WINDOW
+from app.shared.ai import (
+    AiMessagePart,
+    AiProviderError,
+    AiResult,
+    AiToolDecl,
+    ToolCallRequest,
+)
+from app.shared.db.enums import AiConversationStatus, AiMessageRole, AiMode
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.ai_summary import AiSummary
@@ -831,7 +838,7 @@ async def test_closed_conversation_gets_summary_and_next_talk_sees_it(
 ) -> None:
     """Диалог закрылся — появилось резюме; следующий разговор видит его в промпте."""
     from app.jobs.tasks import whatsapp as wa_job
-    from app.jobs.tasks.whatsapp import WINDOW, close_stale_conversations
+    from app.jobs.tasks.whatsapp import close_stale_conversations
 
     _patch_job(monkeypatch, wa_job, fake, _resources)
 
@@ -875,7 +882,7 @@ async def test_summary_is_built_once(
 ) -> None:
     """Повторный прогон задачи не плодит резюме одного диалога."""
     from app.jobs.tasks import whatsapp as wa_job
-    from app.jobs.tasks.whatsapp import WINDOW, close_stale_conversations
+    from app.jobs.tasks.whatsapp import close_stale_conversations
 
     _patch_job(monkeypatch, wa_job, fake, _resources)
 
@@ -1030,3 +1037,96 @@ async def test_photo_is_not_interpreted(
     )
     outcome = await _run_reply(_resources, fake, conv_id)
     assert outcome.escalation_reason == "unsupported_media"
+
+
+# ── 11. Мониторинг здоровья интеграции (§13.5) ──────────────────────────────
+
+
+@dataclass
+class _DeadProvider:
+    """Провайдер, который лёг: любой вызов — ошибка."""
+
+    model_name: str = "dead-model"
+
+    async def complete(self, **_: Any) -> AiResult:
+        raise AiProviderError("провайдер недоступен")
+
+
+async def _health(res: Resources, provider: Any) -> Any:
+    from app.modules.ai.application.health import AiHealthService
+    from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
+
+    async with res.factory() as session:
+        return await AiHealthService(session, provider, LoggingWhatsAppClient()).check()
+
+
+async def test_dead_model_downgrades_auto_clinics(
+    admin_client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Модель недоступна: клиника в auto опускается до assisted, алерт — нам.
+
+    §13.5, правило 1: клиника не может починить наш провайдер, ей достаётся
+    деградация поведения — ответы уходят через администратора.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    report = await _health(_resources, _DeadProvider())
+
+    assert report.model_ok is False
+    assert report.downgraded >= 1
+    async with _resources.factory() as session:
+        clinic = await session.get(Clinic, uuid.UUID(ctx.clinic_id))
+        assert clinic is not None
+        assert clinic.ai_mode is AiMode.ASSISTED
+
+
+async def test_healthy_model_changes_nothing(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Живая модель — режим клиники не трогаем."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text="ок")]
+    report = await _health(_resources, fake)
+
+    assert report.model_ok is True
+    assert report.downgraded == 0
+    async with _resources.factory() as session:
+        clinic = await session.get(Clinic, uuid.UUID(ctx.clinic_id))
+        assert clinic is not None
+        assert clinic.ai_mode is AiMode.AUTO
+
+
+async def test_silence_of_busy_clinic_is_flagged(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Клиника, писавшая всю неделю и вдруг замолчавшая, — подозрение на отказ."""
+    await _set_mode(admin_client, ctx, "shadow")
+    phone = "+996700200070"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    conv_id = await _conversation_id(_resources, phone)
+
+    stale = datetime.now(UTC) - timedelta(hours=20)
+    async with _resources.factory() as session:
+        for i in range(12):
+            session.add(
+                AiMessage(
+                    conversation_id=conv_id,
+                    clinic_id=uuid.UUID(ctx.clinic_id),
+                    role=AiMessageRole.PATIENT,
+                    body=f"старое {i}",
+                    wa_message_id=f"wamid.S{uuid.uuid4().hex}",
+                    created_at=stale,
+                    sent_at=stale,
+                )
+            )
+        # И само «свежее» сообщение диалога отодвигаем в прошлое.
+        await session.execute(
+            update(AiMessage)
+            .where(AiMessage.conversation_id == conv_id)
+            .values(created_at=stale)
+        )
+        await session.commit()
+
+    fake.script = [AiResult(text="ок")]
+    report = await _health(_resources, fake)
+    assert ctx.clinic_id in report.silent_clinics

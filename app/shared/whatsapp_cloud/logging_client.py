@@ -52,6 +52,10 @@ class LoggingWhatsAppClient:
         logger.info("wa_cloud_media_skipped", media_id=media_id)
         return None
 
+    async def check_token(self, phone_number_id: str) -> bool:
+        """Без Graph API проверять нечего — считаем канал исправным."""
+        return True
+
     async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
         # None, а не []: пустой список стёр бы локальный каталог шаблонов.
         logger.info("wa_cloud_templates_skipped", waba_id=waba_id)

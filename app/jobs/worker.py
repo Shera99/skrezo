@@ -36,6 +36,7 @@ from arq.connections import RedisSettings
 from app.core.config import settings
 from app.core.jobs import PROCESS_WA_INBOUND, SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
 from app.jobs.dispatcher_loop import run_dispatcher_loop
+from app.jobs.tasks.ai_health import check_ai_health
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
@@ -100,6 +101,8 @@ class WorkerSettings:
         # Диалог WhatsApp без сообщений сутки — закрыт. Полчаса — компромисс:
         # правило «24 часа» не требует точности до минуты.
         cron(close_stale_conversations, minute={11, 41}),
+        # §13.5: тихие отказы контура ассистента ловятся только расписанием.
+        cron(check_ai_health, minute=set(range(0, 60, 5))),
         # Сводки дня: тик раз в 5 минут, окно совпадения 15 — момент сводки
         # (за час до открытия / в закрытие) не проскочит; дубль давит push_event.
         cron(send_daily_digests, minute=set(range(0, 60, 5))),

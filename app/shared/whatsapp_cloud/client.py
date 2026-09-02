@@ -77,6 +77,10 @@ class WhatsAppCloudClient(Protocol):
         """
         ...
 
+    async def check_token(self, phone_number_id: str) -> bool:
+        """Токен ещё жив? (§13.5) Дешёвый запрос профиля номера в Graph API."""
+        ...
+
     async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
         """Шаблоны WABA из кабинета Meta; ``None`` — синхронизация недоступна.
 
