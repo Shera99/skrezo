@@ -15,11 +15,11 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -29,7 +29,7 @@ from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
-from app.modules.ai.domain.texts import medical_text
+from app.modules.ai.domain.texts import medical_text, service_text
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.push.application.outbox import emit_event
@@ -101,6 +101,11 @@ class ProcessAiReplyService:
             return await self._urgent(conversation, clinic, medical)
         if medical.kind is MedicalKind.COMPLAINT:
             return await self._complaint(conversation, clinic, medical)
+
+        # §14: поток сообщений от одного пациента. Молча игнорировать нельзя —
+        # человек решит, что его не слышат; отвечаем один раз и зовём человека.
+        if await self._rate_limited(conversation):
+            return await self._too_many(conversation, clinic)
 
         if self._provider is None:
             logger.warning("ai_provider_missing", clinic_id=str(clinic.id))
@@ -385,11 +390,14 @@ class ProcessAiReplyService:
         payload: dict[str, Any] | None,
         *,
         proposed_message_id: int | None = None,
+        notify_patient: bool = True,
     ) -> ReplyOutcome:
         """Эскалация §8.2: карточка + событие + пауза бота + фраза пациенту.
 
         Шаблон пациенту уходит только в ``auto`` (в shadow пациент бота ещё не
         видел — писать ему от имени клиники нельзя) и моделью не переводится.
+        ``notify_patient=False`` — когда пациенту уже написали своим шаблоном
+        (лимит §14): два извинения подряд выглядят поломкой.
         """
         self._repository.add_escalation(
             conversation.id,
@@ -406,7 +414,7 @@ class ProcessAiReplyService:
             entity_id=conversation.id,
             payload={"reason": reason},
         )
-        if clinic.ai_mode is AiMode.AUTO:
+        if notify_patient and clinic.ai_mode is AiMode.AUTO:
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
             if binding is not None and binding.active:
                 lang = "ky" if conversation.lang is Lang.KG else "ru"
@@ -458,6 +466,36 @@ class ProcessAiReplyService:
             )
         ).scalars()
         return TurnFacts.build(sources, [name for name in doctors if name])
+
+    # ── Лимит потока (§14) ──────────────────────────────────────────────────
+
+    async def _rate_limited(self, conversation: AiConversation) -> bool:
+        """Пациент прислал больше нормы сообщений за последний час."""
+        since = datetime.now(UTC) - timedelta(hours=1)
+        count = (
+            await self._session.execute(
+                select(func.count())
+                .select_from(AiMessage)
+                .where(
+                    AiMessage.conversation_id == conversation.id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                    AiMessage.created_at >= since,
+                )
+            )
+        ).scalar_one()
+        return int(count) > settings.ai_rate_limit_per_hour
+
+    async def _too_many(
+        self, conversation: AiConversation, clinic: Clinic
+    ) -> ReplyOutcome:
+        """Одно извинение и передача человеку — дальше бот молчит."""
+        lang = "ky" if conversation.lang is Lang.KG else "ru"
+        await self._send_filter_reply(
+            conversation, clinic, service_text("rate_limited", lang)
+        )
+        return await self._escalate(
+            conversation, clinic, "rate_limited", None, notify_patient=False
+        )
 
     # ── Медицинский фильтр (§9) ─────────────────────────────────────────────
 

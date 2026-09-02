@@ -772,3 +772,36 @@ async def test_unknown_doctor_is_blocked(
     body = await _simulate(admin_client, ctx, "А кто принимает?", "+996700200033")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "validator_blocked"
+
+
+# ── 8. Лимит потока сообщений (§14) ─────────────────────────────────────────
+
+
+async def test_message_flood_answers_once_then_hands_over(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Больше 30 сообщений в час: одно извинение, эскалация, дальше молчание.
+
+    Молча игнорировать нельзя — человек решит, что его не слышат. Но и двух
+    сообщений подряд («слишком много» + «уточню у администратора») быть не
+    должно: §14 требует ровно одно.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200040"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!")) for _ in range(31)]
+    for i in range(30):
+        await _simulate(admin_client, ctx, f"сообщение {i}", phone)
+    calls_before = len(fake.calls)
+
+    body = await _simulate(admin_client, ctx, "тридцать первое", phone)
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "rate_limited"
+    assert len(fake.calls) == calls_before  # модель на перелив не звали
+
+    outgoing = [m for m in body["messages"] if m["role"] != "patient" and m["sent"]]
+    assert "Слишком много сообщений" in outgoing[-1]["body"]
+    assert "администратора" not in outgoing[-1]["body"]  # ровно одно извинение
+
+    # Диалог у человека — следующее сообщение бот пропускает.
+    after = await _simulate(admin_client, ctx, "ещё одно", phone)
+    assert after["outcome"] == "skipped"

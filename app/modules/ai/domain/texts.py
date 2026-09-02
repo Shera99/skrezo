@@ -95,6 +95,27 @@ _MEDICAL: dict[str, dict[str, str]] = {
 }
 
 
+#: Служебные шаблоны конвейера (§14) — тоже не пишутся моделью.
+_SERVICE: dict[str, dict[str, str]] = {
+    "rate_limited": {
+        "ru": (
+            "Слишком много сообщений подряд — я не успеваю. Передал вашу "
+            "переписку администратору, он скоро ответит."
+        ),
+        "ky": (
+            "Билдирүүлөр өтө көп келди — үлгүрбөй жатам. Жазышууңузду "
+            "администраторго өткөрдүм, ал жакында жооп берет."
+        ),
+    },
+}
+
+
+def service_text(key: str, lang: str) -> str:
+    """Служебный шаблон (лимиты и прочая механика диалога)."""
+    entry = _SERVICE[key]
+    return entry.get(lang) or entry["ru"]
+
+
 def booking_text(key: str, lang: str) -> str:
     entry = _TEXTS[key]
     return entry.get(lang) or entry["ru"]
