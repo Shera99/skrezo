@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.errors import NotFoundError
-from app.modules.ai.application.reply_service import ProcessAiReplyService
+from app.modules.ai.application.reply_service import ProcessAiReplyService, ReplyOutcome
 from app.modules.ai.presentation.deps import get_reply_service
 from app.modules.ai.presentation.schemas import (
     SimulatedMessageOut,
@@ -46,8 +46,27 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _meta_payload(phone_number_id: str, from_phone: str, text: str) -> dict[str, Any]:
-    """Payload в форме вебхука Meta — один текст от одного отправителя."""
+def _meta_payload(
+    phone_number_id: str, from_phone: str, text: str, button_payload: str | None
+) -> dict[str, Any]:
+    """Payload в форме вебхука Meta: текст либо нажатие interactive-кнопки."""
+    message: dict[str, Any] = {
+        "from": from_phone.lstrip("+"),
+        "id": f"wamid.SIM{uuid.uuid4().hex}",
+        "timestamp": str(int(time.time())),
+    }
+    if button_payload:
+        message.update(
+            {
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": button_payload, "title": "Подтвердить"},
+                },
+            }
+        )
+    else:
+        message.update({"type": "text", "text": {"body": text}})
     return {
         "object": "whatsapp_business_account",
         "entry": [
@@ -58,15 +77,7 @@ def _meta_payload(phone_number_id: str, from_phone: str, text: str) -> dict[str,
                         "value": {
                             "messaging_product": "whatsapp",
                             "metadata": {"phone_number_id": phone_number_id},
-                            "messages": [
-                                {
-                                    "from": from_phone.lstrip("+"),
-                                    "id": f"wamid.SIM{uuid.uuid4().hex}",
-                                    "timestamp": str(int(time.time())),
-                                    "type": "text",
-                                    "text": {"body": text},
-                                }
-                            ],
+                            "messages": [message],
                         },
                     }
                 ]
@@ -102,13 +113,23 @@ async def simulate_inbound(
 
     processor = InboundProcessor(session, repository, build_whatsapp_client())
     refs = await processor.process(
-        _meta_payload(binding.phone_number_id, body.from_phone, body.text)
+        _meta_payload(
+            binding.phone_number_id, body.from_phone, body.text, body.button_payload
+        )
     )
-    if not refs:
-        raise NotFoundError("Сообщение не сохранилось", code="message_not_saved")
-    conversation_id = refs[0].conversation_id
-
-    outcome = await reply_service.execute(conversation_id)
+    if body.button_payload:
+        # Кнопка обработана детерминированно (мимо модели) — вернуть диалог.
+        phone = body.from_phone if body.from_phone.startswith("+") else f"+{body.from_phone}"
+        conversation = await repository.open_conversation(body.clinic_id, phone)
+        if conversation is None:
+            raise NotFoundError("Диалог не найден", code="conversation_not_found")
+        conversation_id = conversation.id
+        outcome = ReplyOutcome(status="button")
+    else:
+        if not refs:
+            raise NotFoundError("Сообщение не сохранилось", code="message_not_saved")
+        conversation_id = refs[0].conversation_id
+        outcome = await reply_service.execute(conversation_id)
 
     tail = list(
         (

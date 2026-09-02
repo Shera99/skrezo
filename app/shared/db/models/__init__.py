@@ -44,6 +44,7 @@ from app.shared.db.models.role import Role
 from app.shared.db.models.role_permission import RolePermission
 from app.shared.db.models.service import Service
 from app.shared.db.models.service_doctor import ServiceDoctor
+from app.shared.db.models.slot_hold import SlotHold
 from app.shared.db.models.specialization import Specialization
 from app.shared.db.models.specialization_translation import SpecializationTranslation
 from app.shared.db.models.subscription import Subscription
@@ -91,6 +92,7 @@ __all__ = [
     "RolePermission",
     "Service",
     "ServiceDoctor",
+    "SlotHold",
     "Specialization",
     "SpecializationTranslation",
     "Subscription",

@@ -40,6 +40,14 @@ class LoggingWhatsAppClient:
         )
         return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
 
+    async def send_confirm_button(
+        self, phone_number_id: str, to_phone: str, body: str, button_id: str, title: str
+    ) -> SentMessage:
+        logger.info(
+            "wa_cloud_button_logged", to=to_phone, button_id=button_id, text=body
+        )
+        return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
+
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         logger.info("wa_cloud_media_skipped", media_id=media_id)
         return None

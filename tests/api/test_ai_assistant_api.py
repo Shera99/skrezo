@@ -17,6 +17,7 @@ import itertools
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -28,8 +29,10 @@ from app.main import app
 from app.modules.ai.presentation.deps import get_ai_provider
 from app.shared.ai import AiMessagePart, AiResult, AiToolDecl, ToolCallRequest
 from app.shared.db.models.ai_tool_call import AiToolCall
+from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.event import Event
-from tests.conftest import API, Resources, otp_login
+from app.shared.db.models.slot_hold import SlotHold
+from tests.conftest import API, Resources, otp_login, own_membership_id
 
 _phone_seq = itertools.count(1)
 
@@ -327,3 +330,192 @@ async def test_manual_term_and_delete(
         f"{API}/clinic/glossary/{term_id}", headers=ctx.owner_headers
     )
     assert deleted.status_code == 204
+
+
+# ── 5. Запись на приём: интервью → резерв → кнопка ──────────────────────────
+
+
+def _workday_ten() -> str:
+    """10:00 ближайшего рабочего дня (воскресенье — выходной по умолчанию)."""
+    day = datetime.now(UTC).date() + timedelta(days=1)
+    if day.weekday() == 6:
+        day += timedelta(days=1)
+    return f"{day.isoformat()}T10:00:00+06:00"
+
+
+async def _service_id(client: AsyncClient, ctx: Ctx) -> str:
+    resp = await client.get(f"{API}/clinic/services", headers=ctx.owner_headers)
+    assert resp.status_code == 200, resp.text
+    return str(resp.json()[0]["id"])
+
+
+def _tool_result(parts: list[AiMessagePart], tool: str) -> Any:
+    """Результат инструмента, каким его увидела модель следующим ходом."""
+    part = next(p for p in parts if p.role == "tool" and p.tool_name == tool)
+    return part.tool_result
+
+
+async def _press_button(
+    admin_client: AsyncClient, ctx: Ctx, phone: str, payload: str
+) -> Any:
+    resp = await admin_client.post(
+        f"{API}/admin/ai/simulate-inbound",
+        json={
+            "clinicId": ctx.clinic_id,
+            "fromPhone": phone,
+            "text": "-",
+            "buttonPayload": payload,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_booking_button_creates_appointment_once(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Полный цикл: карточка пациента → резерв → кнопка → приём; повтор кнопки идемпотентен."""
+    await _set_mode(admin_client, ctx, "auto")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    service_id = await _service_id(client, ctx)
+    slot = _workday_ten()
+    phone = "+996700200010"
+
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Айбек"})),
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": doctor_id, "startsAt": slot, "serviceId": service_id},
+            )
+        ),
+        AiResult(text=_reply_json("Отправил кнопку подтверждения — нажмите её.", intent="booking")),
+    ]
+    body = await _simulate(admin_client, ctx, "Запишите меня, я Айбек. Завтра в 10", phone)
+    assert body["outcome"] == "sent"
+
+    # Резерв создан, кнопка ушла (auto), приёма ещё НЕТ.
+    async with _resources.factory() as session:
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        assert hold.consumed_at is None and hold.appointment_id is None
+        assert (await session.execute(select(Appointment))).scalar_one_or_none() is None
+        confirmation_id = f"hold:{hold.id}"
+    propose_result = _tool_result(fake.calls[2]["parts"], "propose_appointment")
+    assert propose_result["confirmationId"] == confirmation_id
+    assert propose_result["buttonSent"] is True
+
+    # Нажатие кнопки: приём создаётся штатным use-case, пациенту — «вы записаны».
+    pressed = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert pressed["outcome"] == "button"
+    assert any("вы записаны" in (m["body"] or "") for m in pressed["messages"])
+    async with _resources.factory() as session:
+        appointment = (await session.execute(select(Appointment))).scalar_one()
+        assert appointment.comment == "Запись через WhatsApp-ассистента"
+        assert appointment.price_total_tiyin == 250000  # услуга легла позицией
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        assert hold.appointment_id == appointment.id and hold.consumed_at is not None
+
+    # Повторное нажатие — второй приём не создаётся.
+    again = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert any("уже записаны" in (m["body"] or "") for m in again["messages"])
+    async with _resources.factory() as session:
+        count = len(list((await session.execute(select(Appointment))).scalars()))
+    assert count == 1
+    # Кнопку модель не видела: её ходы кончились на трёх записанных.
+    assert len(fake.calls) == 3
+
+
+async def test_booking_expired_hold_declines(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Протухший резерв: вежливый отказ, приём не создаётся."""
+    await _set_mode(admin_client, ctx, "auto")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    phone = "+996700200011"
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Гүлнара"})),
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": doctor_id, "startsAt": _workday_ten()},
+            )
+        ),
+        AiResult(text=_reply_json("Отправил кнопку подтверждения.", intent="booking")),
+    ]
+    await _simulate(admin_client, ctx, "Я Гүлнара, запишите на завтра", phone)
+    async with _resources.factory() as session:
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        hold.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        await session.commit()
+        confirmation_id = f"hold:{hold.id}"
+
+    pressed = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert any("больше не действует" in (m["body"] or "") for m in pressed["messages"])
+    async with _resources.factory() as session:
+        assert (await session.execute(select(Appointment))).scalar_one_or_none() is None
+
+
+async def test_propose_without_patient_is_tool_error(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Резерв без карточки пациента — ошибка данными в модель, не 500."""
+    await _set_mode(admin_client, ctx, "auto")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    fake.script = [
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": doctor_id, "startsAt": _workday_ten()},
+            )
+        ),
+        AiResult(text=_reply_json("Как вас зовут? Запишу карточку и подтвержу время.")),
+    ]
+    body = await _simulate(admin_client, ctx, "Запишите завтра на 10", "+996700200012")
+    assert body["outcome"] == "sent"
+    tool_result = _tool_result(fake.calls[1]["parts"], "propose_appointment")
+    assert "имя" in json.dumps(tool_result, ensure_ascii=False)
+    async with _resources.factory() as session:
+        assert (await session.execute(select(SlotHold))).scalar_one_or_none() is None
+
+
+async def test_available_days_tool_and_interview_prompt(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+) -> None:
+    """get_available_days отдаёт ближайшие свободные дни; промпт учит интервью записи."""
+    await _set_mode(admin_client, ctx, "shadow")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    fake.script = [
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="get_available_days", args={"days": 3, "doctorId": doctor_id}
+            )
+        ),
+        AiResult(text=_reply_json("Есть время завтра — когда удобно?")),
+    ]
+    body = await _simulate(admin_client, ctx, "Когда можно прийти?", "+996700200013")
+    assert body["outcome"] == "shadow"
+
+    days_result = _tool_result(fake.calls[1]["parts"], "get_available_days")
+    assert days_result["days"], days_result
+    first = days_result["days"][0]
+    assert first["freeSlots"] >= 1 and first["firstSlot"]
+
+    system = fake.calls[0]["system"]
+    assert "КАК ВЕСТИ ЗАПИСЬ" in system
+    # Медицинская граница: по симптомам — только осмотр/консультация.
+    assert "осмотр" in system.lower()

@@ -123,6 +123,27 @@ class GraphWhatsAppClient:
             },
         )
 
+    async def send_confirm_button(
+        self, phone_number_id: str, to_phone: str, body: str, button_id: str, title: str
+    ) -> SentMessage:
+        return await self._post_message(
+            phone_number_id,
+            {
+                "messaging_product": "whatsapp",
+                "to": to_phone,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": body},
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": button_id, "title": title}}
+                        ]
+                    },
+                },
+            },
+        )
+
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

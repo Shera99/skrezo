@@ -67,6 +67,13 @@ def _message_ts(msg: dict[str, Any]) -> datetime:
         return datetime.now(UTC)
 
 
+def _confirm_button_id(msg: dict[str, Any]) -> str | None:
+    """id нажатой кнопки подтверждения записи (``hold:<uuid>``) либо ``None``."""
+    reply = (msg.get("interactive") or {}).get("button_reply") or {}
+    raw = str(reply.get("id") or "")
+    return raw if raw.startswith("hold:") else None
+
+
 def _extract_content(msg: dict[str, Any]) -> tuple[str, str | None, str | None]:
     """Вернуть (текст, media_type, media_id) сообщения любого типа.
 
@@ -169,6 +176,28 @@ class InboundProcessor:
         body, media_type, media_id = _extract_content(msg)
 
         conversation = await self._conversation_for(clinic_id, wa_phone)
+
+        # Кнопка подтверждения записи — детерминированный путь МИМО модели
+        # (И3): нажатие несёт confirmation_id, обработчик сам создаёт приём.
+        button_id = _confirm_button_id(msg)
+        if button_id is not None:
+            saved = await self._repository.insert_inbound(
+                conversation,
+                role=role,
+                body=body or "✔",
+                wa_message_id=str(wa_message_id),
+                media_type=None,
+                media_id=None,
+                sent_at=ts,
+            )
+            if saved is None:
+                return None  # повтор вебхука — подтверждение уже обработано
+            conversation.last_msg_at = max(conversation.last_msg_at, ts)
+            conversation.last_patient_msg_at = ts
+            # Фиксация до confirm: дедуп wamid переживает rollback гонки за слот.
+            await self._session.commit()
+            await self._confirm_booking(conversation, button_id)
+            return None  # ассистенту этот ход не передаётся
         message_id = await self._repository.insert_inbound(
             conversation,
             role=role,
@@ -231,6 +260,38 @@ class InboundProcessor:
         if message_id is None:
             return
         conversation.last_msg_at = max(conversation.last_msg_at, ts)
+        await publish_realtime(
+            self._session,
+            conversation.clinic_id,
+            "conversation.message",
+            {"conversationId": str(conversation.id), "direction": "out"},
+        )
+
+    async def _confirm_booking(self, conversation: AiConversation, button_id: str) -> None:
+        """Создать приём по кнопке и ответить пациенту шаблоном (не моделью)."""
+        from app.modules.ai.application.booking import BookingService
+
+        booking = BookingService(self._session)
+        reply_text = await booking.confirm(conversation, button_id)
+        binding = await self._repository.binding_by_clinic(conversation.clinic_id)
+        wa_message_id: str | None = None
+        sent_at = None
+        if binding is not None and binding.active:
+            try:
+                sent = await self._client.send_text(
+                    binding.phone_number_id, conversation.wa_phone, reply_text
+                )
+                wa_message_id = sent.wa_message_id
+                sent_at = datetime.now(UTC)
+            except Exception as exc:  # ответ пациенту — не повод терять приём
+                logger.warning("ai_booking_reply_failed", error=str(exc))
+        await self._repository.add_message(
+            conversation,
+            role=AiMessageRole.SYSTEM,
+            body=reply_text,
+            wa_message_id=wa_message_id,
+            sent_at=sent_at,
+        )
         await publish_realtime(
             self._session,
             conversation.clinic_id,

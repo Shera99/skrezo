@@ -67,6 +67,16 @@ class WhatsAppCloudClient(Protocol):
         """
         ...
 
+    async def send_confirm_button(
+        self, phone_number_id: str, to_phone: str, body: str, button_id: str, title: str
+    ) -> SentMessage:
+        """Сообщение с одной interactive-кнопкой (подтверждение записи, И3).
+
+        Нажатие возвращается вебхуком как ``button_reply.id = button_id`` —
+        детерминированный сигнал для обработчика, модель в нём не участвует.
+        """
+        ...
+
     async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
         """Шаблоны WABA из кабинета Meta; ``None`` — синхронизация недоступна.
 

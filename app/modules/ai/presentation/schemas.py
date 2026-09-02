@@ -76,6 +76,14 @@ class SimulateInboundRequest(CamelModel):
         examples=["+996700123456"],
     )
     text: str = Field(min_length=1, max_length=4096, examples=["Канча турат чистка?"])
+    button_payload: str | None = Field(
+        default=None,
+        description=(
+            "Имитация нажатия кнопки подтверждения: `confirmationId` из карточки "
+            "propose_appointment (`hold:<uuid>`); `text` при этом игнорируется"
+        ),
+        examples=["hold:6f1e0e6a-…"],
+    )
 
 
 class SimulatedMessageOut(CamelModel):

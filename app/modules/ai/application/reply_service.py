@@ -99,8 +99,14 @@ class ProcessAiReplyService:
         system = await self._build_system(clinic, lang)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
+        binding = await self._whatsapp.binding_by_clinic(clinic.id)
         tool_context = ToolContext(
-            clinic_id=conversation.clinic_id, patient_id=conversation.patient_id
+            conversation=conversation,
+            clinic=clinic,
+            wa_client=self._wa,
+            binding_phone_number_id=(
+                binding.phone_number_id if binding is not None and binding.active else None
+            ),
         )
 
         escalate_call: dict[str, Any] | None = None
