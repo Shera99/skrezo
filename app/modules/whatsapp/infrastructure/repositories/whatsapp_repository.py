@@ -269,6 +269,16 @@ class WhatsAppRepository:
             .values(media_path=path, media_mime=mime)
         )
 
+    async def set_transcript(
+        self, message_id: int, *, text: str, confidence: float
+    ) -> None:
+        """Расшифровка голосового и уверенность в ней (§11)."""
+        await self._session.execute(
+            update(AiMessage)
+            .where(AiMessage.id == message_id)
+            .values(transcript=text, transcript_confidence=confidence)
+        )
+
     async def messages_page(
         self, conversation_id: uuid.UUID, *, before_id: int | None, limit: int
     ) -> list[AiMessage]:

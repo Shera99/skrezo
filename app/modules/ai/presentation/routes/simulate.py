@@ -32,6 +32,7 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
     WhatsAppRepository,
 )
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.speech import build_speech_provider
 from app.shared.whatsapp_cloud import build_whatsapp_client
 
 router = APIRouter()
@@ -111,7 +112,9 @@ async def simulate_inbound(
     if binding is None or not binding.active:
         raise NotFoundError("WhatsApp не подключён к клинике", code="whatsapp_not_connected")
 
-    processor = InboundProcessor(session, repository, build_whatsapp_client())
+    processor = InboundProcessor(
+        session, repository, build_whatsapp_client(), build_speech_provider()
+    )
     refs = await processor.process(
         _meta_payload(
             binding.phone_number_id, body.from_phone, body.text, body.button_payload

@@ -29,6 +29,7 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
     WhatsAppRepository,
 )
 from app.modules.whatsapp.presentation.deps import get_whatsapp_client
+from app.shared.speech import build_speech_provider
 from app.shared.whatsapp_cloud import WhatsAppCloudClient
 
 logger = structlog.get_logger(__name__)
@@ -121,6 +122,8 @@ async def receive_webhook(
         # Очереди нет — обрабатываем на месте: вебхук уже за пределами 5-секундного
         # правила Meta не выйдет (разбор и вставка — миллисекунды), а сообщение
         # пациента дороже симметрии с фоновым путём.
-        processor = InboundProcessor(session, WhatsAppRepository(session), client)
+        processor = InboundProcessor(
+            session, WhatsAppRepository(session), client, build_speech_provider()
+        )
         await processor.process(payload)
     return {"received": True}

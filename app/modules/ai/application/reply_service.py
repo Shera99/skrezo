@@ -94,10 +94,19 @@ class ProcessAiReplyService:
         if conversation.status is not AiConversationStatus.ACTIVE:
             # escalated: человек ведёт разговор, бот молчит до возврата (§8.4).
             return ReplyOutcome(status="skipped")
+        last = await self._last_patient_message(conversation)
+
+        # §11: сообщение, которое мы не прочитали (голосовое без надёжной
+        # расшифровки, снимок, документ), — к человеку. Отвечать на него
+        # «чем помочь?» хуже, чем честно передать администратору.
+        unread = _unreadable_reason(last)
+        if unread is not None:
+            return await self._escalate(conversation, clinic, unread, None)
+
         # §9: медицинский фильтр — детерминированно и ДО модели. Стоит выше
         # проверки провайдера намеренно: неотложное состояние пациента не
         # должно зависеть от того, доступна ли сейчас модель.
-        medical = classify(await self._last_patient_text(conversation))
+        medical = classify((last.transcript or last.body) if last else "")
         if medical.kind is MedicalKind.URGENT:
             return await self._urgent(conversation, clinic, medical)
         if medical.kind is MedicalKind.COMPLAINT:
@@ -235,7 +244,10 @@ class ProcessAiReplyService:
         parts: list[AiMessagePart] = []
         for message in reversed(list(rows)):
             if message.role is AiMessageRole.PATIENT:
-                parts.append(AiMessagePart(role="user", text=message.body))
+                # Голосовое участвует в диалоге расшифровкой (§11).
+                parts.append(
+                    AiMessagePart(role="user", text=message.transcript or message.body)
+                )
             elif (
                 message.role in (AiMessageRole.BOT, AiMessageRole.ADMIN)
                 and message.sent_at is not None
@@ -504,11 +516,13 @@ class ProcessAiReplyService:
 
     # ── Медицинский фильтр (§9) ─────────────────────────────────────────────
 
-    async def _last_patient_text(self, conversation: AiConversation) -> str:
-        """Текст последнего сообщения пациента — вход медицинского фильтра."""
+    async def _last_patient_message(
+        self, conversation: AiConversation
+    ) -> AiMessage | None:
+        """Последний ход пациента: он же вход фильтра и проверки расшифровки."""
         return (
             await self._session.execute(
-                select(AiMessage.body)
+                select(AiMessage)
                 .where(
                     AiMessage.conversation_id == conversation.id,
                     AiMessage.role == AiMessageRole.PATIENT,
@@ -516,7 +530,7 @@ class ProcessAiReplyService:
                 .order_by(AiMessage.id.desc())
                 .limit(1)
             )
-        ).scalar_one_or_none() or ""
+        ).scalar_one_or_none()
 
     async def _send_filter_reply(
         self, conversation: AiConversation, clinic: Clinic, body: str
@@ -662,3 +676,21 @@ class ProcessAiReplyService:
             patient = await self._session.get(Patient, conversation.patient_id)
             if patient is not None and patient.preferred_lang is None:
                 patient.preferred_lang = lang
+
+
+def _unreadable_reason(message: AiMessage | None) -> str | None:
+    """Причина эскалации, если последний ход пациента мы прочитать не смогли.
+
+    Ошибка расшифровки на входе даёт уверенно неправильный ответ на выходе —
+    худший из возможных сценариев (§11), поэтому порог уверенности жёсткий,
+    а снимки и документы в первой версии не интерпретируются вовсе.
+    """
+    if message is None or not message.media_type:
+        return None
+    if message.media_type != "audio":
+        return "unsupported_media"  # снимок/документ: сохраняем, зовём человека
+    if not (message.transcript or "").strip():
+        return "asr_unavailable"
+    if (message.transcript_confidence or 0.0) < settings.speech_min_confidence:
+        return "asr_low_confidence"
+    return None

@@ -902,3 +902,131 @@ async def test_summary_is_built_once(
     async with _resources.factory() as session:
         count = len(list((await session.execute(select(AiSummary))).scalars()))
     assert count == 1
+
+
+# ── 10. Голосовые и нечитаемые сообщения (§11) ──────────────────────────────
+
+
+async def _voice(
+    res: Resources,
+    conversation_id: uuid.UUID,
+    clinic_id: str,
+    *,
+    transcript: str | None,
+    confidence: float | None,
+    media_type: str = "audio",
+) -> None:
+    """Положить в диалог входящее медиа с заданной расшифровкой."""
+    async with res.factory() as session:
+        session.add(
+            AiMessage(
+                conversation_id=conversation_id,
+                clinic_id=uuid.UUID(clinic_id),
+                role=AiMessageRole.PATIENT,
+                body="",
+                wa_message_id=f"wamid.V{uuid.uuid4().hex}",
+                media_type=media_type,
+                media_id="media-1",
+                transcript=transcript,
+                transcript_confidence=confidence,
+                sent_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+
+async def _run_reply(res: Resources, fake: _FakeProvider, conversation_id: uuid.UUID) -> Any:
+    from app.modules.ai.application.reply_service import ProcessAiReplyService
+    from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
+
+    async with res.factory() as session:
+        return await ProcessAiReplyService(
+            session, fake, LoggingWhatsAppClient()
+        ).execute(conversation_id)
+
+
+async def _conversation_id(res: Resources, phone: str) -> uuid.UUID:
+    async with res.factory() as session:
+        conv = (
+            await session.execute(select(AiConversation).where(AiConversation.wa_phone == phone))
+        ).scalar_one()
+        return conv.id
+
+
+async def test_voice_transcript_reaches_the_model(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Уверенная расшифровка участвует в диалоге как обычный текст."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200060"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    conv_id = await _conversation_id(_resources, phone)
+
+    await _voice(
+        _resources, conv_id, ctx.clinic_id, transcript="Хочу записаться", confidence=0.95
+    )
+    fake.script = [AiResult(text=_reply_json("Конечно, на какой день?"))]
+    outcome = await _run_reply(_resources, fake, conv_id)
+
+    assert outcome.status == "sent"
+    last_user = [p for p in fake.calls[-1]["parts"] if p.role == "user"][-1]
+    assert last_user.text == "Хочу записаться"
+
+
+async def test_low_confidence_voice_goes_to_human(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Плохо разобранное голосовое — к человеку, а не догадка (§11)."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200061"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    conv_id = await _conversation_id(_resources, phone)
+
+    await _voice(
+        _resources, conv_id, ctx.clinic_id, transcript="что-то неразборчивое", confidence=0.2
+    )
+    calls_before = len(fake.calls)
+    outcome = await _run_reply(_resources, fake, conv_id)
+
+    assert outcome.status == "escalated"
+    assert outcome.escalation_reason == "asr_low_confidence"
+    assert len(fake.calls) == calls_before  # модель не звали вовсе
+
+
+async def test_voice_without_asr_goes_to_human(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Распознавание не настроено — голосовое уходит администратору."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200062"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    conv_id = await _conversation_id(_resources, phone)
+
+    await _voice(_resources, conv_id, ctx.clinic_id, transcript=None, confidence=None)
+    outcome = await _run_reply(_resources, fake, conv_id)
+    assert outcome.escalation_reason == "asr_unavailable"
+
+
+async def test_photo_is_not_interpreted(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Снимок в первой версии не интерпретируем: сохраняем и зовём человека."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200063"
+    fake.script = [AiResult(text=_reply_json("Здравствуйте!"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    conv_id = await _conversation_id(_resources, phone)
+
+    await _voice(
+        _resources,
+        conv_id,
+        ctx.clinic_id,
+        transcript=None,
+        confidence=None,
+        media_type="image",
+    )
+    outcome = await _run_reply(_resources, fake, conv_id)
+    assert outcome.escalation_reason == "unsupported_media"

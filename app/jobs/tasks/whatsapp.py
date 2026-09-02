@@ -26,6 +26,7 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
     WhatsAppRepository,
 )
 from app.shared.ai.factory import build_ai_provider
+from app.shared.speech import build_speech_provider
 from app.shared.whatsapp_cloud import build_whatsapp_client
 
 
@@ -39,7 +40,10 @@ async def process_wa_inbound(ctx: dict[str, Any], payload: dict[str, Any]) -> in
     async with JobRunRecorder(PROCESS_WA_INBOUND, attempt(ctx)) as run:
         async with session_factory() as session:
             processor = InboundProcessor(
-                session, WhatsAppRepository(session), build_whatsapp_client()
+                session,
+                WhatsAppRepository(session),
+                build_whatsapp_client(),
+                build_speech_provider(),
             )
             refs = await processor.process(payload)
         replied = 0

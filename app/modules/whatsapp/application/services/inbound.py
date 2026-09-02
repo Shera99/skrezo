@@ -35,6 +35,7 @@ from app.shared.db.enums import AiMessageRole
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.domain.value_objects import normalize_phone
 from app.shared.realtime import publish_realtime
+from app.shared.speech import SpeechError, SpeechProvider
 from app.shared.whatsapp_cloud import WhatsAppCloudClient
 
 logger = structlog.get_logger(__name__)
@@ -115,10 +116,14 @@ class InboundProcessor:
         session: AsyncSession,
         repository: WhatsAppRepository,
         client: WhatsAppCloudClient,
+        speech: SpeechProvider | None = None,
     ) -> None:
         self._session = session
         self._repository = repository
         self._client = client
+        # ``None`` — распознавание не настроено: голосовое сохраняется как есть
+        # и уходит человеку (§11), выдуманной расшифровки не бывает.
+        self._speech = speech
 
     async def process(self, payload: dict[str, Any]) -> list[InboundRef]:
         """Сохранить все сообщения payload'а; вернуть ссылки на ВХОДЯЩИЕ пациентов.
@@ -219,7 +224,7 @@ class InboundProcessor:
             conversation.last_patient_msg_at = ts if last is None else max(last, ts)
 
         if media_id:
-            await self._fetch_media(message_id, str(media_id))
+            await self._fetch_media(message_id, str(media_id), media_type)
         # Сигнал открытым экранам: чат перечитает диалог (Ф4, contract §9).
         await publish_realtime(
             self._session,
@@ -304,10 +309,31 @@ class InboundProcessor:
             {"conversationId": str(conversation.id), "direction": "out"},
         )
 
-    async def _fetch_media(self, message_id: int, media_id: str) -> None:
+    async def _fetch_media(
+        self, message_id: int, media_id: str, media_type: str | None
+    ) -> None:
         """Скачать медиа сразу: ссылка Meta живёт минуты, потом только id."""
         media = await self._client.fetch_media(media_id)
         if media is None:
             return
         path = await save_media(media.content, media.mime)
         await self._repository.set_media(message_id, path=path, mime=media.mime)
+        if media_type == "audio":
+            await self._transcribe(message_id, media.content, media.mime)
+
+    async def _transcribe(self, message_id: int, audio: bytes, mime: str) -> None:
+        """Расшифровать голосовое (§11); отказ провайдера — не потеря сообщения.
+
+        Уверенность сохраняется рядом с текстом: решение «верить или звать
+        человека» принимает конвейер ассистента, а не этот обработчик.
+        """
+        if self._speech is None:
+            return
+        try:
+            result = await self._speech.transcribe(audio, mime)
+        except SpeechError as exc:
+            logger.warning("wa_transcribe_failed", error=str(exc))
+            return
+        await self._repository.set_transcript(
+            message_id, text=result.text, confidence=result.confidence
+        )
