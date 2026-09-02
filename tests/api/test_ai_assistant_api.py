@@ -29,8 +29,9 @@ from sqlalchemy import select
 from app.main import app
 from app.modules.ai.presentation.deps import get_ai_provider
 from app.shared.ai import AiMessagePart, AiResult, AiToolDecl, ToolCallRequest
-from app.shared.db.enums import AiConversationStatus
+from app.shared.db.enums import AiConversationStatus, AiMessageRole
 from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
@@ -172,9 +173,7 @@ async def test_shadow_keeps_reply_from_patient(
     assert bot["sent"] is False
 
 
-async def test_auto_sends_reply(
-    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
-) -> None:
+async def test_auto_sends_reply(admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider) -> None:
     """auto: прошедший валидатор ответ уходит пациенту (лог-канал WhatsApp)."""
     await _set_mode(admin_client, ctx, "auto")
     fake.script = [AiResult(text=_reply_json("Здравствуйте!"), model="fake")]
@@ -268,9 +267,7 @@ async def test_needs_human_escalates_without_block(
 ) -> None:
     """«Не знаю» — правильный ответ: needs_human → эскалация low_confidence."""
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [
-        AiResult(text=_reply_json("Уточню у администратора.", needs_human=True))
-    ]
+    fake.script = [AiResult(text=_reply_json("Уточню у администратора.", needs_human=True))]
     body = await _simulate(admin_client, ctx, "А рассрочка есть?", "+996700200007")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "low_confidence"
@@ -295,9 +292,7 @@ async def test_glossary_suggestion_flow(
     ]
     await _simulate(admin_client, ctx, "Ооба, тиш чыгаруу деп жаттым", "+996700200008")
 
-    pending = await client.get(
-        f"{API}/clinic/glossary?status=pending", headers=ctx.owner_headers
-    )
+    pending = await client.get(f"{API}/clinic/glossary?status=pending", headers=ctx.owner_headers)
     assert pending.status_code == 200, pending.text
     terms = pending.json()["list"]
     assert len(terms) == 1
@@ -330,9 +325,7 @@ async def test_manual_term_and_delete(
     term_id = created.json()["id"]
     listed = await client.get(f"{API}/clinic/glossary", headers=ctx.owner_headers)
     assert any(t["id"] == term_id and t["status"] == "approved" for t in listed.json()["list"])
-    deleted = await client.delete(
-        f"{API}/clinic/glossary/{term_id}", headers=ctx.owner_headers
-    )
+    deleted = await client.delete(f"{API}/clinic/glossary/{term_id}", headers=ctx.owner_headers)
     assert deleted.status_code == 204
 
 
@@ -359,9 +352,7 @@ def _tool_result(parts: list[AiMessagePart], tool: str) -> Any:
     return part.tool_result
 
 
-async def _press_button(
-    admin_client: AsyncClient, ctx: Ctx, phone: str, payload: str
-) -> Any:
+async def _press_button(admin_client: AsyncClient, ctx: Ctx, phone: str, payload: str) -> Any:
     resp = await admin_client.post(
         f"{API}/admin/ai/simulate-inbound",
         json={
@@ -678,13 +669,10 @@ async def test_service_name_with_diagnosis_is_not_a_complaint(
     ответ о цене шаблоном про врача.
     """
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Лечение кариеса — 3 500 сом.", facts=["service:x"]))]
-    body = await _simulate(
-        admin_client, ctx, "Сколько стоит лечение кариеса?", "+996700200022"
-    )
+    fake.script = [AiResult(text=_reply_json("Такая услуга у нас есть, сейчас уточню."))]
+    body = await _simulate(admin_client, ctx, "Сколько стоит лечение кариеса?", "+996700200022")
     assert body["outcome"] == "sent"
-    assert len(fake.calls) == 1  # модель отработала штатно
-    assert "3 500" in body["botReply"]
+    assert len(fake.calls) == 1  # модель отработала штатно, фильтр не вмешался
 
 
 async def test_procedure_question_is_not_a_complaint(
@@ -721,3 +709,66 @@ async def test_urgent_without_clinic_phone_still_alerts(
     assert body["outcome"] == "escalated"
     assert "администратору" in body["messages"][-1]["body"]
     assert fake.calls == []
+
+
+# ── 7. Валидатор V01–V03: сверка с фактами хода ─────────────────────────────
+
+
+async def test_invented_price_is_blocked(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """V01: цена, которой не было ни в прайсе, ни в истории — блок и эскалация.
+
+    Главная защита от выдуманной цены: сама модель о своей выдумке не сообщит,
+    а `used_facts` она заполняет тоже сама.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Чистка стоит 9 900 сом.", facts=["service:x:price"]))]
+    body = await _simulate(admin_client, ctx, "Почём чистка?", "+996700200030")
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "validator_blocked"
+
+    async with _resources.factory() as session:
+        blocked = (
+            (await session.execute(select(AiMessage).where(AiMessage.role == AiMessageRole.BOT)))
+            .scalars()
+            .all()
+        )
+    assert any(m.validator and "V01" in (m.validator.get("codes") or []) for m in blocked)
+
+
+async def test_price_from_tool_passes(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """Та же цена, но взятая из прайса инструментом, проходит."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="get_services", args={"query": "чистка"})),
+        AiResult(text=_reply_json("Чистка стоит 2 500 сом.", facts=["service:x:price"])),
+    ]
+    body = await _simulate(admin_client, ctx, "Почём чистка?", "+996700200031")
+    assert body["outcome"] == "sent"
+    assert "2 500" in body["botReply"]
+
+
+async def test_invented_slot_time_is_blocked(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """V02: время, которого не было в выдаче слотов, — блок."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [AiResult(text=_reply_json("Приходите 05.09 в 17:35.", facts=["slot:x"]))]
+    body = await _simulate(admin_client, ctx, "Когда можно прийти?", "+996700200032")
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "validator_blocked"
+
+
+async def test_unknown_doctor_is_blocked(
+    admin_client: AsyncClient, client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """V03: врач не из справочника клиники — блок (падежи учтены)."""
+    await _set_mode(admin_client, ctx, "auto")
+    await own_membership_id(client, ctx.owner_headers)  # в клинике есть врач
+    fake.script = [AiResult(text=_reply_json("Вас примет врач Петрова."))]
+    body = await _simulate(admin_client, ctx, "А кто принимает?", "+996700200033")
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "validator_blocked"

@@ -1,9 +1,11 @@
 """Валидатор ответов ассистента (§7 ТЗ) — детерминированный код до отправки.
 
 Работает всегда: не зависит от модели, промпта и настроения провайдера.
-Инкремент 1 несёт правила, не требующие сверки чисел с журналом инструментов
-(V01–V03 придут вместе с инструментами записи):
 
+* V01–V03 — цена, дата/время и имя врача сверяются с фактами хода
+  (:mod:`app.modules.ai.domain.facts`): назвать можно только то, что модели
+  показали. Это единственная защита от выдуманной цены — сама модель о своей
+  выдумке не сообщит;
 * V04 — запрещённые утверждения (гарантии, «не больно», препараты);
 * V05 — конкретика (числа, время) при пустом ``used_facts``;
 * V06 — ``confidence=low`` / ``needs_human`` → эскалация;
@@ -20,6 +22,7 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.reply import BotReply
 
 
@@ -57,13 +60,25 @@ _SPECIFICS = re.compile(r"\d{3,}|\b\d{1,2}:\d{2}\b")
 _MAX_REPLY_LEN = 1000
 
 
-def validate(reply: BotReply, conversation_lang: str | None) -> Verdict:
+def validate(
+    reply: BotReply,
+    conversation_lang: str | None,
+    facts: TurnFacts | None = None,
+) -> Verdict:
     """Проверить ответ; порядок правил — от блокирующих к мягким.
 
     ``conversation_lang=None`` — язык диалога ещё не зафиксирован (первый
     ответ): V07 не применяется, язык определяет сама модель по сообщению
     пациента (§10.2), и мы его запоминаем.
+
+    ``facts=None`` отключает V01–V03: у вызывающего не было фактов хода.
+    В боевом конвейере они есть всегда — параметр со значением по умолчанию
+    оставлен для точечных проверок отдельных правил.
     """
+    if facts is not None:
+        fact_verdict = _check_facts(reply.reply, facts)
+        if fact_verdict is not None:
+            return fact_verdict
     codes: list[str] = []
     for label, pattern in _FORBIDDEN:
         if pattern.search(reply.reply):
@@ -80,3 +95,23 @@ def validate(reply: BotReply, conversation_lang: str | None) -> Verdict:
     if len(reply.reply) > _MAX_REPLY_LEN:
         return Verdict(VerdictAction.REGENERATE, ["V08"])
     return Verdict(VerdictAction.PASS)
+
+
+def _check_facts(text: str, facts: TurnFacts) -> Verdict | None:
+    """V01–V03: всё конкретное в ответе должно быть среди фактов хода."""
+    numbers = facts.unknown_numbers(text)
+    if numbers:
+        return Verdict(
+            VerdictAction.BLOCK, ["V01"], notes=f"цены вне фактов: {sorted(numbers)[:3]}"
+        )
+    moments = facts.unknown_times(text)
+    if moments:
+        return Verdict(
+            VerdictAction.BLOCK, ["V02"], notes=f"время вне фактов: {sorted(moments)[:3]}"
+        )
+    doctors = facts.unknown_doctors(text)
+    if doctors:
+        return Verdict(
+            VerdictAction.BLOCK, ["V03"], notes=f"врач не из справочника: {sorted(doctors)[:3]}"
+        )
+    return None

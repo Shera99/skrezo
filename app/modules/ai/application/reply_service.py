@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.modules.ai.application.booking import BookingService
 from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
+from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
@@ -36,9 +38,11 @@ from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import
 )
 from app.shared.ai import AiMessagePart, AiProvider, AiProviderError
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, AiMode, Lang
+from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.realtime import publish_realtime
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
@@ -177,8 +181,9 @@ class ProcessAiReplyService:
                 conversation, clinic, "tool_error", {"note": "модель не дала текста"}
             )
 
+        facts = await self._turn_facts(clinic, system, parts)
         reply, verdict = await self._parse_and_validate(
-            conversation, system, parts, raw_text, lang
+            conversation, system, parts, raw_text, lang, facts
         )
         if reply is None or verdict is None:
             return await self._escalate(
@@ -241,6 +246,7 @@ class ProcessAiReplyService:
         parts: list[AiMessagePart],
         raw_text: str,
         lang: str | None,
+        facts: TurnFacts,
     ) -> tuple[BotReply | None, Verdict | None]:
         """Разобрать ответ; V07/V08 и битый JSON — одна перегенерация (§7, §14)."""
         for attempt in range(2):
@@ -253,7 +259,7 @@ class ProcessAiReplyService:
                     system, parts, raw_text, f"Ответ не JSON ({exc}). Верни строго один JSON."
                 )
                 continue
-            verdict = validate(reply, lang)
+            verdict = validate(reply, lang, facts)
             if verdict.action is not VerdictAction.REGENERATE or attempt == 1:
                 if verdict.action is VerdictAction.REGENERATE:
                     # Повтор не помог — по §7 дальше эскалация.
@@ -423,6 +429,35 @@ class ProcessAiReplyService:
                     logger.warning("ai_escalation_notice_failed", error=str(exc))
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
+
+    async def _turn_facts(
+        self, clinic: Clinic, system: str, parts: list[AiMessagePart]
+    ) -> TurnFacts:
+        """Собрать факты хода для V01–V03 (§7.1).
+
+        Источники — всё, что модель видела: системный промпт (карточка клиники,
+        база знаний, глоссарий), история диалога и результаты инструментов
+        этого хода. История нужна, чтобы бот мог повторить цену, названную
+        проверенным ответом раньше, не получив блок за «выдумку».
+        """
+        sources: list[str] = [system]
+        for part in parts:
+            if part.text:
+                sources.append(part.text)
+            if part.tool_result is not None:
+                sources.append(json.dumps(part.tool_result, ensure_ascii=False))
+        doctors = (
+            await self._session.execute(
+                select(Account.full_name)
+                .join(Membership, Membership.account_id == Account.id)
+                .where(
+                    Membership.clinic_id == clinic.id,
+                    Membership.active.is_(True),
+                    Membership.specialization_id.is_not(None),
+                )
+            )
+        ).scalars()
+        return TurnFacts.build(sources, [name for name in doctors if name])
 
     # ── Медицинский фильтр (§9) ─────────────────────────────────────────────
 

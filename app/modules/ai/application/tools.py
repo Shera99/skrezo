@@ -309,11 +309,7 @@ class ToolExecutor:
             and context.binding_phone_number_id is not None
         ):
             lang = "ky" if context.conversation.lang is Lang.KG else "ru"
-            try:
-                tz = ZoneInfo(context.clinic.timezone or "Asia/Bishkek")
-            except (KeyError, ValueError):
-                tz = ZoneInfo("Asia/Bishkek")
-            local = starts_at.astimezone(tz)
+            local = starts_at.astimezone(self._clinic_tz(context))
             body = booking_text("confirm_button", lang).format(
                 summary=result.card.get("service") or "Приём",
                 when=local.strftime("%d.%m %H:%M"),
@@ -329,7 +325,11 @@ class ToolExecutor:
                 button_sent = True
             except WhatsAppSendError as exc:
                 return {"error": f"кнопка не отправилась: {exc}"}
-        return {**result.card, "buttonSent": button_sent}
+        card = {
+            **result.card,
+            "startsAt": starts_at.astimezone(self._clinic_tz(context)).isoformat(),
+        }
+        return {**card, "buttonSent": button_sent}
 
     async def _get_services(self, context: ToolContext, query: str) -> list[Any]:
         stmt = select(Service).where(
@@ -381,6 +381,14 @@ class ToolExecutor:
             for r in rows
         ]
 
+    @staticmethod
+    def _clinic_tz(context: ToolContext) -> ZoneInfo:
+        """Зона клиники: время пациенту называют местное, а не UTC."""
+        try:
+            return ZoneInfo(context.clinic.timezone or "Asia/Bishkek")
+        except (KeyError, ValueError):
+            return ZoneInfo("Asia/Bishkek")
+
     async def _get_slots(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         day = date.fromisoformat(str(args.get("date")))
         doctor_id = uuid.UUID(str(args["doctorId"])) if args.get("doctorId") else None
@@ -392,9 +400,12 @@ class ToolExecutor:
             doctors = await self._get_doctors(context)
             return {"error": "нужен doctorId или serviceId", "doctors": doctors}
         plan = await use_case.execute(context.clinic_id, doctor_id, day, service_id)
+        # Наружу — местное время клиники: модель называет слот пациенту дословно,
+        # и UTC в её выдаче означал бы приглашение прийти на несколько часов раньше.
+        tz = self._clinic_tz(context)
         slots = [
             {
-                "slot": s.span.start.isoformat(),
+                "slot": s.span.start.astimezone(tz).isoformat(),
                 "doctorId": str(s.doctor_membership_id),
                 "fact": f"slot:{s.doctor_membership_id}:{s.span.start.isoformat()}",
             }
