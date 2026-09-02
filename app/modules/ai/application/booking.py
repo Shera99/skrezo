@@ -77,6 +77,12 @@ class BookingService:
         вернёт их модели данными, и она предложит другое время.
         """
         availability = build_availability_service(self._session)
+        if not await availability.is_doctor(conversation.clinic_id, doctor_membership_id):
+            raise AppError(
+                "Такого врача нет — возьми doctorId из выдачи get_doctors",
+                code="invalid_doctor",
+                status_code=422,
+            )
         duration = await availability.resolve_duration(
             conversation.clinic_id, service_id, None
         )

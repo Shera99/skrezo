@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -519,3 +520,93 @@ async def test_available_days_tool_and_interview_prompt(
     assert "КАК ВЕСТИ ЗАПИСЬ" in system
     # Медицинская граница: по симптомам — только осмотр/консультация.
     assert "осмотр" in system.lower()
+
+
+async def test_booking_slot_race_apologizes(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Слот заняли между кнопкой и резервом: извинение, резерв погашен, не 500.
+
+    Ветка с rollback внутри confirm — регресс MissingGreenlet: после отката
+    ORM-объект диалога протухает, и ответ пациенту падал 500-й.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    service_id = await _service_id(client, ctx)
+    slot = _workday_ten()
+    phone = "+996700200014"
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Нурлан"})),
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": doctor_id, "startsAt": slot, "serviceId": service_id},
+            )
+        ),
+        AiResult(text=_reply_json("Отправил кнопку подтверждения.", intent="booking")),
+    ]
+    await _simulate(admin_client, ctx, "Я Нурлан, запишите на завтра в 10", phone)
+    async with _resources.factory() as session:
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        confirmation_id = f"hold:{hold.id}"
+
+    # Соперник занимает то же время штатной записью из приложения клиники.
+    rival = await client.post(
+        f"{API}/clinic/patients",
+        headers=ctx.owner_headers,
+        json={"phone": "0700200015", "firstName": "Сопер", "lastName": "Ник"},
+    )
+    assert rival.status_code == 201, rival.text
+    booked = await client.post(
+        f"{API}/clinic/appointments",
+        headers=ctx.owner_headers,
+        json={
+            "patientId": rival.json()["id"],
+            "doctorMembershipId": doctor_id,
+            "scheduledAt": slot,
+        },
+    )
+    assert booked.status_code == 201, booked.text
+
+    pressed = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert any("только что заняли" in (m["body"] or "") for m in pressed["messages"])
+    async with _resources.factory() as session:
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        assert hold.consumed_at is not None and hold.appointment_id is None
+        count = len(list((await session.execute(select(Appointment))).scalars()))
+    assert count == 1  # только запись соперника
+
+    # Повтор кнопки после проигранной гонки — «предложение больше не действует».
+    again = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert any("больше не действует" in (m["body"] or "") for m in again["messages"])
+
+
+async def test_propose_rejects_unknown_doctor(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Выдуманный моделью doctorId отбивается на propose — резерв не создаётся."""
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Азат"})),
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": str(uuid.uuid4()), "startsAt": _workday_ten()},
+            )
+        ),
+        AiResult(text=_reply_json("Сейчас уточню врача и вернусь.")),
+    ]
+    body = await _simulate(admin_client, ctx, "Я Азат, запишите завтра", "+996700200016")
+    assert body["outcome"] == "sent"
+    tool_result = _tool_result(fake.calls[2]["parts"], "propose_appointment")
+    assert "get_doctors" in json.dumps(tool_result, ensure_ascii=False)
+    async with _resources.factory() as session:
+        assert (await session.execute(select(SlotHold))).scalar_one_or_none() is None

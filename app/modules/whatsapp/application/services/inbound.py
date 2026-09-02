@@ -271,9 +271,14 @@ class InboundProcessor:
         """Создать приём по кнопке и ответить пациенту шаблоном (не моделью)."""
         from app.modules.ai.application.booking import BookingService
 
+        # Локальные копии: внутри confirm возможен rollback (гонка за слот),
+        # который протухает загруженные ORM-объекты — доступ к их атрибутам
+        # после него падал бы MissingGreenlet.
+        clinic_id = conversation.clinic_id
         booking = BookingService(self._session)
         reply_text = await booking.confirm(conversation, button_id)
-        binding = await self._repository.binding_by_clinic(conversation.clinic_id)
+        await self._session.refresh(conversation)
+        binding = await self._repository.binding_by_clinic(clinic_id)
         wa_message_id: str | None = None
         sent_at = None
         if binding is not None and binding.active:
