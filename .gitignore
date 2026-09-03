@@ -30,3 +30,9 @@ htmlcov/
 
 # Docker volumes (локальные)
 .pgdata/
+
+# Ключи доставки (APNs .p8, JSON сервис-аккаунта FCM) — только на сервере.
+# Сам каталог версионируется: без него bind-mount создаст его от root.
+secrets/*
+!secrets/.gitkeep
+!secrets/README.txt
