@@ -34,6 +34,7 @@ from app.modules.ai.domain.texts import medical_text, service_text
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.push.application.outbox import emit_event
+from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -85,6 +86,7 @@ class ProcessAiReplyService:
         self._session = session
         self._provider = provider
         self._wa = wa_client
+        self._meter = UsageMeter(session)
         self._repository = AiRepository(session)
         self._whatsapp = WhatsAppRepository(session)
 
@@ -184,6 +186,7 @@ class ProcessAiReplyService:
                     temperature=settings.ai_temperature,
                     max_tokens=settings.ai_max_tokens,
                 )
+                await self._meter.model_call(clinic.id, result.usage)
                 if result.tool_call is None:
                     raw_text = result.text
                     break
@@ -336,7 +339,11 @@ class ProcessAiReplyService:
                 if attempt == 1:
                     return None, None
                 raw_text = await self._retry(
-                    system, parts, raw_text, f"Ответ не JSON ({exc}). Верни строго один JSON."
+                    conversation.clinic_id,
+                    system,
+                    parts,
+                    raw_text,
+                    f"Ответ не JSON ({exc}). Верни строго один JSON.",
                 )
                 continue
             verdict = validate(reply, lang, facts)
@@ -349,11 +356,18 @@ class ProcessAiReplyService:
                 f"Ответь на языке диалога ({lang or 'ru'}) и не длиннее 1000 символов. "
                 "Верни строго один JSON."
             )
-            raw_text = await self._retry(system, parts, raw_text, instruction)
+            raw_text = await self._retry(
+                conversation.clinic_id, system, parts, raw_text, instruction
+            )
         return None, None
 
     async def _retry(
-        self, system: str, parts: list[AiMessagePart], previous: str, instruction: str
+        self,
+        clinic_id: uuid.UUID,
+        system: str,
+        parts: list[AiMessagePart],
+        previous: str,
+        instruction: str,
     ) -> str:
         if self._provider is None:
             return ""
@@ -371,6 +385,7 @@ class ProcessAiReplyService:
             temperature=settings.ai_temperature,
             max_tokens=settings.ai_max_tokens,
         )
+        await self._meter.model_call(clinic_id, result.usage)
         return result.text or ""
 
     # ── Исходы ──────────────────────────────────────────────────────────────
@@ -763,6 +778,8 @@ class ProcessAiReplyService:
         )
         self._session.add(message)
         await self._session.flush()
+        # Учёт: ответ ассистента и диалог (последний — один раз за его жизнь).
+        await self._meter.assistant_reply(conversation)
         return message
 
     async def _remember_lang(self, conversation: AiConversation, reply: BotReply) -> None:

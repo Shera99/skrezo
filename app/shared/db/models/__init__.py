@@ -21,6 +21,7 @@ from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_application import ClinicApplication
+from app.shared.db.models.clinic_usage_day import ClinicUsageDay
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.clinic_working_hours import ClinicWorkingHours
 from app.shared.db.models.device import Device
@@ -70,6 +71,7 @@ __all__ = [
     "CityTranslation",
     "Clinic",
     "ClinicApplication",
+    "ClinicUsageDay",
     "ClinicWhatsApp",
     "ClinicWorkingHours",
     "Device",

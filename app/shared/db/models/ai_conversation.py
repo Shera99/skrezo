@@ -68,3 +68,7 @@ class AiConversation(Base, UUIDPKMixin, TimestampMixin):
     #: Ф5: id последнего прочитанного сообщения — отметка ОБЩАЯ для клиники
     #: (ресепшен один на всех); непрочитанное = сообщения пациента новее её.
     read_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Учёт: диалог с ассистентом посчитан в пакет (один раз за всю жизнь).
+    assistant_counted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

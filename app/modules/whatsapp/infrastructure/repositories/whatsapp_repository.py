@@ -364,6 +364,14 @@ class WhatsAppRepository:
         ).scalar_one()
         return int(count)
 
+    async def message_by_wa_id(self, wa_message_id: str) -> AiMessage | None:
+        """Наше сообщение по идентификатору Меты (``wamid…``); индекс уникальный."""
+        return (
+            await self._session.execute(
+                select(AiMessage).where(AiMessage.wa_message_id == wa_message_id)
+            )
+        ).scalar_one_or_none()
+
     async def last_message_role(self, conversation_id: uuid.UUID) -> AiMessageRole | None:
         """Кто написал последним — «ждёт ли пациент ответа» одним запросом."""
         return (

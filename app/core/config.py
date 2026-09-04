@@ -172,6 +172,16 @@ class Settings(BaseSettings):
     ai_breaker_threshold: int = 5
     ai_breaker_open_seconds: int = 60
 
+    # ── Учёт использования: прайс-лист для сметы (тыйыны) ───────────────────
+    #: Ставки за МИЛЛИОН токенов модели и за одно платное сообщение WhatsApp.
+    #: Нули — сметы нет, только счётчики. Правятся, когда меняются тарифы
+    #: провайдеров; смета пересчитывается по тем же счётчикам задним числом.
+    ai_rate_input_tiyin_per_mtok: int = 0
+    ai_rate_output_tiyin_per_mtok: int = 0
+    wa_rate_utility_tiyin: int = 0
+    wa_rate_marketing_tiyin: int = 0
+    wa_rate_authentication_tiyin: int = 0
+
     # ── Хранилище файлов ────────────────────────────────────────────────────
     # Каталог на диске сервера (относительно корня проекта или абсолютный).
     # Внутри — storage/{images|files}/ГГГГ/ММ/ДД/. В докере это volume: без него

@@ -56,6 +56,7 @@ from app.modules.subscriptions.presentation.routes import (
 )
 from app.modules.subscriptions.presentation.routes import router as subscription_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
+from app.modules.usage.presentation.routes import router as usage_router
 from app.modules.whatsapp.presentation.routes import router as whatsapp_router
 from app.realtime import build_asgi, sio
 from app.realtime.listener import run_realtime_listener
@@ -216,6 +217,13 @@ OPENAPI_TAGS = [
             "дальше — одобренные шаблоны. Не путать с OTP-каналами доставки кодов."
         ),
     },
+        {
+            "name": "usage",
+            "description": (
+                "Учёт использования по клиникам (админка Skrezo): токены модели, "
+                "диалоги с ассистентом, платные сообщения WhatsApp и смета по прайс-листу."
+            ),
+        },
     {
         "name": "payments",
         "x-displayName": "Платежи",
@@ -389,6 +397,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
     app.include_router(push_router, prefix=settings.api_v1_prefix)
     app.include_router(whatsapp_router, prefix=settings.api_v1_prefix)
+    app.include_router(usage_router, prefix=settings.api_v1_prefix)
     app.include_router(ai_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:

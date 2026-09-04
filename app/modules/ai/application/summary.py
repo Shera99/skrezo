@@ -20,6 +20,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.shared.ai import AiMessagePart, AiProvider, AiProviderError
 from app.shared.db.enums import AiMessageRole, Lang
 from app.shared.db.models.ai_conversation import AiConversation
@@ -76,6 +77,7 @@ class ConversationSummaryService:
         except AiProviderError as exc:
             logger.warning("ai_summary_failed", error=str(exc))
             return None
+        await UsageMeter(self._session).model_call(conversation.clinic_id, result.usage)
         body = (result.text or "").strip()
         if not body:
             return None

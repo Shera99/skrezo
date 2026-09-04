@@ -22,6 +22,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -82,6 +83,13 @@ class AiMessage(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: Что предлагал бот до правки человеком — материал для обучения (Ф6).
     original_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ── Статус доставки и платность из статусов Меты (учёт) ──────────────────
+    #: sent → delivered → read (только вперёд), failed — всегда.
+    wa_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wa_status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Категория платности Меты (utility / marketing / authentication / service).
+    wa_pricing_category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wa_billable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     used_facts: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB, nullable=True)
     validator: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model: Mapped[str | None] = mapped_column(Text, nullable=True)

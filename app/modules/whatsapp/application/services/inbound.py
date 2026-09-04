@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.modules.push.application.outbox import emit_event
+from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.application.services.media import media_duration_seconds, save_media
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -66,6 +67,10 @@ def _message_ts(msg: dict[str, Any]) -> datetime:
         return datetime.fromtimestamp(int(msg["timestamp"]), tz=UTC)
     except KeyError, TypeError, ValueError:
         return datetime.now(UTC)
+
+
+#: Порядок статусов Меты: назад не двигаемся, failed перекрывает всё.
+_STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 9}
 
 
 def _confirm_button_id(msg: dict[str, Any]) -> str | None:
@@ -124,6 +129,7 @@ class InboundProcessor:
         # ``None`` — распознавание не настроено: голосовое сохраняется как есть
         # и уходит человеку (§11), выдуманной расшифровки не бывает.
         self._speech = speech
+        self._meter = UsageMeter(session)
 
     async def process(self, payload: dict[str, Any]) -> list[InboundRef]:
         """Сохранить все сообщения payload'а; вернуть ссылки на ВХОДЯЩИЕ пациентов.
@@ -158,7 +164,43 @@ class InboundProcessor:
         # Coexistence: исходящие человека из приложения WhatsApp Business.
         for msg in value.get("message_echoes") or []:
             await self._save_echo(binding.clinic_id, msg)
+        # Статусы доставки наших исходящих: галочки в кабинете и платность.
+        for status_item in value.get("statuses") or []:
+            await self._apply_status(binding.clinic_id, status_item)
         return refs
+
+    async def _apply_status(self, clinic_id: Any, status_item: dict[str, Any]) -> None:
+        """Статус доставки от Меты → статус сообщения и счётчики платности.
+
+        Мета шлёт sent → delivered → read (порядок не гарантирован), а с первым
+        статусом — ``pricing``: категория и признак платности. Сумму она не
+        присылает: в сомы переводит прайс-лист в настройках. Платность
+        учитывается один раз на сообщение, исходящее — тоже один раз.
+        """
+        wa_message_id = str(status_item.get("id") or "")
+        new_status = str(status_item.get("status") or "")
+        if not wa_message_id or not new_status:
+            return
+        message = await self._repository.message_by_wa_id(wa_message_id)
+        if message is None or message.clinic_id != clinic_id:
+            return  # не наше исходящее (OTP-канал того же номера, чужой wamid)
+        first_seen = message.wa_status is None
+        if _STATUS_RANK.get(new_status, 0) > _STATUS_RANK.get(message.wa_status or "", 0):
+            message.wa_status = new_status
+            message.wa_status_at = _message_ts(status_item)
+        pricing = status_item.get("pricing") or {}
+        billable: bool | None = None
+        category: str | None = None
+        if pricing and message.wa_pricing_category is None:
+            billable = bool(pricing.get("billable"))
+            origin = (status_item.get("conversation") or {}).get("origin") or {}
+            category = str(pricing.get("category") or origin.get("type") or "unknown")
+            message.wa_pricing_category = category
+            message.wa_billable = billable
+        if first_seen or category is not None:
+            await self._meter.whatsapp_status(
+                clinic_id, first_seen=first_seen, billable=billable, category=category
+            )
 
     async def _conversation_for(self, clinic_id: Any, wa_phone: str) -> AiConversation:
         conversation = await self._repository.open_conversation(clinic_id, wa_phone)
