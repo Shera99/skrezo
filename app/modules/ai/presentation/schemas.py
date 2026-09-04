@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import Field
 
@@ -128,4 +129,80 @@ class AssistantToggleResponse(CamelModel):
     bot_active: bool = Field(description="Отвечает ли бот в этом диалоге")
     resolved_escalations: int = Field(
         default=0, description="Сколько открытых эскалаций закрыто возвратом боту"
+    )
+
+
+class KnowledgeGapOut(CamelModel):
+    """Вопрос без ответа: один смысл, похожие формулировки склеены."""
+
+    id: uuid.UUID
+    question: str = Field(description="Дословно, как спросил пациент в первый раз")
+    lang: str = Field(description="ru | ky — на этом языке родится документ базы знаний")
+    status: str = Field(
+        description="unknown — не знает, answered — знает, dismissed — не нужно отвечать"
+    )
+    source: str = Field(
+        description=(
+            "low_confidence — «не знаю» модели, no_facts — конкретика без фактов, "
+            "model_unknown — escalate(unknown)"
+        )
+    )
+    hint: str | None = Field(default=None, description="Что модель сказала о пробеле")
+    ask_count: int = Field(description="Сколько раз спрашивали (с учётом склейки)", examples=[4])
+    first_asked_at: datetime
+    last_asked_at: datetime
+    conversation_ids: list[uuid.UUID] = Field(description="Последние диалоги, где спрашивали")
+    kb_document_id: uuid.UUID | None = Field(default=None, description="Чему бот научился")
+    resolved_at: datetime | None = None
+
+    @classmethod
+    def from_orm_gap(cls, g: Any) -> KnowledgeGapOut:
+        return cls(
+            id=g.id,
+            question=g.question,
+            lang=g.lang,
+            status=g.status,
+            source=g.source,
+            hint=g.hint,
+            ask_count=g.ask_count,
+            first_asked_at=g.first_asked_at,
+            last_asked_at=g.last_asked_at,
+            conversation_ids=[uuid.UUID(str(c)) for c in (g.conversation_ids or [])],
+            kb_document_id=g.kb_document_id,
+            resolved_at=g.resolved_at,
+        )
+
+
+class KnowledgeGapCounts(CamelModel):
+    """Числа вкладок экрана «Обучение»."""
+
+    unknown: int = Field(description="Не знает", examples=[3])
+    answered: int = Field(description="Знает", examples=[3])
+    dismissed: int = Field(description="Не нужно отвечать", examples=[1])
+
+
+class KnowledgeGapsResponse(CamelModel):
+    list: list[KnowledgeGapOut]
+    counts: KnowledgeGapCounts
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class AnswerKnowledgeGapRequest(CamelModel):
+    """Ответ администратора своими словами."""
+
+    answer: str = Field(
+        min_length=3,
+        max_length=4000,
+        description="Текст ответа — станет документом базы знаний; без цен",
+        examples=["Да, у нас бесплатная парковка во дворе, въезд с улицы Токтогула."],
+    )
+    title: str | None = Field(
+        default=None, max_length=200, description="Заголовок документа; пусто — сам вопрос"
+    )
+    category: str = Field(
+        default="faq",
+        description="Категория базы знаний: logistics | aftercare | faq | policy | payment",
+        examples=["logistics"],
     )

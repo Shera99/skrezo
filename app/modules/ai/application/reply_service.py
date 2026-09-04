@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.modules.ai.application.booking import BookingService
+from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.application.summary import recent_summaries
 from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
 from app.modules.ai.domain.facts import TurnFacts
@@ -33,6 +34,9 @@ from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
 from app.modules.ai.domain.texts import medical_text, service_text
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
+    KnowledgeGapRepository,
+)
 from app.modules.push.application.outbox import emit_event
 from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -225,11 +229,15 @@ class ProcessAiReplyService:
             )
 
         if escalate_call is not None:
+            reason = str(escalate_call.get("reason") or "patient_asked")
+            if reason == "unknown":
+                # Модель сама сказала «в базе знаний нет» — пробел (Ф6).
+                note = escalate_call.get("note")
+                await self._note_gap(
+                    conversation, source="model_unknown", hint=str(note) if note else None
+                )
             return await self._escalate(
-                conversation,
-                clinic,
-                str(escalate_call.get("reason") or "patient_asked"),
-                {"note": escalate_call.get("note")},
+                conversation, clinic, reason, {"note": escalate_call.get("note")}
             )
         if raw_text is None:
             return await self._escalate(
@@ -482,6 +490,10 @@ class ProcessAiReplyService:
     ) -> ReplyOutcome:
         """Валидатор заблокировал: ответ в журнал (sent_at=null) + эскалация."""
         message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
+        if not reply.used_facts:
+            # Ответ без единого факта = модели не хватило знаний — в очередь (Ф6).
+            # Ошибка при наличии фактов (перепутала цену) — не пробел, а промах.
+            await self._note_gap(conversation, source="no_facts", hint=verdict.notes)
         return await self._escalate(
             conversation,
             clinic,
@@ -500,6 +512,8 @@ class ProcessAiReplyService:
     ) -> ReplyOutcome:
         message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
         reason = "low_confidence" if "V06" in verdict.codes else "no_facts"
+        # Ф6: честное «не знаю» — пробел знаний, а не просто эскалация.
+        await self._note_gap(conversation, source=reason, hint=reply.human_reason or verdict.notes)
         return await self._escalate(
             conversation,
             clinic,
@@ -645,6 +659,27 @@ class ProcessAiReplyService:
                 .limit(1)
             )
         ).scalar_one_or_none()
+
+    async def _note_gap(
+        self, conversation: AiConversation, *, source: str, hint: str | None
+    ) -> None:
+        """Пробел знаний (Ф6): бот не ответил на вопрос — в очередь «Обучение».
+
+        Пишется в той же транзакции, что и эскалация, которую объясняет:
+        коммит делает вызывающий.
+        """
+        last = await self._last_patient_message(conversation)
+        question = ((last.transcript or last.body) if last else "").strip()
+        if not question:
+            return
+        await KnowledgeGapService(self._session, KnowledgeGapRepository(self._session)).record(
+            clinic_id=conversation.clinic_id,
+            conversation_id=conversation.id,
+            question=question,
+            lang="ky" if conversation.lang is Lang.KG else "ru",
+            source=source,
+            hint=hint,
+        )
 
     async def _send_filter_reply(
         self, conversation: AiConversation, clinic: Clinic, body: str

@@ -41,6 +41,7 @@ def _reply_json(
     facts: list[str] | None = None,
     confidence: str = "high",
     needs_human: bool = False,
+    human_reason: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -50,7 +51,7 @@ def _reply_json(
             "used_facts": facts or [],
             "confidence": confidence,
             "needs_human": needs_human,
-            "human_reason": None,
+            "human_reason": human_reason,
         },
         ensure_ascii=False,
     )

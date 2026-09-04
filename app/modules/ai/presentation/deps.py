@@ -10,8 +10,12 @@ from app.core.db import get_session
 from app.core.jobs import JobQueue, get_job_queue
 from app.core.redis import get_redis
 from app.modules.ai.application.drafts import DraftService
+from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.application.reply_service import ProcessAiReplyService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
+    KnowledgeGapRepository,
+)
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -53,3 +57,17 @@ def get_draft_service(
 ) -> DraftService:
     """Черновики режима «Проверяю» и передача диалога между ботом и человеком."""
     return DraftService(session, ai_repository, WhatsAppRepository(session), wa_client, queue)
+
+
+def get_knowledge_gap_repository(
+    session: AsyncSession = Depends(get_session),
+) -> KnowledgeGapRepository:
+    return KnowledgeGapRepository(session)
+
+
+def get_knowledge_gap_service(
+    session: AsyncSession = Depends(get_session),
+    repository: KnowledgeGapRepository = Depends(get_knowledge_gap_repository),
+) -> KnowledgeGapService:
+    """Очередь «Обучение»: ответ своими словами и «не нужно отвечать»."""
+    return KnowledgeGapService(session, repository)

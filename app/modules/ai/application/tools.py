@@ -149,7 +149,11 @@ TOOL_DECLS: list[AiToolDecl] = [
     ),
     AiToolDecl(
         name="escalate",
-        description="Позвать человека: вопрос вне твоих полномочий или правил.",
+        description=(
+            "Позвать человека. reason: unknown — в базе знаний нет ответа на вопрос "
+            "(клиника его выучит), patient_asked — пациент просит человека, "
+            "policy — вопрос вне твоих правил."
+        ),
         parameters={
             "type": "object",
             "properties": {

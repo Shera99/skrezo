@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_escalation import AiEscalation
+from app.shared.db.models.ai_knowledge_gap import AiKnowledgeGap
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.ai_summary import AiSummary
 from app.shared.db.models.ai_tool_call import AiToolCall
@@ -59,6 +60,7 @@ __all__ = [
     "Account",
     "AiConversation",
     "AiEscalation",
+    "AiKnowledgeGap",
     "AiMessage",
     "AiSummary",
     "AiToolCall",

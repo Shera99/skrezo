@@ -4950,6 +4950,113 @@
           "response": []
         },
         {
+          "name": "Очередь «Обучение»: вопросы, на которые бот не ответил",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps?status=string&q=string&page=1&pageSize=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "knowledge-gaps"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Вкладка: `unknown` — не знает, `answered` — знает, `dismissed` — не нужно отвечать"
+                },
+                {
+                  "key": "q",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Поиск по вопросу и подсказке"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Каждая строка — один смысл вопроса; похожие формулировки склеены, поэтому\n«спросили ×4» — честное число. Самые частые сверху: их выгоднее закрыть первыми."
+          },
+          "response": []
+        },
+        {
+          "name": "Ответить своими словами — бот выучит сразу",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/answer",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "knowledge-gaps",
+                "{{gap_id}}",
+                "answer"
+              ]
+            },
+            "description": "Ответ становится активным документом базы знаний на языке вопроса и уходит\nв промпт со следующего хода. Цены в ответе запрещены — бот берёт их из прайса.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"Да, у нас бесплатная парковка во дворе, въезд с улицы Токтогула.\",\n  \"title\": \"string\",\n  \"category\": \"logistics\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "«Не нужно отвечать»",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/dismiss",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "knowledge-gaps",
+                "{{gap_id}}",
+                "dismiss"
+              ]
+            },
+            "description": "Вопрос вычёркивается из очереди и больше в неё не возвращается."
+          },
+          "response": []
+        },
+        {
           "name": "Режим AI-ассистента клиники",
           "request": {
             "method": "PUT",
@@ -5082,6 +5189,11 @@
     },
     {
       "key": "file_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "gap_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },
