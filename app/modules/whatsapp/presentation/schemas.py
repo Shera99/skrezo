@@ -156,8 +156,22 @@ class MessageOut(CamelModel):
         ),
         examples=["high"],
     )
+    review: str | None = Field(
+        default=None,
+        description=(
+            "Черновик режима «Проверяю»: `pending` / `approved` / `edited` / "
+            "`discarded` / `superseded`; null — не черновик"
+        ),
+    )
+    reviewed_by: uuid.UUID | None = Field(
+        default=None, description="Кто принял решение по черновику (аккаунт сотрудника)"
+    )
+    reviewed_at: datetime | None = None
+    original_body: str | None = Field(
+        default=None, description="Что предлагал бот до правки человеком (`review = edited`)"
+    )
     sent_at: datetime | None = Field(
-        default=None, description="null — не отправлено (теневой режим или блок, Ф2)"
+        default=None, description="null — не отправлено (теневой режим, черновик или блок)"
     )
     created_at: datetime
 
@@ -172,6 +186,10 @@ class MessageOut(CamelModel):
             has_media=m.media_path is not None,
             media_duration_sec=m.media_duration_sec,
             confidence=m.confidence,
+            review=m.review,
+            reviewed_by=m.reviewed_by,
+            reviewed_at=m.reviewed_at,
+            original_body=m.original_body,
             sent_at=m.sent_at,
             created_at=m.created_at,
         )

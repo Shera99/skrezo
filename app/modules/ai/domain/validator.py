@@ -53,9 +53,7 @@ _FORBIDDEN: list[tuple[str, re.Pattern[str]]] = [
     ("painless", re.compile(r"не\s+больно|безболезнен\w*|не\s+почувству\w*|оорубайт", re.I)),
     (
         "meds",
-        re.compile(
-            r"\b(анальгин|ибупрофен|кетанов|нурофен|парацетамол|антибиотик\w*)\b", re.I
-        ),
+        re.compile(r"\b(анальгин|ибупрофен|кетанов|нурофен|парацетамол|антибиотик\w*)\b", re.I),
     ),
 ]
 
@@ -94,9 +92,7 @@ def validate(
     if reply.confidence == "low" or reply.needs_human:
         return Verdict(VerdictAction.ESCALATE, ["V06"], notes=reply.human_reason)
     if conversation_lang is not None and reply.lang != conversation_lang:
-        return Verdict(
-            VerdictAction.REGENERATE, ["V07"], notes=f"{reply.lang}≠{conversation_lang}"
-        )
+        return Verdict(VerdictAction.REGENERATE, ["V07"], notes=f"{reply.lang}≠{conversation_lang}")
     if len(reply.reply) > _MAX_REPLY_LEN:
         return Verdict(VerdictAction.REGENERATE, ["V08"])
     return Verdict(VerdictAction.PASS)
@@ -124,7 +120,5 @@ def _check_facts(text: str, facts: TurnFacts) -> Verdict | None:
         # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
         # клиники значит либо утечку контекста, либо галлюцинацию промпта.
         logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
-        return Verdict(
-            VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}"
-        )
+        return Verdict(VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}")
     return None

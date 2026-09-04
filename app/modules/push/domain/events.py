@@ -91,6 +91,14 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         android_channel="patients-inbox.v1",
         ttl_seconds=15 * 60,
     ),
+    # Ф5, режим «Проверяю»: бот подготовил черновик — администратору решать.
+    # Обычный приоритет: тихие часы соблюдаются, пуш с форой и отменой по показу.
+    "ai.draft_ready": EventSpec(
+        frozenset({Audience.MANAGER}),
+        Rung.NORMAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=4 * _HOUR,
+    ),
     "conversation.inbound": EventSpec(
         frozenset({Audience.MANAGER}),
         Rung.LOW,

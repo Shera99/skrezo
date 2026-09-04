@@ -72,7 +72,8 @@ class SimulateInboundRequest(CamelModel):
 
     clinic_id: uuid.UUID
     from_phone: str = Field(
-        min_length=5, description="Номер «пациента» (E.164 или локальный)",
+        min_length=5,
+        description="Номер «пациента» (E.164 или локальный)",
         examples=["+996700123456"],
     )
     text: str = Field(min_length=1, max_length=4096, examples=["Канча турат чистка?"])
@@ -97,7 +98,34 @@ class SimulateInboundResponse(CamelModel):
     """Результат прогона: как отработал настоящий конвейер."""
 
     conversation_id: uuid.UUID
-    outcome: str = Field(description="sent | shadow | escalated | skipped")
+    outcome: str = Field(description="sent | shadow | draft | escalated | skipped | deferred")
     bot_reply: str | None = Field(default=None, description="Что ответил (или предложил) бот")
     escalation_reason: str | None = None
     messages: list[SimulatedMessageOut] = Field(description="Хвост диалога, новые снизу")
+
+
+class DraftSendRequest(CamelModel):
+    """Отправить черновик; ``body`` — правка текста перед отправкой."""
+
+    body: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4096,
+        description="Текст с правкой администратора; пусто — отправить как предложил бот",
+        examples=["Здравствуйте! Профессиональная гигиена стоит 1 500 сом."],
+    )
+
+
+class AssistantToggleRequest(CamelModel):
+    """Кто ведёт диалог: ``false`` — «дальше отвечаю сам», ``true`` — вернуть боту."""
+
+    active: bool = Field(description="`true` — бот снова отвечает, `false` — диалог у человека")
+
+
+class AssistantToggleResponse(CamelModel):
+    conversation_id: uuid.UUID
+    status: str = Field(description="Статус диалога после переключения: active / escalated")
+    bot_active: bool = Field(description="Отвечает ли бот в этом диалоге")
+    resolved_escalations: int = Field(
+        default=0, description="Сколько открытых эскалаций закрыто возвратом боту"
+    )

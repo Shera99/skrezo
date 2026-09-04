@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.enums import AiMessageRole, GlossaryStatus
@@ -54,9 +55,7 @@ class AiRepository:
             .all()
         )
 
-    async def glossary_term(
-        self, clinic_id: uuid.UUID, term_id: uuid.UUID
-    ) -> GlossaryTerm | None:
+    async def glossary_term(self, clinic_id: uuid.UUID, term_id: uuid.UUID) -> GlossaryTerm | None:
         """Термин клиники (общие платформы клиника не правит)."""
         return (
             await self._session.execute(
@@ -183,7 +182,6 @@ class AiRepository:
             )
         ).scalar_one()
 
-
     async def answered_after(self, conversation_id: uuid.UUID, message_id: int) -> bool:
         """Есть ли наш ход (бот, человек, служебный) после сообщения ``message_id``.
 
@@ -202,3 +200,61 @@ class AiRepository:
             )
         ).first()
         return found is not None
+
+    # ── Черновики режима «Проверяю» (Ф5) ────────────────────────────────────
+
+    async def supersede_pending_drafts(self, conversation_id: uuid.UUID) -> int:
+        """Нерассмотренные черновики диалога → ``superseded`` (пришёл свежий)."""
+        result = await self._session.execute(
+            update(AiMessage)
+            .where(AiMessage.conversation_id == conversation_id, AiMessage.review == "pending")
+            .values(review="superseded")
+        )
+        return int(getattr(result, "rowcount", 0) or 0)
+
+    async def pending_draft(
+        self, clinic_id: uuid.UUID, conversation_id: uuid.UUID, message_id: int
+    ) -> AiMessage | None:
+        """Черновик на решении — строго своей клиники, ролью бота и ещё ``pending``."""
+        return (
+            await self._session.execute(
+                select(AiMessage).where(
+                    AiMessage.id == message_id,
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.clinic_id == clinic_id,
+                    AiMessage.role == AiMessageRole.BOT,
+                    AiMessage.review == "pending",
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def patient_wrote_after(self, conversation_id: uuid.UUID, message_id: int) -> bool:
+        """Пациент написал после черновика — отправлять устаревший ответ нельзя."""
+        found = (
+            await self._session.execute(
+                select(AiMessage.id)
+                .where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.id > message_id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                )
+                .limit(1)
+            )
+        ).first()
+        return found is not None
+
+    # ── Эскалации: разрешение (Ф5) ──────────────────────────────────────────
+
+    async def resolve_escalations(
+        self, conversation_id: uuid.UUID, *, actor_id: uuid.UUID, now: datetime
+    ) -> int:
+        """Закрыть все открытые эскалации диалога; вернуть число закрытых."""
+        result = await self._session.execute(
+            update(AiEscalation)
+            .where(
+                AiEscalation.conversation_id == conversation_id,
+                AiEscalation.resolved_at.is_(None),
+            )
+            .values(resolved_by=actor_id, resolved_at=now)
+        )
+        return int(getattr(result, "rowcount", 0) or 0)

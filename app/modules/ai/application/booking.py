@@ -83,9 +83,7 @@ class BookingService:
                 code="invalid_doctor",
                 status_code=422,
             )
-        duration = await availability.resolve_duration(
-            conversation.clinic_id, service_id, None
-        )
+        duration = await availability.resolve_duration(conversation.clinic_id, service_id, None)
         await availability.ensure_bookable(
             conversation.clinic_id, doctor_membership_id, span_of(starts_at, duration)
         )
@@ -269,13 +267,11 @@ class BookingService:
         from zoneinfo import ZoneInfo
 
         name = (
-            await self._session.execute(
-                select(Clinic.timezone).where(Clinic.id == clinic_id)
-            )
+            await self._session.execute(select(Clinic.timezone).where(Clinic.id == clinic_id))
         ).scalar_one_or_none()
         try:
             return ZoneInfo(name or "Asia/Bishkek")
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             return ZoneInfo("Asia/Bishkek")
 
     async def free_days(
@@ -302,9 +298,7 @@ class BookingService:
         for offset in range(min(days, 7)):
             current = day + timedelta(days=offset)
             try:
-                plan = await use_case.execute(
-                    clinic_id, doctor_membership_id, current, service_id
-                )
+                plan = await use_case.execute(clinic_id, doctor_membership_id, current, service_id)
             except AppError:
                 continue
             if plan.slots:

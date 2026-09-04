@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import itertools
 import json
+import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -151,3 +153,41 @@ def _patch_job(
     monkeypatch.setattr(
         "app.modules.jobs.application.services.job_recorder.session_factory", res.factory
     )
+
+
+def _inbound(
+    phone_number_id: str, from_phone: str, text: str = "", *, audio_id: str | None = None
+) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "from": from_phone.lstrip("+"),
+        "id": f"wamid.C{uuid.uuid4().hex}",
+        "timestamp": str(int(time.time())),
+    }
+    if audio_id:
+        message["type"] = "audio"
+        message["audio"] = {"id": audio_id, "mime_type": "audio/ogg; codecs=opus", "voice": True}
+    else:
+        message["type"] = "text"
+        message["text"] = {"body": text}
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {"phone_number_id": phone_number_id},
+                            "messages": [message],
+                        },
+                    }
+                ]
+            }
+        ],
+    }
+
+
+async def _webhook(client: AsyncClient, payload: dict[str, Any]) -> None:
+    resp = await client.post(f"{API}/whatsapp/webhook", json=payload)
+    assert resp.status_code == 200, resp.text

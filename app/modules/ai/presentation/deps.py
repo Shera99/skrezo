@@ -7,9 +7,14 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.jobs import JobQueue, get_job_queue
 from app.core.redis import get_redis
+from app.modules.ai.application.drafts import DraftService
 from app.modules.ai.application.reply_service import ProcessAiReplyService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
+    WhatsAppRepository,
+)
 from app.shared.ai import AiProvider
 from app.shared.ai.factory import build_ai_provider
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, build_whatsapp_client
@@ -38,3 +43,13 @@ def get_reply_service(
     wa_client: WhatsAppCloudClient = Depends(get_wa_client_for_ai),
 ) -> ProcessAiReplyService:
     return ProcessAiReplyService(session, provider, wa_client)
+
+
+def get_draft_service(
+    session: AsyncSession = Depends(get_session),
+    ai_repository: AiRepository = Depends(get_ai_repository),
+    wa_client: WhatsAppCloudClient = Depends(get_wa_client_for_ai),
+    queue: JobQueue = Depends(get_job_queue),
+) -> DraftService:
+    """Черновики режима «Проверяю» и передача диалога между ботом и человеком."""
+    return DraftService(session, ai_repository, WhatsAppRepository(session), wa_client, queue)

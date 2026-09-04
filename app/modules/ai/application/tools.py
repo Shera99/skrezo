@@ -264,9 +264,7 @@ class ToolExecutor:
             return {"days": [], "hint": "свободных дней не нашлось — предложи needs_human"}
         return {"days": days}
 
-    async def _create_patient(
-        self, context: ToolContext, args: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _create_patient(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         """Карточка пациента диалога: имя ДОСЛОВНО (§6.5), номер — из чата."""
         first_name = str(args.get("firstName") or "").strip()
         last_name = str(args["lastName"]).strip() if args.get("lastName") else None
@@ -349,10 +347,7 @@ class ToolExecutor:
         )
         # Кнопка уходит пациенту только в auto: в shadow пациент бота не видит.
         button_sent = False
-        if (
-            context.clinic.ai_mode is AiMode.AUTO
-            and context.binding_phone_number_id is not None
-        ):
+        if context.clinic.ai_mode is AiMode.AUTO and context.binding_phone_number_id is not None:
             lang = "ky" if context.conversation.lang is Lang.KG else "ru"
             local = starts_at.astimezone(self._clinic_tz(context))
             body = booking_text("confirm_button", lang).format(
@@ -431,7 +426,7 @@ class ToolExecutor:
         """Зона клиники: время пациенту называют местное, а не UTC."""
         try:
             return ZoneInfo(context.clinic.timezone or "Asia/Bishkek")
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             return ZoneInfo("Asia/Bishkek")
 
     async def _get_slots(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:

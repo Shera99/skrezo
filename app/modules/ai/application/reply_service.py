@@ -384,6 +384,8 @@ class ProcessAiReplyService:
         model_name: str,
     ) -> ReplyOutcome:
         await self._remember_lang(conversation, reply)
+        if clinic.ai_mode is AiMode.ASSISTED:
+            return await self._draft(conversation, clinic, reply, verdict, model_name)
         auto = clinic.ai_mode is AiMode.AUTO
         sent_at: datetime | None = None
         wa_message_id: str | None = None
@@ -419,6 +421,41 @@ class ProcessAiReplyService:
         return ReplyOutcome(
             status="sent" if auto else "shadow", message_id=message.id, reply=reply.reply
         )
+
+    async def _draft(
+        self,
+        conversation: AiConversation,
+        clinic: Clinic,
+        reply: BotReply,
+        verdict: Verdict,
+        model_name: str,
+    ) -> ReplyOutcome:
+        """Режим «Проверяю» (Ф5): ответ становится черновиком на решение человека.
+
+        Пациенту ничего не уходит. Прежний черновик диалога, если его не успели
+        рассмотреть, помечается ``superseded``: решение принимают по свежему —
+        он видит все сообщения пациента. Администратора зовёт событие
+        ``ai.draft_ready`` (обычный приоритет: тихие часы соблюдаются).
+        """
+        await self._repository.supersede_pending_drafts(conversation.id)
+        message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
+        message.review = "pending"
+        await emit_event(
+            self._session,
+            clinic_id=conversation.clinic_id,
+            type_="ai.draft_ready",
+            entity_type="conversation",
+            entity_id=conversation.id,
+            payload={"messageId": message.id},
+        )
+        await publish_realtime(
+            self._session,
+            conversation.clinic_id,
+            "conversation.message",
+            {"conversationId": str(conversation.id), "direction": "draft"},
+        )
+        await self._session.commit()
+        return ReplyOutcome(status="draft", message_id=message.id, reply=reply.reply)
 
     async def _blocked(
         self,

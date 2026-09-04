@@ -52,6 +52,7 @@ PUSH_EVENT_TYPES: frozenset[str] = frozenset(
         "digest.evening",
         "ai.escalated",
         "ai.urgent",
+        "ai.draft_ready",
         "conversation.inbound",
         "debt.created",
         "debt.settled",
@@ -150,6 +151,18 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
             "title": "Төлөм кабыл алынды",
             "body": "{patientName} — {amount} сом",
             "speak": "{patientName} пациенттен {amount} сом төлөм кабыл алынды",
+        },
+    },
+    "ai.draft_ready": {
+        Lang.RU: {
+            "title": "Ассистент подготовил ответ",
+            "body": "{fromName} — черновик ждёт вашего решения",
+            "speak": "Ассистент подготовил ответ для {fromName}, нужно ваше решение",
+        },
+        Lang.KG: {
+            "title": "Ассистент жооп даярдады",
+            "body": "{fromName} — долбоор чечимиңизди күтүп жатат",
+            "speak": "Ассистент {fromName} үчүн жооп даярдады, чечимиңиз керек",
         },
     },
     "ai.urgent": {

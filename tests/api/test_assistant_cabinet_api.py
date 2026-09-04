@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Any
 
@@ -19,47 +18,17 @@ from app.modules.whatsapp.presentation.deps import get_whatsapp_client
 from app.shared.ai import AiResult
 from app.shared.whatsapp_cloud.client import DownloadedMedia
 from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
-from tests.api.conftest import Ctx, _FakeProvider, _reply_json, _set_mode, _simulate
+from tests.api.conftest import (
+    Ctx,
+    _FakeProvider,
+    _inbound,
+    _reply_json,
+    _set_mode,
+    _simulate,
+    _webhook,
+)
 from tests.conftest import API
 from tests.test_media_duration import wav_bytes
-
-
-def _inbound(
-    phone_number_id: str, from_phone: str, text: str = "", *, audio_id: str | None = None
-) -> dict[str, Any]:
-    message: dict[str, Any] = {
-        "from": from_phone.lstrip("+"),
-        "id": f"wamid.C{uuid.uuid4().hex}",
-        "timestamp": str(int(time.time())),
-    }
-    if audio_id:
-        message["type"] = "audio"
-        message["audio"] = {"id": audio_id, "mime_type": "audio/ogg; codecs=opus", "voice": True}
-    else:
-        message["type"] = "text"
-        message["text"] = {"body": text}
-    return {
-        "object": "whatsapp_business_account",
-        "entry": [
-            {
-                "changes": [
-                    {
-                        "field": "messages",
-                        "value": {
-                            "messaging_product": "whatsapp",
-                            "metadata": {"phone_number_id": phone_number_id},
-                            "messages": [message],
-                        },
-                    }
-                ]
-            }
-        ],
-    }
-
-
-async def _webhook(client: AsyncClient, payload: dict[str, Any]) -> None:
-    resp = await client.post(f"{API}/whatsapp/webhook", json=payload)
-    assert resp.status_code == 200, resp.text
 
 
 async def _list(client: AsyncClient, ctx: Ctx, **params: Any) -> Any:

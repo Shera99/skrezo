@@ -40,9 +40,7 @@ router = APIRouter()
 _ERRORS: dict[int | str, dict[str, Any]] = {
     404: {
         "description": "У клиники нет активной привязки WhatsApp",
-        "content": {
-            "application/json": {"example": {"error": "whatsapp_not_connected"}}
-        },
+        "content": {"application/json": {"example": {"error": "whatsapp_not_connected"}}},
     },
 }
 
@@ -116,9 +114,7 @@ async def simulate_inbound(
         session, repository, build_whatsapp_client(), build_speech_provider()
     )
     refs = await processor.process(
-        _meta_payload(
-            binding.phone_number_id, body.from_phone, body.text, body.button_payload
-        )
+        _meta_payload(binding.phone_number_id, body.from_phone, body.text, body.button_payload)
     )
     if body.button_payload:
         # Кнопка обработана детерминированно (мимо модели) — вернуть диалог.

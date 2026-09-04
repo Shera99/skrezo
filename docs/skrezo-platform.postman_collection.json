@@ -4669,6 +4669,107 @@
       "name": "ai",
       "item": [
         {
+          "name": "Отправить черновик ассистента пациенту",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/send",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "drafts",
+                "{{message_id}}",
+                "send"
+              ]
+            },
+            "description": "Кнопка «Отправить» в панели «Ассистент предлагает» (режим «Проверяю»).\n\nС правкой текста — `review = edited`, исходник бота остаётся в\n`originalBody` как материал для обучения. Черновик, после которого пациент\nнаписал снова, отправить нельзя (409 `draft_stale`): бот готовит свежий.\nОкно 24 часов проверяется так же, как у свободного текста.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Здравствуйте! Профессиональная гигиена стоит 1 500 сом.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Отклонить черновик ассистента",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/discard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "drafts",
+                "{{message_id}}",
+                "discard"
+              ]
+            },
+            "description": "Кнопка «Не отправлять»: пациенту ничего не уходит, отказ учитывается в обучении."
+          },
+          "response": []
+        },
+        {
+          "name": "Передать диалог человеку или вернуть боту",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/assistant",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "assistant"
+              ]
+            },
+            "description": "`active=false` — «дальше отвечаю сам»: бот замолкает (диалог в `escalated`).\n\n`active=true` — вернуть боту: открытые эскалации закрываются, и если пациент\nждёт ответа, ассистенту сразу ставится задание — возврат не означает тишину.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Глоссарий клиники (+ общий словарь платформы)",
           "request": {
             "method": "GET",

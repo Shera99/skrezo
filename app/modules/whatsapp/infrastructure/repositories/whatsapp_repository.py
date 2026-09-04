@@ -364,6 +364,17 @@ class WhatsAppRepository:
         ).scalar_one()
         return int(count)
 
+    async def last_message_role(self, conversation_id: uuid.UUID) -> AiMessageRole | None:
+        """Кто написал последним — «ждёт ли пациент ответа» одним запросом."""
+        return (
+            await self._session.execute(
+                select(AiMessage.role)
+                .where(AiMessage.conversation_id == conversation_id)
+                .order_by(AiMessage.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
     async def close_stale(self, cutoff: datetime) -> list[uuid.UUID]:
         """Закрыть диалоги без сообщений с ``cutoff``; вернуть их идентификаторы.
 
