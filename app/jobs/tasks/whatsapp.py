@@ -15,9 +15,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import session_factory
-from app.core.jobs import PROCESS_WA_INBOUND
+from app.core.jobs import PROCESS_WA_INBOUND, SUMMARIZE_CONVERSATION
+from app.jobs.tasks.ai import build_reply_coordinator, enqueue_ai_reply
 from app.jobs.tasks.context import attempt
-from app.modules.ai.application.reply_service import ProcessAiReplyService
 from app.modules.ai.application.summary import ConversationSummaryService
 from app.modules.jobs.application.services.job_recorder import JobRunRecorder
 from app.modules.whatsapp.application.services.inbound import InboundProcessor
@@ -31,11 +31,12 @@ from app.shared.whatsapp_cloud import build_whatsapp_client
 
 
 async def process_wa_inbound(ctx: dict[str, Any], payload: dict[str, Any]) -> int:
-    """Разобрать payload вебхука и дать ассистенту ответить; вернуть число новых.
+    """Разобрать payload вебхука и поставить ответы ассистента; вернуть число новых.
 
-    Ассистент зовётся здесь же, а не отдельной очередью: воркер никуда не
-    спешит (вебхук уже ответил Meta), а очередь-в-очереди — лишний отказ.
-    Диалог отвечается один раз, даже если сообщений в пачке несколько.
+    Ответ — отдельным заданием на диалог (Ф8), а не здесь же: Meta пакует
+    сообщения разных людей в один запрос, и общий таймаут на пачку ронял
+    задание посреди ответов, а повтор их уже не находил (дедуп). Без очереди
+    (прямой вызов) отвечаем на месте, как раньше.
     """
     async with JobRunRecorder(PROCESS_WA_INBOUND, attempt(ctx)) as run:
         async with session_factory() as session:
@@ -46,38 +47,47 @@ async def process_wa_inbound(ctx: dict[str, Any], payload: dict[str, Any]) -> in
                 build_speech_provider(),
             )
             refs = await processor.process(payload)
-        replied = 0
+        queued = replied = 0
         for conversation_id in dict.fromkeys(r.conversation_id for r in refs):
-            async with session_factory() as session:
-                service = ProcessAiReplyService(
-                    session, build_ai_provider(), build_whatsapp_client()
-                )
-                outcome = await service.execute(conversation_id)
-            if outcome.status != "skipped":
-                replied += 1
-        run.note(f"сообщений: {len(refs)}, ответов ассистента: {replied}")
+            placed = await enqueue_ai_reply(ctx, conversation_id)
+            if placed == "queued":
+                queued += 1
+            elif placed == "no_queue":
+                result = await build_reply_coordinator(None).run(conversation_id)
+                if result.status != "skipped":
+                    replied += 1
+        run.note(
+            f"сообщений: {len(refs)}, ответов поставлено: {queued}, на месте: {replied}"
+        )
         return len(refs)
 
 
 async def close_stale_conversations(ctx: dict[str, Any]) -> int:
-    """Закрыть диалоги, молчащие дольше суток, и составить их резюме (§3.3)."""
+    """Закрыть диалоги, молчащие дольше суток, и поставить их резюме (§3.3).
+
+    Резюме — по заданию на диалог (Ф8): пачка резюме в одном cron не
+    укладывалась в таймаут, и закрытые диалоги оставались без резюме навсегда.
+    Без очереди (прямой вызов) — на месте, своей сессией и коммитом на каждое.
+    """
     async with JobRunRecorder("close_stale_conversations", attempt(ctx)) as run:
         async with session_factory() as session:
             repository = WhatsAppRepository(session)
             closed = await repository.close_stale(datetime.now(UTC) - WINDOW)
             await session.commit()
 
-        summarized = 0
-        provider = build_ai_provider()
+        redis = (ctx or {}).get("redis")
+        queued = summarized = 0
         for conversation_id in closed:
-            # Каждое резюме — своя сессия и свой коммит: неудача на одном
-            # диалоге не должна отменять закрытие остальных.
+            if redis is not None and hasattr(redis, "enqueue_job"):
+                await redis.enqueue_job(SUMMARIZE_CONVERSATION, str(conversation_id))
+                queued += 1
+                continue
             async with session_factory() as session:
-                summary = await ConversationSummaryService(session, provider).build(
-                    conversation_id
-                )
-                if summary is not None:
+                service = ConversationSummaryService(session, build_ai_provider())
+                if await service.build(conversation_id) is not None:
                     await session.commit()
                     summarized += 1
-        run.note(f"закрыто диалогов: {len(closed)}, резюме: {summarized}")
+        run.note(
+            f"закрыто: {len(closed)}, резюме поставлено: {queued}, на месте: {summarized}"
+        )
         return len(closed)

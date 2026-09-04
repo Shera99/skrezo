@@ -33,6 +33,11 @@ SEND_NOTIFICATION = "send_notification"
 SEND_TEAM_NOTIFICATION = "send_team_notification"
 #: Разобрать payload вебхука WhatsApp (клиника → пациент → диалог → сообщение).
 PROCESS_WA_INBOUND = "process_wa_inbound"
+#: Ответ ассистента — отдельным заданием на диалог (Ф8): приём вебхука не
+#: зависит от медленных вызовов модели, а у ответа свой таймаут и повторы.
+AI_REPLY = "ai_reply"
+#: Резюме закрытого диалога — тоже по одному на задание, а не пачкой в cron.
+SUMMARIZE_CONVERSATION = "summarize_conversation"
 
 #: Отметка «воркер жив». Пишется чаще, чем истекает: пропущенный тик не должен
 #: выглядеть как смерть воркера, а вот остановка — должна, и быстро.

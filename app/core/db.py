@@ -22,6 +22,10 @@ engine: AsyncEngine = create_async_engine(
     settings.database_url,
     echo=settings.app_debug and not settings.is_production,
     pool_pre_ping=True,
+    # Ф8: размеры из настроек — воркер держит десятки заданий ответа, и каждое
+    # на время запросов забирает соединение; дефолт 5 + 10 упирался в потолок.
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
 )
 
 # expire_on_commit=False — объекты остаются пригодными после commit

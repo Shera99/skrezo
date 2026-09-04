@@ -19,6 +19,19 @@ class AiProviderError(Exception):
     """
 
 
+class AiProviderUnavailableError(AiProviderError):
+    """Провайдер временно недоступен: 429, 5xx, сеть, разомкнутый предохранитель.
+
+    Отличие от родителя — в реакции: такой ход **откладывается и повторяется**,
+    а не эскалируется. Иначе один троттлинг модели под нагрузкой превращался бы
+    в лавину эскалаций и critical-пушей администраторам.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 @dataclass(frozen=True, slots=True)
 class AiToolDecl:
     """Описание инструмента для модели (JSON-схема аргументов)."""

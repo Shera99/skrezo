@@ -21,6 +21,7 @@ import structlog
 from app.shared.ai.provider import (
     AiMessagePart,
     AiProviderError,
+    AiProviderUnavailableError,
     AiResult,
     AiToolDecl,
     ToolCallRequest,
@@ -29,6 +30,17 @@ from app.shared.ai.provider import (
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 45.0
+
+
+def _retry_after(resp: httpx.Response) -> float | None:
+    """Секунды из ``Retry-After`` (числовая форма); иначе ``None`` — бэкофф свой."""
+    raw = resp.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return None
 
 
 class GeminiProvider:
@@ -131,8 +143,16 @@ class GeminiProvider:
                 self._url(), json=body, headers={"x-goog-api-key": self._api_key}
             )
         except httpx.HTTPError as exc:
-            raise AiProviderError(f"Gemini: {exc}") from exc
+            # Сеть и таймауты — временное (Ф8): ход откладывается, не эскалируется.
+            raise AiProviderUnavailableError(f"Gemini: {exc}") from exc
+        if resp.status_code == 429 or resp.status_code >= 500:
+            # Троттлинг и сбои на стороне Google — тоже временное.
+            logger.warning("gemini_throttled", status=resp.status_code, body=resp.text[:400])
+            raise AiProviderUnavailableError(
+                f"Gemini: HTTP {resp.status_code}", retry_after=_retry_after(resp)
+            )
         if resp.status_code >= 400:
+            # 400/401/403 повтором не лечатся: неверный запрос или ключ.
             logger.warning("gemini_failed", status=resp.status_code, body=resp.text[:400])
             raise AiProviderError(f"Gemini: HTTP {resp.status_code}")
         data = resp.json()

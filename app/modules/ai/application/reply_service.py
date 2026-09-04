@@ -37,7 +37,7 @@ from app.modules.push.application.outbox import emit_event
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
-from app.shared.ai import AiMessagePart, AiProvider, AiProviderError
+from app.shared.ai import AiMessagePart, AiProvider, AiProviderError, AiProviderUnavailableError
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, AiMode, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
@@ -67,10 +67,12 @@ _SPEC_TO_LANG = {"ru": Lang.RU, "ky": Lang.KG}
 class ReplyOutcome:
     """Что произошло с ходом ассистента (для симулятора и тестов)."""
 
-    status: str  # sent | shadow | escalated | skipped
+    status: str  # sent | shadow | escalated | skipped | deferred
     message_id: int | None = None
     reply: str | None = None
     escalation_reason: str | None = None
+    #: Пояснение к skipped/deferred: «already_answered», причина недоступности.
+    note: str | None = None
 
 
 class ProcessAiReplyService:
@@ -98,6 +100,12 @@ class ProcessAiReplyService:
             # escalated: человек ведёт разговор, бот молчит до возврата (§8.4).
             return ReplyOutcome(status="skipped")
         last = await self._last_patient_message(conversation)
+        if last is None:
+            return ReplyOutcome(status="skipped", note="нет сообщений пациента")
+        # Ф8: после последнего хода пациента уже есть наш — отвечать нечего.
+        # Так повторное или отложенное задание не даёт второго ответа.
+        if await self._repository.answered_after(conversation.id, last.id):
+            return ReplyOutcome(status="skipped", note="already_answered")
 
         # §11: сообщение, которое мы не прочитали (голосовое без надёжной
         # расшифровки, снимок, документ), — к человеку. Отвечать на него
@@ -109,7 +117,7 @@ class ProcessAiReplyService:
         # §9: медицинский фильтр — детерминированно и ДО модели. Стоит выше
         # проверки провайдера намеренно: неотложное состояние пациента не
         # должно зависеть от того, доступна ли сейчас модель.
-        medical = classify((last.transcript or last.body) if last else "")
+        medical = classify(last.transcript or last.body)
         if medical.kind is MedicalKind.URGENT:
             return await self._urgent(conversation, clinic, medical)
         if medical.kind is MedicalKind.COMPLAINT:
@@ -124,6 +132,24 @@ class ProcessAiReplyService:
             logger.warning("ai_provider_missing", clinic_id=str(clinic.id))
             return ReplyOutcome(status="skipped")
 
+        try:
+            return await self._converse(conversation, clinic, self._provider)
+        except AiProviderUnavailableError as exc:
+            # Временно недоступная модель (Ф8): ход откладывает и повторяет
+            # координатор задания — эскалация здесь стала бы лавиной.
+            logger.warning("ai_provider_unavailable", error=str(exc))
+            await self._session.commit()
+            return ReplyOutcome(status="deferred", note=str(exc))
+
+
+    async def _converse(
+        self, conversation: AiConversation, clinic: Clinic, provider: AiProvider
+    ) -> ReplyOutcome:
+        """Ход модели с инструментами → разбор → валидатор → доставка.
+
+        :class:`AiProviderUnavailableError` отсюда пробрасывается: решение «отложить
+        и повторить» принимает координатор задания, а не этот слой.
+        """
         # Язык фиксируется первым ПРОШЕДШИМ ответом бота (§10.2): до него
         # модель распознаёт язык сама, и V07 не применяется.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
@@ -145,10 +171,16 @@ class ProcessAiReplyService:
 
         escalate_call: dict[str, Any] | None = None
         raw_text: str | None = None
-        model_name = self._provider.model_name
+        model_name = provider.model_name
         try:
             for _ in range(settings.ai_max_tool_calls + 1):
-                result = await self._provider.complete(
+                # Ф8: отпустить соединение с БД на время вызова модели — секунды
+                # ожидания не должны держать слот пула (иначе потолок ≈15
+                # одновременных ответов на процесс). Записи инструментов
+                # фиксируются здесь же: раньше их фиксировал конец хода, и все
+                # выходы конвейера коммитят — семантика не меняется.
+                await self._session.commit()
+                result = await provider.complete(
                     system=system,
                     parts=parts,
                     tools=TOOL_DECLS,
@@ -186,6 +218,8 @@ class ProcessAiReplyService:
                 return await self._escalate(
                     conversation, clinic, "tool_error", {"note": "tool loop limit"}
                 )
+        except AiProviderUnavailableError:
+            raise
         except AiProviderError as exc:
             logger.warning("ai_provider_error", error=str(exc))
             return await self._escalate(
@@ -205,9 +239,18 @@ class ProcessAiReplyService:
             )
 
         facts = await self._turn_facts(clinic, system, parts)
-        reply, verdict = await self._parse_and_validate(
-            conversation, system, parts, raw_text, lang, facts
-        )
+        try:
+            reply, verdict = await self._parse_and_validate(
+                conversation, system, parts, raw_text, lang, facts
+            )
+        except AiProviderUnavailableError:
+            raise
+        except AiProviderError as exc:
+            # Перегенерация упёрлась в провайдера — раньше это роняло задание.
+            logger.warning("ai_provider_error", error=str(exc))
+            return await self._escalate(
+                conversation, clinic, "tool_error", {"note": f"provider: {exc}"}
+            )
         if reply is None or verdict is None:
             return await self._escalate(
                 conversation,
@@ -221,6 +264,20 @@ class ProcessAiReplyService:
         if verdict.action is VerdictAction.ESCALATE:
             return await self._needs_human(conversation, clinic, reply, verdict, model_name)
         return await self._deliver(conversation, clinic, reply, verdict, model_name)
+
+    async def give_up(self, conversation_id: uuid.UUID, note: str) -> ReplyOutcome:
+        """Модель не ожила за отведённые повторы — передать человеку (§14).
+
+        Зовёт координатор после ``ai_reply_max_defers`` отложенных попыток:
+        пациент ждал достаточно, дальше тишина хуже честного «уточню».
+        """
+        conversation = await self._session.get(AiConversation, conversation_id)
+        if conversation is None or conversation.status is not AiConversationStatus.ACTIVE:
+            return ReplyOutcome(status="skipped")
+        clinic = await self._session.get(Clinic, conversation.clinic_id)
+        if clinic is None:
+            return ReplyOutcome(status="skipped")
+        return await self._escalate(conversation, clinic, "tool_error", {"note": note})
 
     # ── Контекст ────────────────────────────────────────────────────────────
 
@@ -305,12 +362,15 @@ class ProcessAiReplyService:
     async def _retry(
         self, system: str, parts: list[AiMessagePart], previous: str, instruction: str
     ) -> str:
-        assert self._provider is not None
+        if self._provider is None:
+            return ""
         retry_parts = [
             *parts,
             AiMessagePart(role="model", text=previous),
             AiMessagePart(role="user", text=instruction),
         ]
+        # Ф8: соединение с БД отпускаем и на перегенерацию — см. _converse.
+        await self._session.commit()
         result = await self._provider.complete(
             system=system,
             parts=retry_parts,

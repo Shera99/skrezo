@@ -34,8 +34,15 @@ from arq import cron, func
 from arq.connections import RedisSettings
 
 from app.core.config import settings
-from app.core.jobs import PROCESS_WA_INBOUND, SEND_NOTIFICATION, SEND_TEAM_NOTIFICATION
+from app.core.jobs import (
+    AI_REPLY,
+    PROCESS_WA_INBOUND,
+    SEND_NOTIFICATION,
+    SEND_TEAM_NOTIFICATION,
+    SUMMARIZE_CONVERSATION,
+)
 from app.jobs.dispatcher_loop import run_dispatcher_loop
+from app.jobs.tasks.ai import ai_reply, summarize_conversation
 from app.jobs.tasks.ai_health import check_ai_health
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
@@ -67,6 +74,9 @@ class WorkerSettings:
     """Настройки arq-воркера."""
 
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    # Ф8: задания ответа почти всё время ждут модель — держим их десятками,
+    # пул БД под это расширен (db_pool_size / db_max_overflow).
+    max_jobs = settings.worker_max_jobs
     on_startup = _startup
     on_shutdown = _shutdown
     functions: ClassVar[list[Any]] = [
@@ -77,6 +87,18 @@ class WorkerSettings:
         # Разбор вебхука WhatsApp: повтор безопасен (дедуп по wa_message_id), а
         # таймаут с запасом на скачивание медиа с серверов Meta.
         func(process_wa_inbound, name=PROCESS_WA_INBOUND, max_tries=5, timeout=120),
+        # Ф8: ответ ассистента — своим заданием на диалог. Повтор безопасен:
+        # координатор не отвечает на уже отвеченное. Таймаут — на все вызовы
+        # модели одного хода с запасом.
+        func(
+            ai_reply,
+            name=AI_REPLY,
+            max_tries=2,
+            timeout=settings.ai_reply_job_timeout,
+        ),
+        # Резюме закрытого диалога — по одному, а не пачкой в cron: пачка не
+        # укладывалась в таймаут, и закрытые диалоги оставались без резюме.
+        func(summarize_conversation, name=SUMMARIZE_CONVERSATION, max_tries=2, timeout=120),
         expire_trials,
         expire_paid_periods,
         warn_trial_ending,

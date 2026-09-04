@@ -13,27 +13,21 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 import uuid
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
-from app.main import app
-from app.modules.ai.presentation.deps import get_ai_provider
 from app.modules.whatsapp.domain.window import WINDOW
 from app.shared.ai import (
     AiMessagePart,
     AiProviderError,
     AiResult,
-    AiToolDecl,
     ToolCallRequest,
 )
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, AiMode
@@ -46,125 +40,16 @@ from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.slot_hold import SlotHold
-from tests.conftest import API, Resources, otp_login, own_membership_id
-
-_phone_seq = itertools.count(1)
-
-
-def _phone() -> str:
-    return f"070080{next(_phone_seq):04d}"
-
-
-def _reply_json(
-    reply: str,
-    *,
-    lang: str = "ru",
-    intent: str = "info",
-    facts: list[str] | None = None,
-    confidence: str = "high",
-    needs_human: bool = False,
-) -> str:
-    return json.dumps(
-        {
-            "reply": reply,
-            "lang": lang,
-            "intent": intent,
-            "used_facts": facts or [],
-            "confidence": confidence,
-            "needs_human": needs_human,
-            "human_reason": None,
-        },
-        ensure_ascii=False,
-    )
-
-
-@dataclass
-class _FakeProvider:
-    """Отдаёт заранее заданный сценарий ходов; записывает, что получил."""
-
-    script: list[AiResult]
-    model_name: str = "fake-model"
-    calls: list[dict[str, Any]] = field(default_factory=list)
-
-    async def complete(
-        self,
-        *,
-        system: str,
-        parts: list[AiMessagePart],
-        tools: list[AiToolDecl],
-        temperature: float,
-        max_tokens: int,
-    ) -> AiResult:
-        self.calls.append({"system": system, "parts": parts})
-        if not self.script:
-            return AiResult(text=_reply_json("Хорошо."), model=self.model_name)
-        return self.script.pop(0)
-
-
-@dataclass(slots=True)
-class Ctx:
-    clinic_id: str
-    owner_headers: dict[str, str]
-    phone_number_id: str
-
-
-@pytest_asyncio.fixture
-async def fake() -> AsyncIterator[_FakeProvider]:
-    provider = _FakeProvider(script=[])
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-    yield provider
-    app.dependency_overrides.pop(get_ai_provider, None)
-
-
-@pytest.fixture
-async def ctx(admin_client: AsyncClient, client: AsyncClient) -> Ctx:
-    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
-    phone = _phone()
-    created = await admin_client.post(
-        f"{API}/admin/clients",
-        json={
-            "type": "clinic",
-            "adminFullName": "Владелец ИИ",
-            "adminPhone": phone,
-            "name": "Клиника ИИ",
-            "cityId": city,
-            "businessPhone": "0700000000",
-            "seats": 5,
-        },
-    )
-    assert created.status_code == 201, created.text
-    clinic_id = str(created.json()["id"])
-    phone_number_id = f"9000{next(_phone_seq):06d}"
-    bound = await admin_client.put(
-        f"{API}/admin/clients/{clinic_id}/whatsapp",
-        json={"phoneNumberId": phone_number_id, "displayPhone": "+996700999222"},
-    )
-    assert bound.status_code == 200, bound.text
-    headers = await otp_login(client, phone)
-    service = await client.post(
-        f"{API}/clinic/services",
-        headers=headers,
-        json={"name": "Чистка", "priceTiyin": 250000},
-    )
-    assert service.status_code == 201, service.text
-    return Ctx(clinic_id=clinic_id, owner_headers=headers, phone_number_id=phone_number_id)
-
-
-async def _set_mode(admin_client: AsyncClient, ctx: Ctx, mode: str) -> None:
-    resp = await admin_client.put(
-        f"{API}/admin/clients/{ctx.clinic_id}/ai-mode", json={"mode": mode}
-    )
-    assert resp.status_code == 200, resp.text
-
-
-async def _simulate(admin_client: AsyncClient, ctx: Ctx, text: str, phone: str) -> Any:
-    resp = await admin_client.post(
-        f"{API}/admin/ai/simulate-inbound",
-        json={"clinicId": ctx.clinic_id, "fromPhone": phone, "text": text},
-    )
-    assert resp.status_code == 200, resp.text
-    return resp.json()
-
+from tests.api.conftest import (
+    Ctx,
+    _FakeProvider,
+    _patch_job,
+    _phone,
+    _reply_json,
+    _set_mode,
+    _simulate,
+)
+from tests.conftest import API, Resources, own_membership_id
 
 # ── 1. Режимы ───────────────────────────────────────────────────────────────
 
@@ -819,17 +704,6 @@ async def test_message_flood_answers_once_then_hands_over(
 # ── 9. Резюме закрытого диалога (§3.3) ──────────────────────────────────────
 
 
-def _patch_job(
-    monkeypatch: pytest.MonkeyPatch, module: Any, provider: _FakeProvider, res: Resources
-) -> None:
-    """Фоновая задача живёт вне приложения: у неё своя сессия и свой провайдер."""
-    monkeypatch.setattr(module, "session_factory", res.factory)
-    monkeypatch.setattr(module, "build_ai_provider", lambda: provider)
-    monkeypatch.setattr(
-        "app.modules.jobs.application.services.job_recorder.session_factory", res.factory
-    )
-
-
 async def test_closed_conversation_gets_summary_and_next_talk_sees_it(
     admin_client: AsyncClient,
     ctx: Ctx,
@@ -948,9 +822,9 @@ async def _run_reply(res: Resources, fake: _FakeProvider, conversation_id: uuid.
     from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
 
     async with res.factory() as session:
-        return await ProcessAiReplyService(
-            session, fake, LoggingWhatsAppClient()
-        ).execute(conversation_id)
+        return await ProcessAiReplyService(session, fake, LoggingWhatsAppClient()).execute(
+            conversation_id
+        )
 
 
 async def _conversation_id(res: Resources, phone: str) -> uuid.UUID:
@@ -971,9 +845,7 @@ async def test_voice_transcript_reaches_the_model(
     await _simulate(admin_client, ctx, "Здравствуйте", phone)
     conv_id = await _conversation_id(_resources, phone)
 
-    await _voice(
-        _resources, conv_id, ctx.clinic_id, transcript="Хочу записаться", confidence=0.95
-    )
+    await _voice(_resources, conv_id, ctx.clinic_id, transcript="Хочу записаться", confidence=0.95)
     fake.script = [AiResult(text=_reply_json("Конечно, на какой день?"))]
     outcome = await _run_reply(_resources, fake, conv_id)
 
@@ -1122,9 +994,7 @@ async def test_silence_of_busy_clinic_is_flagged(
             )
         # И само «свежее» сообщение диалога отодвигаем в прошлое.
         await session.execute(
-            update(AiMessage)
-            .where(AiMessage.conversation_id == conv_id)
-            .values(created_at=stale)
+            update(AiMessage).where(AiMessage.conversation_id == conv_id).values(created_at=stale)
         )
         await session.commit()
 
@@ -1253,9 +1123,7 @@ async def test_other_clinic_mention_is_blocked(
     assert other.status_code == 201, other.text
 
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [
-        AiResult(text=_reply_json("Попробуйте Стоматология Аврора, там дешевле."))
-    ]
+    fake.script = [AiResult(text=_reply_json("Попробуйте Стоматология Аврора, там дешевле."))]
     body = await _simulate(admin_client, ctx, "А где ещё лечат?", "+996700200084")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "validator_blocked"

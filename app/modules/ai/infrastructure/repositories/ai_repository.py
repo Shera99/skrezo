@@ -182,3 +182,23 @@ class AiRepository:
                 )
             )
         ).scalar_one()
+
+
+    async def answered_after(self, conversation_id: uuid.UUID, message_id: int) -> bool:
+        """Есть ли наш ход (бот, человек, служебный) после сообщения ``message_id``.
+
+        Ф8: задание ответа могло прийти повторно или с опозданием — если диалог
+        уже получил ответ на это сообщение, второго быть не должно.
+        """
+        found = (
+            await self._session.execute(
+                select(AiMessage.id)
+                .where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.id > message_id,
+                    AiMessage.role != AiMessageRole.PATIENT,
+                )
+                .limit(1)
+            )
+        ).first()
+        return found is not None
