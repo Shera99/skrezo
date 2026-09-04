@@ -27,6 +27,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    Integer,
     Text,
     func,
     text,
@@ -67,6 +68,20 @@ class AiMessage(Base):
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Уверенность ASR 0..1 (§11): низкая уводит в эскалацию, а не в догадку.
     transcript_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Уверенность модели в ответе (high | medium | low) — метка кабинета
+    #: «уверенный ответ» / «проверьте текст».
+    confidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Длительность голосового в секундах (Ф5): Meta её не присылает, читаем из файла.
+    media_duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── Черновик ассистента в режиме «Проверяю» (Ф5) ─────────────────────────
+    #: NULL — не черновик; pending → approved | edited | discarded | superseded.
+    review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("account.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Что предлагал бот до правки человеком — материал для обучения (Ф6).
+    original_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     used_facts: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB, nullable=True)
     validator: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model: Mapped[str | None] = mapped_column(Text, nullable=True)

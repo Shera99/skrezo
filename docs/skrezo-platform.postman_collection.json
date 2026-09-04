@@ -4339,7 +4339,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations?status=&page=1&pageSize=25",
+              "raw": "{{base_url}}/api/v1/clinic/conversations?status=&filter=all&q=Абдиева&page=1&pageSize=25",
               "host": [
                 "{{base_url}}"
               ],
@@ -4357,6 +4357,18 @@
                   "description": "Фильтр по статусу (`active` / `closed` / `escalated`)"
                 },
                 {
+                  "key": "filter",
+                  "value": "all",
+                  "disabled": true,
+                  "description": "Вкладка кабинета: `all` / `awaiting` (ждут ответа) / `needs_human`"
+                },
+                {
+                  "key": "q",
+                  "value": "Абдиева",
+                  "disabled": true,
+                  "description": "Поиск по имени пациента, номеру или тексту сообщений"
+                },
+                {
                   "key": "page",
                   "value": "1",
                   "disabled": true,
@@ -4371,6 +4383,65 @@
               ]
             },
             "description": "Список переписок с пациентами: шапка, превью и состояние 24-часового окна.\n\n`windowOpen: false` — сутки с последнего сообщения пациента прошли, поле\nввода в интерфейсе подменяется списком одобренных шаблонов."
+          },
+          "response": []
+        },
+        {
+          "name": "Счётчики вкладок и бейдж раздела",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/counters",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "counters"
+              ]
+            },
+            "description": "Одна ручка вместо трёх списков: интерфейс рисует вкладки и бейдж по ней.\n\n`unread` — число диалогов с непрочитанным (бейдж «Ассистент N»), остальные\n— размеры вкладок. Закрытые диалоги в `total` и `awaiting` не входят."
+          },
+          "response": []
+        },
+        {
+          "name": "Отметить диалог прочитанным",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "conversations",
+                "{{conversation_id}}",
+                "read"
+              ]
+            },
+            "description": "Зовётся при открытии диалога (и при показе новых сообщений в открытом).\n\nОтметка **общая для клиники**: ресепшен один на всех, и точка гаснет у\nвсех сразу. Назад отметка не двигается — два устройства могут подтвердить\nчтение в разном порядке. В сокет уходит `conversation.read`, чтобы бейдж\nупал и на втором устройстве без перечитывания списка.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"upToMessageId\": 1042\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         },

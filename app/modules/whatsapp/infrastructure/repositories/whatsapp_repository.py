@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import delete, func, or_, select, tuple_, update
+from sqlalchemy import delete, func, or_, select, true, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.whatsapp.domain.models import ConversationRow
+from app.modules.whatsapp.domain.models import ConversationCounters, ConversationRow
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, WhatsAppMode
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
@@ -136,34 +137,80 @@ class WhatsAppRepository:
         clinic_id: uuid.UUID,
         *,
         status: AiConversationStatus | None,
+        filter_: str = "all",
+        query: str | None = None,
         page: int,
         page_size: int,
     ) -> tuple[list[ConversationRow], int]:
-        # Превью — последнее сообщение диалога; курсор по id (см. модель).
-        last_body = (
-            select(AiMessage.body)
+        # Последнее сообщение — LATERAL: нужны сразу роль, текст и медиа,
+        # а четыре коррелированных подзапроса ради одной строки — расточительно.
+        last = (
+            select(
+                AiMessage.role.label("role"),
+                AiMessage.body.label("body"),
+                AiMessage.media_type.label("media_type"),
+                AiMessage.media_duration_sec.label("duration"),
+            )
             .where(AiMessage.conversation_id == AiConversation.id)
             .order_by(AiMessage.id.desc())
             .limit(1)
-            .scalar_subquery()
+            .lateral("last_message")
         )
+        patient_name = func.concat_ws(" ", Patient.last_name, Patient.first_name)
         stmt = (
             select(
                 AiConversation.id,
                 AiConversation.wa_phone,
                 AiConversation.patient_id,
-                func.concat_ws(" ", Patient.last_name, Patient.first_name).label("patient_name"),
+                patient_name.label("patient_name"),
                 AiConversation.lang,
                 AiConversation.status,
                 AiConversation.last_msg_at,
                 AiConversation.last_patient_msg_at,
-                last_body.label("last_body"),
+                last.c.body,
+                last.c.role,
+                last.c.media_type,
+                last.c.duration,
+                self._unread_subquery().label("unread"),
+                self._pending_draft_subquery().label("pending_draft_id"),
             )
+            .select_from(AiConversation)
             .outerjoin(Patient, Patient.id == AiConversation.patient_id)
+            .outerjoin(last, true())
             .where(AiConversation.clinic_id == clinic_id)
         )
         if status is not None:
             stmt = stmt.where(AiConversation.status == status)
+        if filter_ == "awaiting":
+            stmt = stmt.where(
+                last.c.role == AiMessageRole.PATIENT,
+                AiConversation.status != AiConversationStatus.CLOSED,
+            )
+        elif filter_ == "needs_human":
+            stmt = stmt.where(
+                or_(
+                    AiConversation.status == AiConversationStatus.ESCALATED,
+                    self._pending_draft_subquery().is_not(None),
+                )
+            )
+        if query:
+            # Поиск по номеру, имени и тексту; текст — через триграммный индекс.
+            pattern = f"%{query}%"
+            in_messages = (
+                select(AiMessage.id)
+                .where(
+                    AiMessage.conversation_id == AiConversation.id,
+                    AiMessage.body.ilike(pattern),
+                )
+                .exists()
+            )
+            stmt = stmt.where(
+                or_(
+                    AiConversation.wa_phone.ilike(pattern),
+                    patient_name.ilike(pattern),
+                    in_messages,
+                )
+            )
         total = (
             await self._session.execute(
                 select(func.count()).select_from(stmt.order_by(None).subquery())
@@ -187,10 +234,135 @@ class WhatsAppRepository:
                 last_msg_at=r[6],
                 last_patient_msg_at=r[7],
                 last_body=r[8],
+                last_role=r[9],
+                last_media_type=r[10],
+                last_media_duration_sec=r[11],
+                unread_count=int(r[12] or 0),
+                pending_draft_id=r[13],
             )
             for r in rows
         ]
         return items, total
+
+    @staticmethod
+    def _unread_subquery() -> Any:
+        """Сообщения пациента новее общей отметки прочтения диалога."""
+        return (
+            select(func.count())
+            .select_from(AiMessage)
+            .where(
+                AiMessage.conversation_id == AiConversation.id,
+                AiMessage.role == AiMessageRole.PATIENT,
+                AiMessage.id > func.coalesce(AiConversation.read_message_id, 0),
+            )
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _pending_draft_subquery() -> Any:
+        """Свежий черновик ассистента, ждущий решения (режим «Проверяю»)."""
+        return (
+            select(AiMessage.id)
+            .where(
+                AiMessage.conversation_id == AiConversation.id,
+                AiMessage.review == "pending",
+            )
+            .order_by(AiMessage.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    async def counters(self, clinic_id: uuid.UUID) -> ConversationCounters:
+        """Числа вкладок и бейдж одним запросом по диалогам клиники."""
+        last_role = (
+            select(AiMessage.role)
+            .where(AiMessage.conversation_id == AiConversation.id)
+            .order_by(AiMessage.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        per_conversation = (
+            select(
+                AiConversation.status.label("status"),
+                last_role.label("last_role"),
+                self._pending_draft_subquery().label("pending_draft_id"),
+                self._unread_subquery().label("unread"),
+            )
+            .where(AiConversation.clinic_id == clinic_id)
+            .subquery()
+        )
+        open_ = per_conversation.c.status != AiConversationStatus.CLOSED
+        row = (
+            await self._session.execute(
+                select(
+                    func.count().filter(open_),
+                    func.count().filter(
+                        open_, per_conversation.c.last_role == AiMessageRole.PATIENT
+                    ),
+                    func.count().filter(
+                        or_(
+                            per_conversation.c.status == AiConversationStatus.ESCALATED,
+                            per_conversation.c.pending_draft_id.is_not(None),
+                        )
+                    ),
+                    func.count().filter(per_conversation.c.unread > 0),
+                )
+            )
+        ).one()
+        return ConversationCounters(
+            total=int(row[0]),
+            awaiting=int(row[1]),
+            needs_human=int(row[2]),
+            unread=int(row[3]),
+        )
+
+    async def mark_read(
+        self, conversation_id: uuid.UUID, clinic_id: uuid.UUID, *, up_to_message_id: int | None
+    ) -> int | None:
+        """Сдвинуть отметку прочтения вперёд (никогда назад); ``None`` — диалог не найден."""
+        latest = (
+            select(func.max(AiMessage.id))
+            .where(AiMessage.conversation_id == conversation_id)
+            .scalar_subquery()
+        )
+        target = func.coalesce(up_to_message_id, latest, 0)
+        result = await self._session.execute(
+            update(AiConversation)
+            .where(AiConversation.id == conversation_id, AiConversation.clinic_id == clinic_id)
+            .values(
+                read_message_id=func.greatest(
+                    func.coalesce(AiConversation.read_message_id, 0), target
+                )
+            )
+            .returning(AiConversation.read_message_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def conversation_exists(self, conversation_id: uuid.UUID, clinic_id: uuid.UUID) -> bool:
+        found = (
+            await self._session.execute(
+                select(AiConversation.id).where(
+                    AiConversation.id == conversation_id,
+                    AiConversation.clinic_id == clinic_id,
+                )
+            )
+        ).first()
+        return found is not None
+
+    async def unread_count(self, conversation_id: uuid.UUID) -> int:
+        count = (
+            await self._session.execute(
+                select(func.count())
+                .select_from(AiMessage)
+                .join(AiConversation, AiConversation.id == AiMessage.conversation_id)
+                .where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                    AiMessage.id > func.coalesce(AiConversation.read_message_id, 0),
+                )
+            )
+        ).scalar_one()
+        return int(count)
 
     async def close_stale(self, cutoff: datetime) -> list[uuid.UUID]:
         """Закрыть диалоги без сообщений с ``cutoff``; вернуть их идентификаторы.
@@ -262,16 +434,16 @@ class WhatsAppRepository:
         await self._session.flush()
         return message
 
-    async def set_media(self, message_id: int, *, path: str, mime: str) -> None:
+    async def set_media(
+        self, message_id: int, *, path: str, mime: str, duration_sec: int | None = None
+    ) -> None:
         await self._session.execute(
             update(AiMessage)
             .where(AiMessage.id == message_id)
-            .values(media_path=path, media_mime=mime)
+            .values(media_path=path, media_mime=mime, media_duration_sec=duration_sec)
         )
 
-    async def set_transcript(
-        self, message_id: int, *, text: str, confidence: float
-    ) -> None:
+    async def set_transcript(self, message_id: int, *, text: str, confidence: float) -> None:
         """Расшифровка голосового и уверенность в ней (§11)."""
         await self._session.execute(
             update(AiMessage)
@@ -306,9 +478,7 @@ class WhatsAppRepository:
 
     # ── Шаблоны ─────────────────────────────────────────────────────────────
 
-    async def replace_templates(
-        self, clinic_id: uuid.UUID, items: list[TemplateInfo]
-    ) -> None:
+    async def replace_templates(self, clinic_id: uuid.UUID, items: list[TemplateInfo]) -> None:
         """Привести каталог шаблонов клиники к списку из кабинета Meta.
 
         Полная сверка, а не только upsert: шаблон, удалённый в кабинете,

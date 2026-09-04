@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.modules.whatsapp.presentation.routes import (
     connect_whatsapp,
+    conversation_read,
     get_media,
     get_messages,
     list_conversations,
@@ -17,6 +18,7 @@ from app.modules.whatsapp.presentation.routes import (
 router = APIRouter(tags=["whatsapp"])
 router.include_router(webhook.router)
 router.include_router(list_conversations.router)
+router.include_router(conversation_read.router)
 router.include_router(get_messages.router)
 router.include_router(send_message.router)
 router.include_router(templates.router)

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
 from app.modules.whatsapp.application.use_cases.list_conversations import (
+    ConversationFilter,
     ListConversationsUseCase,
 )
 from app.modules.whatsapp.presentation.deps import get_list_conversations_use_case
@@ -32,6 +33,17 @@ async def list_conversations(
     status: AiConversationStatus | None = Query(
         default=None, description="Фильтр по статусу (`active` / `closed` / `escalated`)"
     ),
+    filter_: ConversationFilter = Query(
+        default="all",
+        alias="filter",
+        description="Вкладка кабинета: `all` / `awaiting` (ждут ответа) / `needs_human`",
+    ),
+    q: str | None = Query(
+        default=None,
+        max_length=100,
+        description="Поиск по имени пациента, номеру или тексту сообщений",
+        examples=["Абдиева"],
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
     context: ClientContext = Depends(require_permission("conversations.manage")),
@@ -45,7 +57,12 @@ async def list_conversations(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     rows, total = await use_case.execute(
-        context.clinic_id, status=status, page=page, page_size=page_size
+        context.clinic_id,
+        status=status,
+        filter_=filter_,
+        query=q,
+        page=page,
+        page_size=page_size,
     )
     now = datetime.now(UTC)
     return ConversationsResponse(

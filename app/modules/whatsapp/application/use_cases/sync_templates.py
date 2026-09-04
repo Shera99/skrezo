@@ -34,9 +34,7 @@ class SyncTemplatesUseCase:
         """
         binding = await self._repository.binding_by_clinic(clinic_id)
         if binding is None or not binding.active:
-            raise ConflictError(
-                "WhatsApp не подключён к клинике", code="whatsapp_not_connected"
-            )
+            raise ConflictError("WhatsApp не подключён к клинике", code="whatsapp_not_connected")
         if not binding.waba_id:
             raise ValidationAppError(
                 "У привязки не указан WABA — без него шаблоны спросить не у кого",

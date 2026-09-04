@@ -24,6 +24,7 @@ dependencies = [
     "cryptography>=43",
     "h2>=4",
     "python-socketio>=5.16.4",
+    "mutagen>=1.48.1",
 ]
 
 [dependency-groups]

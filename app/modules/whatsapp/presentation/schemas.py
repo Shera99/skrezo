@@ -18,7 +18,7 @@ from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 
 
 class ConversationListItem(CamelModel):
-    """Строка списка диалогов."""
+    """Строка списка диалогов — шапка, превью и состояние для вкладок кабинета."""
 
     id: uuid.UUID
     wa_phone: str = Field(description="Номер пациента (E.164)", examples=["+996700123456"])
@@ -39,6 +39,30 @@ class ConversationListItem(CamelModel):
     last_message_preview: str | None = Field(
         default=None, description="Начало последнего сообщения диалога"
     )
+    last_message_role: AiMessageRole | None = Field(
+        default=None, description="Кто написал последним: patient / bot / admin / system"
+    )
+    last_message_kind: str = Field(
+        default="text",
+        description="Вид последнего сообщения: `text` / `audio` / `image` / `document` / `other`",
+        examples=["audio"],
+    )
+    last_message_duration_sec: int | None = Field(
+        default=None, description="Длительность голосового, если последнее — аудио", examples=[14]
+    )
+    unread_count: int = Field(
+        default=0,
+        description="Непрочитанных сообщений пациента; отметка прочтения общая для клиники",
+    )
+    awaiting_reply: bool = Field(
+        default=False, description="Последнее слово за пациентом — клиника ещё не ответила"
+    )
+    needs_human: bool = Field(
+        default=False, description="Передан человеку либо ждёт решения по черновику"
+    )
+    pending_draft_id: int | None = Field(
+        default=None, description="Черновик ассистента, ждущий одобрения (режим «Проверяю»)"
+    )
 
     @classmethod
     def from_row(cls, r: ConversationRow, *, now: datetime) -> ConversationListItem:
@@ -56,7 +80,27 @@ class ConversationListItem(CamelModel):
             last_patient_msg_at=r.last_patient_msg_at,
             window_open=is_window_open(r.last_patient_msg_at, now),
             last_message_preview=preview,
+            last_message_role=r.last_role,
+            last_message_kind=_message_kind(r.last_media_type),
+            last_message_duration_sec=r.last_media_duration_sec,
+            unread_count=r.unread_count,
+            awaiting_reply=r.awaiting_reply,
+            needs_human=r.needs_human,
+            pending_draft_id=r.pending_draft_id,
         )
+
+
+def _message_kind(media_type: str | None) -> str:
+    """Тип превью по словарю Meta: голосовое, снимок, документ — или текст."""
+    if not media_type:
+        return "text"
+    if media_type == "audio":
+        return "audio"
+    if media_type in ("image", "sticker"):
+        return "image"
+    if media_type == "document":
+        return "document"
+    return "other"
 
 
 class ConversationsResponse(CamelModel):
@@ -64,6 +108,30 @@ class ConversationsResponse(CamelModel):
     current_page: int
     page_size: int = 25
     total_count: int
+
+
+class ConversationCountersResponse(CamelModel):
+    """Числа вкладок списка и бейдж раздела «Ассистент»."""
+
+    total: int = Field(description="Открытых диалогов (закрытые не считаются)", examples=[7])
+    awaiting: int = Field(description="Ждут ответа: последнее слово за пациентом", examples=[3])
+    needs_human: int = Field(
+        description="Нужен человек: эскалация либо черновик на решении", examples=[2]
+    )
+    unread: int = Field(description="Диалогов с непрочитанным — число на бейдже", examples=[8])
+
+
+class MarkReadRequest(CamelModel):
+    """Докуда прочитано; пусто — до последнего сообщения."""
+
+    up_to_message_id: int | None = Field(
+        default=None, description="id последнего показанного сообщения", examples=[1042]
+    )
+
+
+class MarkReadResponse(CamelModel):
+    read_message_id: int | None = Field(description="Отметка после сдвига (только вперёд)")
+    unread_count: int = Field(description="Сколько сообщений пациента осталось непрочитанными")
 
 
 class MessageOut(CamelModel):
@@ -77,6 +145,17 @@ class MessageOut(CamelModel):
         default=None, description="Тип вложения по словарю Meta (audio/image/…)"
     )
     has_media: bool = Field(description="Скачано ли вложение (доступно ли по ручке медиа)")
+    media_duration_sec: int | None = Field(
+        default=None, description="Длительность голосового в секундах", examples=[14]
+    )
+    confidence: str | None = Field(
+        default=None,
+        description=(
+            "Уверенность модели у ответов бота: `high` — «уверенный ответ», "
+            "`medium` / `low` — «проверьте текст»"
+        ),
+        examples=["high"],
+    )
     sent_at: datetime | None = Field(
         default=None, description="null — не отправлено (теневой режим или блок, Ф2)"
     )
@@ -91,6 +170,8 @@ class MessageOut(CamelModel):
             wa_message_id=m.wa_message_id,
             media_type=m.media_type,
             has_media=m.media_path is not None,
+            media_duration_sec=m.media_duration_sec,
+            confidence=m.confidence,
             sent_at=m.sent_at,
             created_at=m.created_at,
         )

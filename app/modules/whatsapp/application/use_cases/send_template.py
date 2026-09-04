@@ -65,9 +65,7 @@ class SendTemplateUseCase:
             raise NotFoundError("Диалог не найден", code="conversation_not_found")
         binding = await self._repository.binding_by_clinic(clinic_id)
         if binding is None or not binding.active:
-            raise ConflictError(
-                "WhatsApp не подключён к клинике", code="whatsapp_not_connected"
-            )
+            raise ConflictError("WhatsApp не подключён к клинике", code="whatsapp_not_connected")
         template = await self._repository.template(clinic_id, template_id)
         if template is None:
             raise NotFoundError("Шаблон не найден", code="template_not_found")

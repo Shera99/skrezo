@@ -141,7 +141,6 @@ class ProcessAiReplyService:
             await self._session.commit()
             return ReplyOutcome(status="deferred", note=str(exc))
 
-
     async def _converse(
         self, conversation: AiConversation, clinic: Clinic, provider: AiProvider
     ) -> ReplyOutcome:
@@ -153,9 +152,7 @@ class ProcessAiReplyService:
         # Язык фиксируется первым ПРОШЕДШИМ ответом бота (§10.2): до него
         # модель распознаёт язык сама, и V07 не применяется.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
-        lang: str | None = None if first_reply else (
-            "ky" if conversation.lang is Lang.KG else "ru"
-        )
+        lang: str | None = None if first_reply else ("ky" if conversation.lang is Lang.KG else "ru")
         system = await self._build_system(clinic, lang, conversation)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
@@ -210,9 +207,7 @@ class ProcessAiReplyService:
                         tool_signature=call.signature,
                     )
                 )
-                parts.append(
-                    AiMessagePart(role="tool", tool_name=call.name, tool_result=outcome)
-                )
+                parts.append(AiMessagePart(role="tool", tool_name=call.name, tool_result=outcome))
             else:
                 # Потолок вызовов — модель зациклилась на инструментах.
                 return await self._escalate(
@@ -310,9 +305,7 @@ class ProcessAiReplyService:
         for message in reversed(list(rows)):
             if message.role is AiMessageRole.PATIENT:
                 # Голосовое участвует в диалоге расшифровкой (§11).
-                parts.append(
-                    AiMessagePart(role="user", text=message.transcript or message.body)
-                )
+                parts.append(AiMessagePart(role="user", text=message.transcript or message.body))
             elif (
                 message.role in (AiMessageRole.BOT, AiMessageRole.ADMIN)
                 and message.sent_at is not None
@@ -436,9 +429,7 @@ class ProcessAiReplyService:
         model_name: str,
     ) -> ReplyOutcome:
         """Валидатор заблокировал: ответ в журнал (sent_at=null) + эскалация."""
-        message = await self._save_bot_message(
-            conversation, reply, verdict, model_name, None, None
-        )
+        message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
         return await self._escalate(
             conversation,
             clinic,
@@ -455,9 +446,7 @@ class ProcessAiReplyService:
         verdict: Verdict,
         model_name: str,
     ) -> ReplyOutcome:
-        message = await self._save_bot_message(
-            conversation, reply, verdict, model_name, None, None
-        )
+        message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
         reason = "low_confidence" if "V06" in verdict.codes else "no_facts"
         return await self._escalate(
             conversation,
@@ -581,23 +570,17 @@ class ProcessAiReplyService:
         ).scalar_one()
         return int(count) > settings.ai_rate_limit_per_hour
 
-    async def _too_many(
-        self, conversation: AiConversation, clinic: Clinic
-    ) -> ReplyOutcome:
+    async def _too_many(self, conversation: AiConversation, clinic: Clinic) -> ReplyOutcome:
         """Одно извинение и передача человеку — дальше бот молчит."""
         lang = "ky" if conversation.lang is Lang.KG else "ru"
-        await self._send_filter_reply(
-            conversation, clinic, service_text("rate_limited", lang)
-        )
+        await self._send_filter_reply(conversation, clinic, service_text("rate_limited", lang))
         return await self._escalate(
             conversation, clinic, "rate_limited", None, notify_patient=False
         )
 
     # ── Медицинский фильтр (§9) ─────────────────────────────────────────────
 
-    async def _last_patient_message(
-        self, conversation: AiConversation
-    ) -> AiMessage | None:
+    async def _last_patient_message(self, conversation: AiConversation) -> AiMessage | None:
         """Последний ход пациента: он же вход фильтра и проверки расшифровки."""
         return (
             await self._session.execute(
@@ -736,6 +719,8 @@ class ProcessAiReplyService:
                 "codes": verdict.codes,
                 "notes": verdict.notes,
             },
+            # Ф5: уверенность — метка кабинета «уверенный ответ» / «проверьте текст».
+            confidence=reply.confidence,
             model=model_name,
             sent_at=sent_at,
         )

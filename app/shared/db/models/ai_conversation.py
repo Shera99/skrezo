@@ -19,7 +19,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Text, func, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -65,3 +65,6 @@ class AiConversation(Base, UUIDPKMixin, TimestampMixin):
     last_patient_msg_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Ф5: id последнего прочитанного сообщения — отметка ОБЩАЯ для клиники
+    #: (ресепшен один на всех); непрочитанное = сообщения пациента новее её.
+    read_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

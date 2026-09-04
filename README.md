@@ -807,6 +807,8 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 |---|---|---|
 | `GET`·`POST` | `/whatsapp/webhook` | **Публичный** вебхук Meta: верификация подписки и события; подпись `X-Hub-Signature-256` обязательна при заданном `WA_CLOUD_APP_SECRET` |
 | `GET` | `/clinic/conversations?status=&page=` | Диалоги клиники: превью, статус, `windowOpen` (`conversations.manage`) |
+| `GET` | `/clinic/conversations/counters` | Числа вкладок «Все / Ждут ответа / Нужен человек» и бейдж непрочитанного — одна ручка вместо трёх списков |
+| `POST` | `/clinic/conversations/{id}/read` | Отметить прочитанным (отметка общая для клиники, только вперёд); сигнал `conversation.read` в сокет |
 | `GET` | `/clinic/conversations/{id}/messages?beforeId=&limit=` | История (новые сверху, курсор «старше id») |
 | `POST` | `/clinic/conversations/{id}/messages` | Ответ свободным текстом; окно закрыто → 422 `window_closed` |
 | `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы |
@@ -814,6 +816,20 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `POST` | `/clinic/conversations/{id}/templates` | Отправить одобренный шаблон — работает и в закрытое окно |
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
 | `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
+
+**Кабинет ассистента (Ф5, инкремент 1): список чатов.** Всё, чем живёт
+левая колонка экрана «Чат»: `GET /clinic/conversations` принимает вкладку
+`filter=all|awaiting|needs_human` и поиск `q` по имени пациента, номеру и
+тексту сообщений (триграммный индекс `pg_trgm`, без полнотекстового движка),
+а каждая строка несёт `unreadCount`, `awaitingReply` («последнее слово за
+пациентом»), `needsHuman` (эскалация или черновик на решении),
+`lastMessageKind` и `lastMessageDurationSec` для превью «🎙 Голосовое · 0:14».
+Отметка прочтения — **общая для клиники** (ресепшен один на всех): `POST
+/clinic/conversations/{id}/read` двигает её только вперёд и шлёт в сокет
+`conversation.read`, чтобы точка погасла и на втором устройстве. Уверенность
+модели (`confidence` у ответов бота) теперь сохраняется — из неё интерфейс
+рисует «уверенный ответ» / «проверьте текст». Длительность голосового Meta в
+вебхуке не присылает — читаем её из файла при скачивании (`mutagen`).
 
 **AI-ассистент (Ф2): каркас + запись на приём.** Модель за интерфейсом
 `AiProvider` (Gemini через REST; смена провайдера — env). Поток: входящее

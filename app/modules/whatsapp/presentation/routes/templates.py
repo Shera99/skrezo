@@ -35,15 +35,11 @@ _SYNC_ERRORS: dict[int | str, dict[str, Any]] = {
     409: {"description": "WhatsApp не подключён к клинике"},
     422: {
         "description": "У привязки не указан WABA",
-        "content": {
-            "application/json": {"example": {"error": "waba_id_missing"}}
-        },
+        "content": {"application/json": {"example": {"error": "waba_id_missing"}}},
     },
     502: {
         "description": "Graph API не ответил (или канал без кредов Meta)",
-        "content": {
-            "application/json": {"example": {"error": "wa_templates_unavailable"}}
-        },
+        "content": {"application/json": {"example": {"error": "wa_templates_unavailable"}}},
     },
 }
 

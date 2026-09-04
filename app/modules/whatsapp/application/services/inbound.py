@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.modules.push.application.outbox import emit_event
-from app.modules.whatsapp.application.services.media import save_media
+from app.modules.whatsapp.application.services.media import media_duration_seconds, save_media
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -309,15 +309,18 @@ class InboundProcessor:
             {"conversationId": str(conversation.id), "direction": "out"},
         )
 
-    async def _fetch_media(
-        self, message_id: int, media_id: str, media_type: str | None
-    ) -> None:
+    async def _fetch_media(self, message_id: int, media_id: str, media_type: str | None) -> None:
         """Скачать медиа сразу: ссылка Meta живёт минуты, потом только id."""
         media = await self._client.fetch_media(media_id)
         if media is None:
             return
         path = await save_media(media.content, media.mime)
-        await self._repository.set_media(message_id, path=path, mime=media.mime)
+        # Длительность голосового Meta не присылает — читаем из файла (Ф5):
+        # без неё превью «🎙 Голосовое · 0:14» в списке показать нечем.
+        duration = media_duration_seconds(media.content) if media_type == "audio" else None
+        await self._repository.set_media(
+            message_id, path=path, mime=media.mime, duration_sec=duration
+        )
         if media_type == "audio":
             await self._transcribe(message_id, media.content, media.mime)
 

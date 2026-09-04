@@ -9,11 +9,13 @@
 
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
+import mutagen
 
 from app.shared.storage.files import storage_root
 
@@ -40,3 +42,21 @@ async def save_media(content: bytes, mime: str) -> str:
     await anyio.to_thread.run_sync(lambda: target.parent.mkdir(parents=True, exist_ok=True))
     await anyio.to_thread.run_sync(target.write_bytes, content)
     return str(relative)
+
+
+def media_duration_seconds(content: bytes) -> int | None:
+    """Длительность аудио в секундах по содержимому; ``None`` — не разобрали.
+
+    Meta в вебхуке длительность голосового не присылает, поэтому читаем её из
+    самого файла (Ogg Opus у WhatsApp). Неразобранный файл — не ошибка: превью
+    покажется без времени, само вложение при этом сохранено и открывается.
+    """
+    try:
+        parsed = mutagen.File(io.BytesIO(content))
+    except Exception:  # mutagen кидает разное на мусорных данных — нам важен итог
+        return None
+    info = getattr(parsed, "info", None) if parsed is not None else None
+    length = getattr(info, "length", None)
+    if not length:
+        return None
+    return max(1, round(float(length)))

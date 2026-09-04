@@ -11,6 +11,7 @@ from app.modules.whatsapp.application.use_cases.get_messages import GetMessagesU
 from app.modules.whatsapp.application.use_cases.list_conversations import (
     ListConversationsUseCase,
 )
+from app.modules.whatsapp.application.use_cases.mark_read import MarkConversationReadUseCase
 from app.modules.whatsapp.application.use_cases.send_message import SendMessageUseCase
 from app.modules.whatsapp.application.use_cases.send_template import SendTemplateUseCase
 from app.modules.whatsapp.application.use_cases.sync_templates import SyncTemplatesUseCase
@@ -35,6 +36,13 @@ def get_list_conversations_use_case(
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> ListConversationsUseCase:
     return ListConversationsUseCase(repository)
+
+
+def get_mark_read_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+) -> MarkConversationReadUseCase:
+    return MarkConversationReadUseCase(session, repository)
 
 
 def get_get_messages_use_case(
