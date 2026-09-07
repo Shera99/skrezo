@@ -13,13 +13,19 @@ from typing import Any
 
 from app.shared.db.enums import AiMode
 
-SKILLS: tuple[str, ...] = ("booking", "changes")
+SKILLS: tuple[str, ...] = ("booking", "changes", "reminders")
 SKILL_TITLES: dict[str, tuple[str, str]] = {
     "booking": ("Запись на приём", "Подбор времени и кнопка подтверждения записи"),
     "changes": ("Перенос и отмена", "Своих будущих записей пациента — по кнопке"),
+    "reminders": (
+        "Напоминание о визите",
+        "Шаблон за сутки с кнопками «Приду» / «Перенести»; без ответа — администратору",
+    ),
 }
 CAP_LEVELS: tuple[str, ...] = ("off", "assisted", "auto")
-DEFAULT_SKILLS: dict[str, str] = dict.fromkeys(SKILLS, "auto")
+#: Напоминания по умолчанию выключены: рассылку пациентам включает владелец,
+#: когда шаблон одобрен Meta и клиника к этому готова.
+DEFAULT_SKILLS: dict[str, str] = {"booking": "auto", "changes": "auto", "reminders": "off"}
 
 #: Инструменты, принадлежащие умению: при ``off`` модель их не видит.
 SKILL_TOOLS: dict[str, frozenset[str]] = {

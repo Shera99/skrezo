@@ -550,6 +550,26 @@ class WhatsAppRepository:
         ).scalars()
         return list(rows)
 
+    async def templates_by_name(
+        self, clinic_id: uuid.UUID, meta_name: str
+    ) -> list[WhatsAppTemplate]:
+        """Одобренные шаблоны с таким именем — свои раньше общих (Ф7: напоминания)."""
+        rows = (
+            await self._session.execute(
+                select(WhatsAppTemplate)
+                .where(
+                    WhatsAppTemplate.meta_name == meta_name,
+                    WhatsAppTemplate.status == "approved",
+                    or_(
+                        WhatsAppTemplate.clinic_id == clinic_id,
+                        WhatsAppTemplate.clinic_id.is_(None),
+                    ),
+                )
+                .order_by(WhatsAppTemplate.clinic_id.desc().nullslast(), WhatsAppTemplate.lang)
+            )
+        ).scalars()
+        return list(rows)
+
     async def template(
         self, clinic_id: uuid.UUID, template_id: uuid.UUID
     ) -> WhatsAppTemplate | None:

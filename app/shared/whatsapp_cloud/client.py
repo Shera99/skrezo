@@ -55,8 +55,13 @@ class WhatsAppCloudClient(Protocol):
         template_name: str,
         lang_code: str,
         variables: list[str],
+        buttons: list[str] | None = None,
     ) -> SentMessage:
-        """Отправить одобренный шаблон (работает и вне окна)."""
+        """Отправить одобренный шаблон (работает и вне окна).
+
+        ``buttons`` — payload'ы quick-reply-кнопок шаблона по порядку (Ф7:
+        напоминание о визите); нажатие вернётся вебхуком с этим payload.
+        """
         ...
 
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:

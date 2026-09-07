@@ -71,6 +71,11 @@ EVENT_CATALOG: dict[str, EventSpec] = {
     "appointment.status_changed": EventSpec(
         frozenset({Audience.DOCTOR, Audience.MANAGER}), Rung.LOW, ttl_seconds=12 * _HOUR
     ),
+    # Ф7: пациент не ответил на напоминание — администратору решать: звонить или
+    # отдать слот. TTL до начала приёма: после него сообщение бессмысленно.
+    "appointment.unconfirmed": EventSpec(
+        frozenset({Audience.MANAGER, Audience.OWNER}), Rung.NORMAL, ttl_seconds=None
+    ),
     "payment.created": EventSpec(
         frozenset({Audience.MANAGER, Audience.OWNER}),
         Rung.LOW,

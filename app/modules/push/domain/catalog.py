@@ -47,6 +47,7 @@ PUSH_EVENT_TYPES: frozenset[str] = frozenset(
         "appointment.canceled",
         "appointment.created",
         "appointment.status_changed",
+        "appointment.unconfirmed",
         "payment.created",
         "digest.morning",
         "digest.evening",
@@ -114,6 +115,18 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
             "title": "Кабыл алуу жокко чыгарылды",
             "body": "{patientName} — {time}",
             "speak": "{patientName} пациенттин {time} убактысындагы кабылдоосу жокко чыгарылды",
+        },
+    },
+    "appointment.unconfirmed": {
+        Lang.RU: {
+            "title": "Визит не подтверждён",
+            "body": "{patientName} — {time}, не ответил на напоминание",
+            "speak": "Пациент {patientName} не подтвердил визит в {time}",
+        },
+        Lang.KG: {
+            "title": "Визит ырасталган жок",
+            "body": "{patientName} — {time}, эскертүүгө жооп берген жок",
+            "speak": "{patientName} пациент {time} визитин ырастаган жок",
         },
     },
     "appointment.created": {

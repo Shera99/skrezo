@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     wa_cloud_access_token: str = ""  # system-user token приложения Meta
     wa_cloud_app_secret: str = ""  # APP_SECRET — подпись вебхука X-Hub-Signature-256
     wa_cloud_verify_token: str = ""  # проверочный токен подписки вебхука (GET)
+    #: Напоминание о визите (Ф7): имя одобренного шаблона в Meta (общий шаблон
+    #: платформы или свой у клиники), переменные по порядку — имя, дата, время,
+    #: клиника (сколько ждёт шаблон); две quick-reply-кнопки «Приду»/«Перенести».
+    wa_visit_reminder_template: str = "visit_reminder"
+    wa_visit_reminder_buttons: bool = True
+    #: За сколько часов напоминать и за сколько считать визит неподтверждённым.
+    visit_reminder_hours_before: int = 24
+    visit_unconfirmed_hours_before: int = 3
 
     # ── AI-ассистент (Ф2) ────────────────────────────────────────────────────
     # Провайдер за интерфейсом AiProvider: смена — переменной окружения.

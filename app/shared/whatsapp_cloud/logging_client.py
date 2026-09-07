@@ -30,6 +30,7 @@ class LoggingWhatsAppClient:
         template_name: str,
         lang_code: str,
         variables: list[str],
+        buttons: list[str] | None = None,
     ) -> SentMessage:
         logger.info(
             "wa_cloud_template_logged",
@@ -37,15 +38,14 @@ class LoggingWhatsAppClient:
             template=template_name,
             lang=lang_code,
             variables=variables,
+            buttons=buttons,
         )
         return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
 
     async def send_confirm_button(
         self, phone_number_id: str, to_phone: str, body: str, button_id: str, title: str
     ) -> SentMessage:
-        logger.info(
-            "wa_cloud_button_logged", to=to_phone, button_id=button_id, text=body
-        )
+        logger.info("wa_cloud_button_logged", to=to_phone, button_id=button_id, text=body)
         return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
 
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:

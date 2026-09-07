@@ -19,6 +19,7 @@ from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
+from app.shared.db.models.appointment_reminder import AppointmentReminder
 from app.shared.db.models.audit_log import AuditLog
 from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
@@ -74,6 +75,7 @@ __all__ = [
     "Appointment",
     "AppointmentItem",
     "AppointmentItemTooth",
+    "AppointmentReminder",
     "AuditLog",
     "CashPayment",
     "City",

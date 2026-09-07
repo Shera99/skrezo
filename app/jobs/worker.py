@@ -55,6 +55,7 @@ from app.jobs.tasks.subscriptions import (
     warn_period_ending,
     warn_trial_ending,
 )
+from app.jobs.tasks.visits import send_visit_reminders
 from app.jobs.tasks.whatsapp import close_stale_conversations, process_wa_inbound
 
 
@@ -134,6 +135,8 @@ class WorkerSettings:
         cron(close_stale_conversations, minute={11, 41}),
         # §13.5: тихие отказы контура ассистента ловятся только расписанием.
         cron(check_ai_health, minute=set(range(0, 60, 5))),
+        # Ф7: напоминания о визите за сутки и контроль ответа — раз в час.
+        cron(send_visit_reminders, minute=7),
         # Сводки дня: тик раз в 5 минут, окно совпадения 15 — момент сводки
         # (за час до открытия / в закрытие) не проскочит; дубль давит push_event.
         cron(send_daily_digests, minute=set(range(0, 60, 5))),

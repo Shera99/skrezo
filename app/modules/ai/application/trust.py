@@ -15,7 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ConflictError, ValidationAppError
-from app.modules.ai.domain.skills import CAP_LEVELS, SKILLS, caps_from, effective_level
+from app.modules.ai.domain.skills import (
+    CAP_LEVELS,
+    DEFAULT_SKILLS,
+    SKILLS,
+    caps_from,
+    effective_level,
+)
 from app.modules.ai.domain.trust import (
     LEVELS,
     StepGate,
@@ -90,8 +96,9 @@ class TrustLadderService:
                     code="skill_unknown",
                 )
         merged = {**caps_from(clinic.ai_skills), **caps}
-        # Дефолт (auto) не храним — пустой объект значит «как ступень».
-        clinic.ai_skills = {k: v for k, v in merged.items() if v != "auto"}
+        # Дефолт умения не храним — пустой объект значит «по умолчанию»
+        # (запись и перенос — как ступень, напоминания — выключены).
+        clinic.ai_skills = {k: v for k, v in merged.items() if v != DEFAULT_SKILLS[k]}
         await self._session.commit()
         return merged
 

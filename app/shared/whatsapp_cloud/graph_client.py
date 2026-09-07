@@ -100,6 +100,7 @@ class GraphWhatsAppClient:
         template_name: str,
         lang_code: str,
         variables: list[str],
+        buttons: list[str] | None = None,
     ) -> SentMessage:
         components: list[dict[str, Any]] = []
         if variables:
@@ -107,6 +108,15 @@ class GraphWhatsAppClient:
                 {
                     "type": "body",
                     "parameters": [{"type": "text", "text": v} for v in variables],
+                }
+            )
+        for index, payload in enumerate(buttons or []):
+            components.append(
+                {
+                    "type": "button",
+                    "sub_type": "quick_reply",
+                    "index": str(index),
+                    "parameters": [{"type": "payload", "payload": payload}],
                 }
             )
         return await self._post_message(
@@ -136,9 +146,7 @@ class GraphWhatsAppClient:
                     "type": "button",
                     "body": {"text": body},
                     "action": {
-                        "buttons": [
-                            {"type": "reply", "reply": {"id": button_id, "title": title}}
-                        ]
+                        "buttons": [{"type": "reply", "reply": {"id": button_id, "title": title}}]
                     },
                 },
             },
@@ -215,9 +223,7 @@ class GraphWhatsAppClient:
                         )
                         return None
                     data = resp.json()
-                    items.extend(
-                        _parse_template(row) for row in data.get("data") or []
-                    )
+                    items.extend(_parse_template(row) for row in data.get("data") or [])
                     url = (data.get("paging") or {}).get("next")
                     params = None  # next уже содержит все параметры
         except (httpx.HTTPError, ValueError) as exc:

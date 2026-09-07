@@ -58,6 +58,7 @@ async def test_effective_level_is_min_of_ladder_and_cap(
     assert _skills(ladder) == {
         "booking": ("auto", "off"),
         "changes": ("auto", "off"),
+        "reminders": ("off", "off"),
     }  # бот выключен
 
     await _set_mode(admin_client, ctx, "assisted")
@@ -66,13 +67,18 @@ async def test_effective_level_is_min_of_ladder_and_cap(
     await _set_mode(admin_client, ctx, "auto")
     assert _skills(await _ladder(client, ctx))["booking"] == ("auto", "auto")
 
-    updated = await _set_skills(client, ctx, booking="assisted", changes="off")
-    assert _skills(updated) == {"booking": ("assisted", "assisted"), "changes": ("off", "off")}
+    updated = await _set_skills(client, ctx, booking="assisted", changes="off", reminders="auto")
+    assert _skills(updated) == {
+        "booking": ("assisted", "assisted"),
+        "changes": ("off", "off"),
+        "reminders": ("auto", "auto"),
+    }
 
     await _set_mode(admin_client, ctx, "shadow")  # ступень ниже потолка — режет ступень
     assert _skills(await _ladder(client, ctx)) == {
         "booking": ("assisted", "shadow"),
         "changes": ("off", "off"),
+        "reminders": ("auto", "shadow"),
     }
 
     bad = await client.put(

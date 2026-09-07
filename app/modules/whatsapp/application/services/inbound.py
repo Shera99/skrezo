@@ -73,11 +73,20 @@ def _message_ts(msg: dict[str, Any]) -> datetime:
 _STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 9}
 
 
+#: Кнопки, которые обрабатываются детерминированно, мимо модели.
+_BUTTON_PREFIXES = ("hold:", "visit:")
+
+
 def _confirm_button_id(msg: dict[str, Any]) -> str | None:
-    """id нажатой кнопки подтверждения записи (``hold:<uuid>``) либо ``None``."""
+    """Payload нажатой кнопки: ``hold:<uuid>`` (запись, Ф2) или
+    ``visit:<uuid>:<action>`` (напоминание о визите, Ф7); иначе ``None``.
+
+    Interactive-кнопка приходит как ``interactive.button_reply.id``, кнопка
+    шаблона — как ``button.payload``.
+    """
     reply = (msg.get("interactive") or {}).get("button_reply") or {}
-    raw = str(reply.get("id") or "")
-    return raw if raw.startswith("hold:") else None
+    raw = str(reply.get("id") or (msg.get("button") or {}).get("payload") or "")
+    return raw if raw.startswith(_BUTTON_PREFIXES) else None
 
 
 def _extract_content(msg: dict[str, Any]) -> tuple[str, str | None, str | None]:
@@ -322,8 +331,14 @@ class InboundProcessor:
         # который протухает загруженные ORM-объекты — доступ к их атрибутам
         # после него падал бы MissingGreenlet.
         clinic_id = conversation.clinic_id
-        booking = BookingService(self._session)
-        reply_text = await booking.confirm(conversation, button_id)
+        if button_id.startswith("visit:"):
+            from app.modules.ai.application.visits import VisitReminderService
+
+            reply_text = await VisitReminderService(self._session, self._client).handle_button(
+                conversation, button_id
+            )
+        else:
+            reply_text = await BookingService(self._session).confirm(conversation, button_id)
         await self._session.refresh(conversation)
         binding = await self._repository.binding_by_clinic(clinic_id)
         wa_message_id: str | None = None

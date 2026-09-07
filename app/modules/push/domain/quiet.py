@@ -15,18 +15,14 @@ from __future__ import annotations
 from datetime import time
 
 
-def clinic_quiet(
-    *, is_working: bool, opens_at: time, closes_at: time, local_time: time
-) -> bool:
+def clinic_quiet(*, is_working: bool, opens_at: time, closes_at: time, local_time: time) -> bool:
     """Тихо ли сейчас по графику клиники (выходной — тихо весь день)."""
     if not is_working:
         return True
     return local_time < opens_at or local_time >= closes_at
 
 
-def personal_quiet(
-    quiet_from: time | None, quiet_to: time | None, local_time: time
-) -> bool:
+def personal_quiet(quiet_from: time | None, quiet_to: time | None, local_time: time) -> bool:
     """Тихо ли по персональным настройкам; интервал может переходить полночь."""
     if quiet_from is None or quiet_to is None:
         return False
