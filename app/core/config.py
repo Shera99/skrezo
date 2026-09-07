@@ -194,6 +194,10 @@ class Settings(BaseSettings):
     #: реестр имён в Redis.
     ai_prefix_cache_enabled: bool = True
     ai_prefix_cache_ttl_seconds: int = 1800
+    #: Ретеншн истории ассистента (Ф8): журнал инструментов — технический след,
+    #: переписка закрытых диалогов — дольше; резюме диалогов не удаляются.
+    ai_tool_call_retention_days: int = 90
+    ai_message_retention_days: int = 730
     #: Регрессия клиники (Ф6): таймаут задания прогона и потолок кейсов за прогон.
     #: В режиме model каждый кейс — вызов модели (десятки секунд на free tier).
     ai_regression_job_timeout: int = 1800

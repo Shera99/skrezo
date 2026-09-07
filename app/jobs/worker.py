@@ -44,6 +44,7 @@ from app.core.jobs import (
 )
 from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.ai import ai_reply, run_ai_regression, summarize_conversation
+from app.jobs.tasks.ai_cleanup import cleanup_ai_history
 from app.jobs.tasks.ai_health import check_ai_health, check_whatsapp_tokens
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
@@ -133,6 +134,8 @@ class WorkerSettings:
         cron(cleanup_job_runs, hour=2, minute=30),
         # Сроки хранения контура уведомлений (§14): телеметрия 3 мес, события 12.
         cron(cleanup_notifications, hour=2, minute=40),
+        # Ф8: журнал инструментов и переписка закрытых диалогов — по срокам.
+        cron(cleanup_ai_history, hour=2, minute=50),
         # Диалог WhatsApp без сообщений сутки — закрыт. Полчаса — компромисс:
         # правило «24 часа» не требует точности до минуты.
         cron(close_stale_conversations, minute={11, 41}),

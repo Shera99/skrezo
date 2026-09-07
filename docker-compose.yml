@@ -89,7 +89,10 @@ services:
       # Ключи доставки пушей (.p8 APNs, JSON сервис-аккаунта FCM) — пуши
       # рассылает воркер, ему они и нужны.
       - ./secrets:/app/secrets:ro
-    # Arq-воркер: очередь задач и cron'ы (подписки, сводки, здоровье ассистента)
+    # Arq-воркер: очередь задач и cron'ы (подписки, сводки, здоровье ассистента).
+    # Масштабируется без правок: `docker compose up -d --scale worker=2` —
+    # cron'ы arq ставятся по job_id в общем Redis (выполняет один воркер),
+    # диспетчер событий берёт строки с SKIP LOCKED, хранилище общее (./storage).
     command: ["arq", "app.jobs.worker.WorkerSettings"]
     restart: unless-stopped
 
