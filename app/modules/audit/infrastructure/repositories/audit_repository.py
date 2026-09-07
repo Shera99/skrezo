@@ -21,7 +21,7 @@ class AuditRepository:
     async def add(
         self,
         *,
-        actor_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
         action: str,
         entity_type: str,
         entity_id: uuid.UUID | None,

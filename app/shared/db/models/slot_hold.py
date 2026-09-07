@@ -54,6 +54,12 @@ class SlotHold(Base, UUIDPKMixin):
     appointment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("appointment.id", ondelete="SET NULL"), nullable=True
     )
+    # Ф7: вид предложения — book (новая запись) | reschedule | cancel — и
+    # запись, которую меняем; после подтверждения appointment_id = она же.
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="book")
+    target_appointment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("appointment.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -6,13 +6,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
+
 from app.modules.audit.domain.models import AuditEntry
 from app.shared.api.schemas import CamelModel
 
 
 class AuditEntryOut(CamelModel):
     id: uuid.UUID
-    actor_id: uuid.UUID
+    actor_id: uuid.UUID | None = Field(
+        default=None, description="null — действие ассистента по кнопке пациента (payload.via)"
+    )
     actor_login: str | None = None
     action: str
     entity_type: str

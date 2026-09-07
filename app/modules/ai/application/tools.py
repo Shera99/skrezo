@@ -18,7 +18,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ai.application.booking import BookingService
+from app.modules.ai.application.booking import (
+    CHANGEABLE_STATUSES,
+    HOLD_BOOK,
+    HOLD_CANCEL,
+    HOLD_RESCHEDULE,
+    BookingService,
+    ProposeResult,
+)
 from app.modules.ai.domain.texts import booking_text
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.patients.infrastructure.repositories.patient_repository import (
@@ -131,6 +138,38 @@ TOOL_DECLS: list[AiToolDecl] = [
         },
     ),
     AiToolDecl(
+        name="propose_reschedule",
+        description=(
+            "Перенести СВОЮ будущую запись пациента: appointmentId из "
+            "get_patient_appointments (canChange=true), startsAt — ровно из "
+            "get_available_slots; doctorId — только если пациент хочет другого врача. "
+            "Пациенту уйдёт кнопка; перенос происходит ТОЛЬКО после кнопки — "
+            "не говори «перенёс»."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "appointmentId": {"type": "string"},
+                "startsAt": {"type": "string", "description": "ISO из get_available_slots"},
+                "doctorId": {"type": "string"},
+            },
+            "required": ["appointmentId", "startsAt"],
+        },
+    ),
+    AiToolDecl(
+        name="propose_cancel",
+        description=(
+            "Отменить СВОЮ будущую запись пациента: appointmentId из "
+            "get_patient_appointments (canChange=true). Пациенту уйдёт кнопка; "
+            "отмена происходит ТОЛЬКО после кнопки — не говори «отменил»."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"appointmentId": {"type": "string"}},
+            "required": ["appointmentId"],
+        },
+    ),
+    AiToolDecl(
         name="suggest_glossary_term",
         description=(
             "Записать подтверждённое пациентом значение непонятной фразы в "
@@ -183,6 +222,13 @@ class ToolContext:
     def patient_id(self) -> uuid.UUID | None:
         return self.conversation.patient_id
 
+
+#: Тексты кнопки по виду предложения (Ф7): (тело, подпись кнопки).
+_BUTTON_TEXTS: dict[str, tuple[str, str]] = {
+    HOLD_BOOK: ("confirm_button", "confirm_title"),
+    HOLD_RESCHEDULE: ("reschedule_button", "reschedule_title"),
+    HOLD_CANCEL: ("cancel_button", "cancel_title"),
+}
 
 #: Что можно звать в сухом прогоне регрессии — ничего не меняет в базе.
 _READ_ONLY_TOOLS = frozenset(
@@ -264,6 +310,10 @@ class ToolExecutor:
             return await self._create_patient(context, args)
         if name == "propose_appointment":
             return await self._propose(context, args)
+        if name == "propose_reschedule":
+            return await self._propose_change(context, args, kind=HOLD_RESCHEDULE)
+        if name == "propose_cancel":
+            return await self._propose_change(context, args, kind=HOLD_CANCEL)
         if name == "escalate":
             # Само действие делает reply-сервис; инструмент лишь подтверждает.
             return {"ok": True}
@@ -370,31 +420,67 @@ class ToolExecutor:
             starts_at=starts_at,
             service_id=uuid.UUID(str(args["serviceId"])) if args.get("serviceId") else None,
         )
-        # Кнопка уходит пациенту только в auto: в shadow пациент бота не видит.
-        button_sent = False
-        if context.clinic.ai_mode is AiMode.AUTO and context.binding_phone_number_id is not None:
-            lang = "ky" if context.conversation.lang is Lang.KG else "ru"
-            local = starts_at.astimezone(self._clinic_tz(context))
-            body = booking_text("confirm_button", lang).format(
-                summary=result.card.get("service") or "Приём",
-                when=local.strftime("%d.%m %H:%M"),
-            )
-            try:
-                await context.wa_client.send_confirm_button(
-                    context.binding_phone_number_id,
-                    context.conversation.wa_phone,
-                    body,
-                    result.confirmation_id,
-                    booking_text("confirm_title", lang),
-                )
-                button_sent = True
-            except WhatsAppSendError as exc:
-                return {"error": f"кнопка не отправилась: {exc}"}
+        try:
+            button_sent = await self._send_button(context, HOLD_BOOK, result, starts_at)
+        except WhatsAppSendError as exc:
+            return {"error": f"кнопка не отправилась: {exc}"}
         card = {
             **result.card,
             "startsAt": starts_at.astimezone(self._clinic_tz(context)).isoformat(),
         }
         return {**card, "buttonSent": button_sent}
+
+    async def _propose_change(
+        self, context: ToolContext, args: dict[str, Any], *, kind: str
+    ) -> dict[str, Any]:
+        """Перенос или отмена своей записи (Ф7): резерв/пометка + кнопка."""
+        booking = BookingService(self._session)
+        appointment_id = uuid.UUID(str(args["appointmentId"]))
+        if kind == HOLD_RESCHEDULE:
+            starts_at = datetime.fromisoformat(str(args["startsAt"]))
+            if starts_at.tzinfo is None:
+                return {"error": "startsAt без таймзоны — возьми значение из get_available_slots"}
+            result = await booking.propose_reschedule(
+                context.conversation,
+                appointment_id=appointment_id,
+                starts_at=starts_at,
+                doctor_membership_id=(
+                    uuid.UUID(str(args["doctorId"])) if args.get("doctorId") else None
+                ),
+            )
+            when = starts_at
+        else:
+            result = await booking.propose_cancel(
+                context.conversation, appointment_id=appointment_id
+            )
+            when = datetime.fromisoformat(str(result.card["startsAt"]))
+        try:
+            button_sent = await self._send_button(context, kind, result, when)
+        except WhatsAppSendError as exc:
+            return {"error": f"кнопка не отправилась: {exc}"}
+        card = {**result.card, "startsAt": when.astimezone(self._clinic_tz(context)).isoformat()}
+        return {**card, "buttonSent": button_sent}
+
+    async def _send_button(
+        self, context: ToolContext, kind: str, result: ProposeResult, when: datetime
+    ) -> bool:
+        """Кнопка подтверждения — только в auto: в shadow/assisted пациент бота не видит."""
+        if context.clinic.ai_mode is not AiMode.AUTO or context.binding_phone_number_id is None:
+            return False
+        lang = "ky" if context.conversation.lang is Lang.KG else "ru"
+        text_key, title_key = _BUTTON_TEXTS[kind]
+        body = booking_text(text_key, lang).format(
+            summary=result.card.get("service") or "Приём",
+            when=when.astimezone(self._clinic_tz(context)).strftime("%d.%m %H:%M"),
+        )
+        await context.wa_client.send_confirm_button(
+            context.binding_phone_number_id,
+            context.conversation.wa_phone,
+            body,
+            result.confirmation_id,
+            booking_text(title_key, lang),
+        )
+        return True
 
     async def _get_services(self, context: ToolContext, query: str) -> list[Any]:
         stmt = select(Service).where(
@@ -508,6 +594,8 @@ class ToolExecutor:
                 "status": r[2].value,
                 "doctorName": (r[3] or "").strip() or None,
                 "upcoming": bool(r[1] and r[1] > now),
+                # Ф7: можно ли перенести/отменить через propose_reschedule/propose_cancel.
+                "canChange": bool(r[1] and r[1] > now and r[2] in CHANGEABLE_STATUSES),
                 "fact": f"appointment:{r[0]}",
             }
             for r in rows

@@ -47,7 +47,7 @@ class AuditService:
     async def record_clinic(
         self,
         *,
-        actor_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
         clinic_id: uuid.UUID,
         action: str,
         entity_type: str,

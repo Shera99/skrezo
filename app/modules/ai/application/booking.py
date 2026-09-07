@@ -24,17 +24,23 @@ from app.modules.appointments.application.use_cases.create_appointment import (
     CreateAppointmentInput,
     CreateAppointmentUseCase,
 )
+from app.modules.appointments.application.use_cases.update_appointment import (
+    UpdateAppointmentUseCase,
+)
 from app.modules.appointments.infrastructure.repositories.appointment_repository import (
     AppointmentRepository,
 )
+from app.modules.audit.application.services.audit_service import AuditService
+from app.modules.audit.infrastructure.repositories.audit_repository import AuditRepository
 from app.modules.push.domain.events import format_som
 from app.modules.schedule.application.services.availability_service import (
     build_availability_service,
     span_of,
 )
-from app.shared.db.enums import AppointmentStatus, AppointmentType, Lang
+from app.shared.db.enums import AppointmentStatus, AppointmentType, CancelReason, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.service import Service
@@ -46,6 +52,11 @@ logger = structlog.get_logger(__name__)
 HOLD_TTL = timedelta(minutes=10)
 #: Префикс id кнопки подтверждения в WhatsApp.
 CONFIRM_PREFIX = "hold:"
+#: Виды предложения (Ф7): новая запись, перенос, отмена — одна кнопка.
+HOLD_BOOK = "book"
+HOLD_RESCHEDULE = "reschedule"
+HOLD_CANCEL = "cancel"
+CHANGEABLE_STATUSES = (AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,24 +98,7 @@ class BookingService:
         await availability.ensure_bookable(
             conversation.clinic_id, doctor_membership_id, span_of(starts_at, duration)
         )
-        # Чужой живой резерв на этот слот — «двое в одно кресло» (§6.4).
-        taken = (
-            await self._session.execute(
-                select(SlotHold.id).where(
-                    SlotHold.doctor_membership_id == doctor_membership_id,
-                    SlotHold.starts_at == starts_at,
-                    SlotHold.consumed_at.is_(None),
-                    SlotHold.expires_at > datetime.now(UTC),
-                    SlotHold.conversation_id != conversation.id,
-                )
-            )
-        ).scalar_one_or_none()
-        if taken is not None:
-            raise AppError(
-                "Это время только что предложено другому пациенту — выберите соседнее",
-                code="slot_on_hold",
-                status_code=409,
-            )
+        await self._ensure_not_held(conversation, doctor_membership_id, starts_at)
         if conversation.patient_id is None:
             raise AppError(
                 "Сначала узнайте имя пациента и вызовите create_patient",
@@ -145,6 +139,252 @@ class BookingService:
                 "priceSom": price_som,
                 "holdMinutes": int(HOLD_TTL.total_seconds() // 60),
             },
+        )
+
+    # ── Перенос и отмена (Ф7): та же кнопка, тот же use-case правки ─────────
+
+    async def propose_reschedule(
+        self,
+        conversation: AiConversation,
+        *,
+        appointment_id: uuid.UUID,
+        starts_at: datetime,
+        doctor_membership_id: uuid.UUID | None,
+    ) -> ProposeResult:
+        """Предложить перенос своей будущей записи: резерв нового слота + кнопка."""
+        appointment = await self._own_changeable(conversation, appointment_id)
+        doctor_id = doctor_membership_id or appointment.doctor_membership_id
+        if doctor_id is None:
+            raise AppError(
+                "У записи нет врача — выберите врача через get_doctors",
+                code="doctor_required",
+                status_code=422,
+            )
+        availability = build_availability_service(self._session)
+        if doctor_membership_id is not None and not await availability.is_doctor(
+            conversation.clinic_id, doctor_membership_id
+        ):
+            raise AppError(
+                "Такого врача нет — возьми doctorId из выдачи get_doctors",
+                code="invalid_doctor",
+                status_code=422,
+            )
+        duration = appointment.duration_min
+        await availability.ensure_bookable(
+            conversation.clinic_id,
+            doctor_id,
+            span_of(starts_at, duration),
+            exclude_appointment_id=appointment.id,
+        )
+        await self._ensure_not_held(conversation, doctor_id, starts_at)
+        doctor_name, service_name, _ = await self._card_parts(doctor_id, appointment.service_id)
+        summary = ", ".join([service_name or "Приём", f"врач {doctor_name}"])
+        hold = SlotHold(
+            kind=HOLD_RESCHEDULE,
+            target_appointment_id=appointment.id,
+            conversation_id=conversation.id,
+            clinic_id=conversation.clinic_id,
+            patient_id=appointment.patient_id,
+            doctor_membership_id=doctor_id,
+            service_id=appointment.service_id,
+            starts_at=starts_at,
+            duration_min=duration,
+            summary=summary,
+            expires_at=datetime.now(UTC) + HOLD_TTL,
+        )
+        self._session.add(hold)
+        await self._session.flush()
+        return ProposeResult(
+            confirmation_id=f"{CONFIRM_PREFIX}{hold.id}",
+            card={
+                "confirmationId": f"{CONFIRM_PREFIX}{hold.id}",
+                "kind": HOLD_RESCHEDULE,
+                "appointmentId": str(appointment.id),
+                "doctor": doctor_name,
+                "service": service_name,
+                "fromStartsAt": (
+                    appointment.scheduled_at.isoformat() if appointment.scheduled_at else None
+                ),
+                "startsAt": starts_at.astimezone(UTC).isoformat(),
+                "durationMin": duration,
+                "holdMinutes": int(HOLD_TTL.total_seconds() // 60),
+            },
+        )
+
+    async def propose_cancel(
+        self, conversation: AiConversation, *, appointment_id: uuid.UUID
+    ) -> ProposeResult:
+        """Предложить отмену своей будущей записи: кнопка подтверждения отмены."""
+        appointment = await self._own_changeable(conversation, appointment_id)
+        if appointment.doctor_membership_id is None or appointment.scheduled_at is None:
+            raise AppError(
+                "У записи нет врача или времени — передайте её администратору",
+                code="appointment_incomplete",
+                status_code=409,
+            )
+        doctor_name, service_name, _ = await self._card_parts(
+            appointment.doctor_membership_id, appointment.service_id
+        )
+        summary = ", ".join([service_name or "Приём", f"врач {doctor_name}"])
+        hold = SlotHold(
+            kind=HOLD_CANCEL,
+            target_appointment_id=appointment.id,
+            conversation_id=conversation.id,
+            clinic_id=conversation.clinic_id,
+            patient_id=appointment.patient_id,
+            doctor_membership_id=appointment.doctor_membership_id,
+            service_id=appointment.service_id,
+            starts_at=appointment.scheduled_at,
+            duration_min=appointment.duration_min,
+            summary=summary,
+            expires_at=datetime.now(UTC) + HOLD_TTL,
+        )
+        self._session.add(hold)
+        await self._session.flush()
+        return ProposeResult(
+            confirmation_id=f"{CONFIRM_PREFIX}{hold.id}",
+            card={
+                "confirmationId": f"{CONFIRM_PREFIX}{hold.id}",
+                "kind": HOLD_CANCEL,
+                "appointmentId": str(appointment.id),
+                "doctor": doctor_name,
+                "service": service_name,
+                "startsAt": appointment.scheduled_at.astimezone(UTC).isoformat(),
+                "holdMinutes": int(HOLD_TTL.total_seconds() // 60),
+            },
+        )
+
+    async def _own_changeable(
+        self, conversation: AiConversation, appointment_id: uuid.UUID
+    ) -> Appointment:
+        """Запись пациента этого диалога, будущая и ещё не начатая — иначе отказ данными."""
+        if conversation.patient_id is None:
+            raise AppError(
+                "Сначала узнайте имя пациента и вызовите create_patient",
+                code="patient_required",
+                status_code=422,
+            )
+        appointment = await self._session.get(Appointment, appointment_id)
+        if (
+            appointment is None
+            or appointment.clinic_id != conversation.clinic_id
+            or appointment.patient_id != conversation.patient_id
+        ):
+            raise AppError(
+                "Такой записи у пациента нет — возьми appointmentId из get_patient_appointments",
+                code="not_your_appointment",
+                status_code=404,
+            )
+        if appointment.status not in CHANGEABLE_STATUSES:
+            raise AppError(
+                f"Запись в статусе {appointment.status.value} изменить нельзя — "
+                "передайте администратору",
+                code="appointment_not_changeable",
+                status_code=409,
+            )
+        if appointment.scheduled_at is None or appointment.scheduled_at <= datetime.now(UTC):
+            raise AppError(
+                "Эта запись уже прошла — предложите новую",
+                code="appointment_in_past",
+                status_code=409,
+            )
+        return appointment
+
+    async def _ensure_not_held(
+        self, conversation: AiConversation, doctor_membership_id: uuid.UUID, starts_at: datetime
+    ) -> None:
+        """Чужой живой резерв на этот слот — «двое в одно кресло» (§6.4)."""
+        taken = (
+            await self._session.execute(
+                select(SlotHold.id).where(
+                    SlotHold.doctor_membership_id == doctor_membership_id,
+                    SlotHold.starts_at == starts_at,
+                    SlotHold.consumed_at.is_(None),
+                    SlotHold.expires_at > datetime.now(UTC),
+                    SlotHold.conversation_id != conversation.id,
+                    SlotHold.kind != HOLD_CANCEL,  # отмена слот не держит
+                )
+            )
+        ).scalar_one_or_none()
+        if taken is not None:
+            raise AppError(
+                "Это время только что предложено другому пациенту — выберите соседнее",
+                code="slot_on_hold",
+                status_code=409,
+            )
+
+    async def _confirm_change(self, hold: SlotHold, lang: str) -> str:
+        """Перенос или отмена по кнопке — штатным use-case правки приёма.
+
+        Идемпотентно, как и запись: повтор кнопки отвечает «уже выполнено».
+        Актор аудита — не сотрудник: ``actor_id=None``, ``via="assistant"``.
+        """
+        is_reschedule = hold.kind == HOLD_RESCHEDULE
+        if hold.appointment_id is not None:
+            return booking_text(
+                "already_rescheduled" if is_reschedule else "already_cancelled", lang
+            )
+        if hold.consumed_at is not None:
+            return booking_text("hold_expired", lang)
+        now = datetime.now(UTC)
+        if hold.expires_at < now:
+            return booking_text("hold_expired", lang)
+        target_id = hold.target_appointment_id
+        appointment = (
+            await self._session.get(Appointment, target_id) if target_id is not None else None
+        )
+        if (
+            target_id is None
+            or appointment is None
+            or appointment.status not in CHANGEABLE_STATUSES
+            or appointment.scheduled_at is None
+            or appointment.scheduled_at <= now
+        ):
+            # Пока пациент думал, запись изменилась (пришёл, отменили, прошла):
+            # кнопка не должна ни отменять визит, ни двигать историю.
+            hold.consumed_at = now
+            await self._session.commit()
+            return booking_text("appointment_gone", lang)
+
+        hold_id, clinic_id = hold.id, hold.clinic_id
+        starts_at, summary = hold.starts_at, hold.summary
+        hold.consumed_at = now  # пометка ДО use-case: его commit фиксирует всё атомарно
+        use_case = UpdateAppointmentUseCase(
+            self._session,
+            AppointmentRepository(self._session),
+            build_availability_service(self._session),
+            AuditService(self._session, AuditRepository(self._session)),
+        )
+        fields: dict[str, Any]
+        if is_reschedule:
+            fields = {"scheduled_at": starts_at, "doctor_membership_id": hold.doctor_membership_id}
+        else:
+            fields = {
+                "status": AppointmentStatus.CANCELLED,
+                "cancel_reason": CancelReason.PATIENT_REQUEST,
+                "cancel_comment": "Отмена пациентом через WhatsApp-ассистента",
+            }
+        try:
+            await use_case.execute(clinic_id, target_id, fields, actor_id=None, via="assistant")
+        except AppError as exc:
+            await self._session.rollback()
+            await self._session.execute(
+                update(SlotHold)
+                .where(SlotHold.id == hold_id, SlotHold.consumed_at.is_(None))
+                .values(consumed_at=now)
+            )
+            await self._session.commit()
+            logger.info("ai_booking_change_failed", hold_id=str(hold_id), error=exc.code)
+            if is_reschedule and exc.status_code == 409:
+                return booking_text("slot_taken", lang)
+            return booking_text("appointment_gone", lang)
+        await self._session.execute(
+            update(SlotHold).where(SlotHold.id == hold_id).values(appointment_id=target_id)
+        )
+        await self._session.commit()
+        local = starts_at.astimezone(await self._clinic_tz(clinic_id))
+        return booking_text("rescheduled" if is_reschedule else "cancelled", lang).format(
+            summary=summary, when=local.strftime("%d.%m %H:%M")
         )
 
     async def _card_parts(
@@ -198,6 +438,8 @@ class BookingService:
         ).scalar_one_or_none()
         if hold is None:
             return booking_text("hold_missing", lang)
+        if hold.kind != HOLD_BOOK:
+            return await self._confirm_change(hold, lang)
         if hold.appointment_id is not None:
             return booking_text("already_booked", lang)
         if hold.consumed_at is not None:

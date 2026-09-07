@@ -68,9 +68,7 @@ def _event_type_for(appointment: Appointment, fields: dict[str, Any]) -> str | N
         return "appointment.canceled"
     if old_status is AppointmentStatus.DRAFT and target is AppointmentStatus.SCHEDULED:
         return "appointment.created"
-    moved = (
-        "scheduled_at" in fields and fields["scheduled_at"] != appointment.scheduled_at
-    ) or (
+    moved = ("scheduled_at" in fields and fields["scheduled_at"] != appointment.scheduled_at) or (
         "doctor_membership_id" in fields
         and fields["doctor_membership_id"] != appointment.doctor_membership_id
     )
@@ -168,12 +166,14 @@ class UpdateAppointmentUseCase:
         appointment_id: uuid.UUID,
         fields: dict[str, Any],
         *,
-        actor_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
         can_rollback: bool = False,
         rollback_comment: str | None = None,
         can_force: bool = False,
         force: bool = False,
+        via: str | None = None,
     ) -> AppointmentDetail:
+        """``actor_id=None`` + ``via="assistant"`` — правка по кнопке пациента (Ф7)."""
         if force and not can_force:
             raise ForbiddenError(
                 "Нужно право на запись вне графика врача", code="force_booking_forbidden"
@@ -247,7 +247,7 @@ class UpdateAppointmentUseCase:
                 action="appointment.update",
                 entity_type="appointment",
                 entity_id=appointment_id,
-                payload={"fields": sorted(fields)},
+                payload={"fields": sorted(fields), **({"via": via} if via else {})},
             )
 
         patient_name = await self._appointments.patient_name(appointment.patient_id)

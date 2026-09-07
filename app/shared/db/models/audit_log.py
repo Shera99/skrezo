@@ -28,7 +28,9 @@ from app.shared.db.base import Base, UUIDPKMixin
 class AuditLog(Base, UUIDPKMixin):
     __tablename__ = "audit_log"
 
-    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("account.id"), nullable=False)
+    #: ``None`` — действие совершил не сотрудник, а ассистент по кнопке пациента
+    #: (``payload.via = "assistant"``).
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("account.id"), nullable=True)
     #: Клиника, в контексте которой действовал сотрудник; ``None`` — действие Skrezo.
     clinic_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("clinic.id", ondelete="CASCADE"), nullable=True
