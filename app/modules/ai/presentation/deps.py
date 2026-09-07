@@ -12,6 +12,7 @@ from app.core.redis import get_redis
 from app.modules.ai.application.drafts import DraftService
 from app.modules.ai.application.kb import KbService
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
+from app.modules.ai.application.metrics import AssistantMetricsService
 from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_service import ProcessAiReplyService
@@ -95,3 +96,10 @@ def get_regression_runner(
 ) -> RegressionRunner:
     """Прогон регрессии: ставит задание воркеру, без очереди выполняет на месте."""
     return RegressionRunner(session, provider, wa_client)
+
+
+def get_assistant_metrics_service(
+    session: AsyncSession = Depends(get_session),
+) -> AssistantMetricsService:
+    """Метрики обучения и гейт доверия."""
+    return AssistantMetricsService(session)

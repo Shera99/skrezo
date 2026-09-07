@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import Field
@@ -486,3 +486,121 @@ class RegressionRunsResponse(CamelModel):
     current_page: int
     page_size: int = 25
     total_count: int
+
+
+class MetricsPeriodOut(CamelModel):
+    """Фактически применённые границы периода в таймзоне клиники."""
+
+    period: str | None = Field(
+        default=None, description="Пресет: 7d | 1m | 3m | all; null — явные даты"
+    )
+    date_from: date | None = Field(default=None, description="null — за всё время")
+    date_to: date
+    timezone: str = Field(examples=["Asia/Bishkek"])
+
+
+class AutonomyMetricsOut(CamelModel):
+    """Сколько бот делает сам."""
+
+    dialogs: int = Field(description="Диалогов, где пациент писал за период")
+    replies_auto: int = Field(description="Ответов бота, ушедших пациенту без человека (auto)")
+    replies_shadow: int = Field(
+        description="Ответов, прошедших валидатор, но не отправленных (shadow)"
+    )
+    drafts_sent: int = Field(
+        description="Черновиков, отправленных человеком (как есть или с правкой)"
+    )
+    drafts_edited: int
+    drafts_discarded: int
+    drafts_pending: int = Field(description="Ждут решения")
+    escalations: int
+    autonomy_share: float = Field(
+        description="Доля без человека: auto / (auto + черновики + эскалации), 0..1",
+        examples=[0.62],
+    )
+    edit_share: float = Field(
+        description="Доля правок среди отправленных черновиков, 0..1", examples=[0.25]
+    )
+
+
+class QualityMetricsOut(CamelModel):
+    validator_blocked: int = Field(description="Ответов, снятых валидатором (V01–V05, V09)")
+    needs_human: int = Field(description="Честных «не знаю» модели (V06) — ушли человеку")
+    fact_errors: int = Field(
+        description="Фактических ошибок: цена/время/врач не из фактов (V01–V03)"
+    )
+    low_confidence: int = Field(description="Ответов с низкой уверенностью модели")
+    medical_urgent: int = Field(description="Неотложных по медфильтру")
+    escalations_by_reason: dict[str, int] = Field(description="Эскалации по причинам §8.1")
+
+
+class LearningMetricsOut(CamelModel):
+    gaps_open: int = Field(description="Очередь «Не знает» сейчас")
+    gaps_opened: int = Field(description="Новых пробелов за период")
+    gaps_answered: int = Field(description="Выучил за период — ответили своими словами")
+    gaps_dismissed: int
+    avg_hours_to_answer: float = Field(
+        description="Среднее время от первого вопроса до ответа, часов"
+    )
+    kb_documents_active: int
+    kb_documents_added: int = Field(description="Документов базы знаний, добавленных за период")
+    glossary_pending: int
+    glossary_approved: int
+
+
+class RegressionRunSummaryOut(CamelModel):
+    id: uuid.UUID
+    mode: str
+    status: str
+    passed: int
+    failed: int
+    skipped: int
+    finished_at: datetime | None = None
+
+
+class RegressionMetricsOut(CamelModel):
+    cases_active: int
+    cases_failing: int = Field(description="Активных кейсов с последним итогом failed")
+    last_run: RegressionRunSummaryOut | None = None
+
+
+class UsageMetricsOut(CamelModel):
+    model_calls: int
+    input_tokens: int
+    output_tokens: int
+
+
+class TrustGateOut(CamelModel):
+    """Готовность к следующей ступени доверия (Ф7): «153 из 200» и чистая неделя."""
+
+    mode: str = Field(description="Текущий режим: off | shadow | assisted | auto")
+    approved: int = Field(description="Одобренных ответов за всё время", examples=[153])
+    required: int = Field(examples=[200])
+    progress: float = Field(description="approved / required, 0..1", examples=[0.765])
+    fact_errors: int = Field(description="Ошибок V01–V03 за последние factErrorDays дней")
+    fact_error_days: int = Field(examples=[7])
+    ready: bool = Field(description="Одобрений достаточно и ошибок нет")
+
+
+class MetricsSeriesPointOut(CamelModel):
+    date: date
+    replies_auto: int
+    drafts_sent: int
+    escalations: int
+    gaps_opened: int
+    gaps_answered: int
+
+
+class AssistantMetricsResponse(CamelModel):
+    """Экран «Обучение → показатели»: учится ли бот."""
+
+    period: MetricsPeriodOut
+    autonomy: AutonomyMetricsOut
+    quality: QualityMetricsOut
+    learning: LearningMetricsOut
+    regression: RegressionMetricsOut
+    usage: UsageMetricsOut
+    trust_gate: TrustGateOut
+    series: list[MetricsSeriesPointOut] = Field(
+        description="По дням в таймзоне клиники; для all — последние 92 дня"
+    )

@@ -175,6 +175,10 @@ class Settings(BaseSettings):
     #: В режиме model каждый кейс — вызов модели (десятки секунд на free tier).
     ai_regression_job_timeout: int = 1800
     ai_regression_max_cases: int = 200
+    #: Гейт доверия (Ф7, spec_1): столько одобренных ответов и ноль фактических
+    #: ошибок (V01–V03) за столько дней — можно поднимать ступень.
+    ai_trust_gate_approvals: int = 200
+    ai_trust_gate_fact_error_days: int = 7
 
     # ── Учёт использования: прайс-лист для сметы (тыйыны) ───────────────────
     #: Ставки за МИЛЛИОН токенов модели и за одно платное сообщение WhatsApp.

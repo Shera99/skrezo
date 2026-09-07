@@ -45,6 +45,8 @@ class AiMessage(Base):
     __table_args__ = (
         # История диалога листается курсором по id (см. докстринг модуля).
         Index("ix_ai_message_conversation_id", "conversation_id", "id"),
+        # Ф6: метрики обучения — ответы бота клиники за период.
+        Index("ix_ai_message_clinic_role_created", "clinic_id", "role", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
