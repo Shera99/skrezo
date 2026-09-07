@@ -43,6 +43,7 @@ from app.shared.ai.provider import (
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 45.0
+GEMINI_TIMEOUT = _TIMEOUT
 _API = "https://generativelanguage.googleapis.com/v1beta"
 #: Реестр кэшей префикса: ``ai:prefix:<scope>:<hash>`` → имя ``cachedContents/…``.
 PREFIX_KEY = "ai:prefix"

@@ -75,7 +75,8 @@ class AiHealthService:
         self._wa = wa_client
         self._speech = speech
 
-    async def check(self) -> HealthReport:
+    async def check(self, *, tokens: bool = True) -> HealthReport:
+        """Все проверки; ``tokens=False`` — без обхода номеров (см. ``check_tokens``)."""
         report = HealthReport()
         report.model_ok = await self._model_ok()
         if not report.model_ok:
@@ -83,7 +84,7 @@ class AiHealthService:
             # начинают уходить через администратора (§13.5, правило 1).
             report.downgraded = await self._downgrade_auto_clinics()
         report.speech_ok = await self._speech_ok()
-        report.tokens_failed = await self._failed_tokens()
+        report.tokens_failed = await self._failed_tokens() if tokens else []
         report.silent_clinics = await self._silent_clinics()
 
         if not report.healthy:
@@ -130,6 +131,19 @@ class AiHealthService:
             logger.warning("ai_health_speech_down", error=str(exc))
             return False
         return True
+
+    async def check_tokens(self) -> list[str]:
+        """Обход номеров отдельным, редким заданием (Ф8).
+
+        Проверка — вызов Graph API на каждую привязку; раз в 5 минут это
+        43 тысячи вызовов в сутки одним токеном на 150 клиник, а раз в час —
+        3,6 тысячи. Отозванный токен виден и через час: до этого сбой всё
+        равно проявится в отправке.
+        """
+        failed = await self._failed_tokens()
+        if failed:
+            logger.error("wa_token_alert", tokens_failed=failed)
+        return failed
 
     async def _failed_tokens(self) -> list[str]:
         """Номера, для которых Graph API больше не принимает наш токен."""

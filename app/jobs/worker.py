@@ -44,7 +44,7 @@ from app.core.jobs import (
 )
 from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.ai import ai_reply, run_ai_regression, summarize_conversation
-from app.jobs.tasks.ai_health import check_ai_health
+from app.jobs.tasks.ai_health import check_ai_health, check_whatsapp_tokens
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
@@ -58,6 +58,7 @@ from app.jobs.tasks.subscriptions import (
 )
 from app.jobs.tasks.visits import send_visit_reminders
 from app.jobs.tasks.whatsapp import close_stale_conversations, process_wa_inbound
+from app.shared.http import close_shared_clients
 
 
 async def _startup(ctx: dict[str, Any]) -> None:
@@ -71,6 +72,7 @@ async def _shutdown(ctx: dict[str, Any]) -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+    await close_shared_clients()  # Ф8: общие httpx-пулы (Meta, Google)
 
 
 class WorkerSettings:
@@ -136,6 +138,8 @@ class WorkerSettings:
         cron(close_stale_conversations, minute={11, 41}),
         # §13.5: тихие отказы контура ассистента ловятся только расписанием.
         cron(check_ai_health, minute=set(range(0, 60, 5))),
+        # Ф8: обход номеров WhatsApp — раз в час, а не каждые 5 минут.
+        cron(check_whatsapp_tokens, minute=37),
         # Ф7: напоминания о визите за сутки и контроль ответа — раз в час.
         cron(send_visit_reminders, minute=7),
         # Ф7: долг и повторный осмотр — раз в сутки утром (04:12 UTC = 10:12 Бишкек).

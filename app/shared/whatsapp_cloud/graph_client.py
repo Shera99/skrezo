@@ -57,9 +57,13 @@ def _parse_template(row: dict[str, Any]) -> TemplateInfo:
 class GraphWhatsAppClient:
     """Клиент Cloud API поверх httpx (async)."""
 
-    def __init__(self, api_url: str, access_token: str) -> None:
+    def __init__(
+        self, api_url: str, access_token: str, client: httpx.AsyncClient | None = None
+    ) -> None:
         self._api_url = api_url.rstrip("/")
         self._token = access_token
+        # Ф8: один пул соединений на процесс (см. shared/http), а не на вызов.
+        self._client = client or httpx.AsyncClient(timeout=_TIMEOUT)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}
@@ -67,8 +71,7 @@ class GraphWhatsAppClient:
     async def _post_message(self, phone_number_id: str, payload: dict[str, Any]) -> SentMessage:
         url = f"{self._api_url}/{phone_number_id}/messages"
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(url, json=payload, headers=self._headers())
+            resp = await self._client.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as exc:  # сеть/таймаут — тоже «не отправлено»
             raise WhatsAppSendError(str(exc)) from exc
         if resp.status_code >= 400:
@@ -154,28 +157,27 @@ class GraphWhatsAppClient:
 
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                meta = await client.get(f"{self._api_url}/{media_id}", headers=self._headers())
-                if meta.status_code >= 400:
-                    logger.error(
-                        "wa_cloud_media_meta_failed",
-                        status=meta.status_code,
-                        media_id=media_id,
-                    )
-                    return None
-                info = meta.json()
-                blob = await client.get(info["url"], headers=self._headers())
-                if blob.status_code >= 400:
-                    logger.error(
-                        "wa_cloud_media_download_failed",
-                        status=blob.status_code,
-                        media_id=media_id,
-                    )
-                    return None
-                return DownloadedMedia(
-                    content=blob.content,
-                    mime=info.get("mime_type", "application/octet-stream"),
+            meta = await self._client.get(f"{self._api_url}/{media_id}", headers=self._headers())
+            if meta.status_code >= 400:
+                logger.error(
+                    "wa_cloud_media_meta_failed",
+                    status=meta.status_code,
+                    media_id=media_id,
                 )
+                return None
+            info = meta.json()
+            blob = await self._client.get(info["url"], headers=self._headers())
+            if blob.status_code >= 400:
+                logger.error(
+                    "wa_cloud_media_download_failed",
+                    status=blob.status_code,
+                    media_id=media_id,
+                )
+                return None
+            return DownloadedMedia(
+                content=blob.content,
+                mime=info.get("mime_type", "application/octet-stream"),
+            )
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             # Медиа — не повод ронять обработку сообщения: текст и факт
             # голосового сохранятся, файл просто не скачается.
@@ -185,12 +187,11 @@ class GraphWhatsAppClient:
     async def check_token(self, phone_number_id: str) -> bool:
         """Профиль номера: 200 — токен жив, 401/403 — истёк или отозван."""
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(
-                    f"{self._api_url}/{phone_number_id}",
-                    params={"fields": "id"},
-                    headers=self._headers(),
-                )
+            resp = await self._client.get(
+                f"{self._api_url}/{phone_number_id}",
+                params={"fields": "id"},
+                headers=self._headers(),
+            )
         except httpx.HTTPError as exc:
             logger.warning("wa_token_check_failed", error=str(exc))
             return False
@@ -208,24 +209,23 @@ class GraphWhatsAppClient:
         }
         items: list[TemplateInfo] = []
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                # Потолок страниц — защита от бесконечного paging.next; тысяча
-                # шаблонов на WABA в жизни не встречается.
-                for _ in range(10):
-                    if url is None:
-                        break
-                    resp = await client.get(url, params=params, headers=self._headers())
-                    if resp.status_code >= 400:
-                        logger.error(
-                            "wa_cloud_templates_failed",
-                            status=resp.status_code,
-                            body=resp.text[:500],
-                        )
-                        return None
-                    data = resp.json()
-                    items.extend(_parse_template(row) for row in data.get("data") or [])
-                    url = (data.get("paging") or {}).get("next")
-                    params = None  # next уже содержит все параметры
+            # Потолок страниц — защита от бесконечного paging.next; тысяча
+            # шаблонов на WABA в жизни не встречается.
+            for _ in range(10):
+                if url is None:
+                    break
+                resp = await self._client.get(url, params=params, headers=self._headers())
+                if resp.status_code >= 400:
+                    logger.error(
+                        "wa_cloud_templates_failed",
+                        status=resp.status_code,
+                        body=resp.text[:500],
+                    )
+                    return None
+                data = resp.json()
+                items.extend(_parse_template(row) for row in data.get("data") or [])
+                url = (data.get("paging") or {}).get("next")
+                params = None  # next уже содержит все параметры
         except (httpx.HTTPError, ValueError) as exc:
             logger.error("wa_cloud_templates_error", waba_id=waba_id, error=str(exc))
             return None

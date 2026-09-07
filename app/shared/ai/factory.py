@@ -5,9 +5,10 @@ from __future__ import annotations
 from redis.asyncio import Redis
 
 from app.core.config import settings
-from app.shared.ai.gemini import GeminiProvider
+from app.shared.ai.gemini import GEMINI_TIMEOUT, GeminiProvider
 from app.shared.ai.provider import AiProvider
 from app.shared.ai.resilience import ResilientProvider
+from app.shared.http import shared_async_client
 
 
 def build_ai_provider(redis: Redis | None = None) -> AiProvider | None:
@@ -25,6 +26,8 @@ def build_ai_provider(redis: Redis | None = None) -> AiProvider | None:
         inner = GeminiProvider(
             settings.gemini_api_key,
             settings.gemini_model,
+            # Ф8: один пул соединений к Google на процесс, а не на задание.
+            client=shared_async_client("gemini", timeout=GEMINI_TIMEOUT),
             thinking_level=settings.gemini_thinking_level,
             # Ф8: реестр кэшей префикса общий для всех процессов — тот же Redis.
             redis=redis,

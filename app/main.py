@@ -60,6 +60,7 @@ from app.modules.usage.presentation.routes import router as usage_router
 from app.modules.whatsapp.presentation.routes import router as whatsapp_router
 from app.realtime import build_asgi, sio
 from app.realtime.listener import run_realtime_listener
+from app.shared.http import close_shared_clients
 
 OPENAPI_DESCRIPTION = """
 Бэкенд **платформенной зоны Skrezo** (админ-панель команды) и **рабочего
@@ -217,13 +218,13 @@ OPENAPI_TAGS = [
             "дальше — одобренные шаблоны. Не путать с OTP-каналами доставки кодов."
         ),
     },
-        {
-            "name": "usage",
-            "description": (
-                "Учёт использования по клиникам (админка Skrezo): токены модели, "
-                "диалоги с ассистентом, платные сообщения WhatsApp и смета по прайс-листу."
-            ),
-        },
+    {
+        "name": "usage",
+        "description": (
+            "Учёт использования по клиникам (админка Skrezo): токены модели, "
+            "диалоги с ассистентом, платные сообщения WhatsApp и смета по прайс-листу."
+        ),
+    },
     {
         "name": "payments",
         "x-displayName": "Платежи",
@@ -238,8 +239,7 @@ OPENAPI_TAGS = [
         "name": "roles",
         "x-displayName": "Роли и права",
         "description": (
-            "Настройка ролей клиники: свои роли, наборы прав, каталог прав "
-            "(право `roles.manage`)."
+            "Настройка ролей клиники: свои роли, наборы прав, каталог прав (право `roles.manage`)."
         ),
     },
     {
@@ -302,15 +302,32 @@ OPENAPI_TAG_GROUPS = [
     {
         "name": "Админ-панель Skrezo",
         "tags": [
-            "clients", "clinic-applications-admin", "tariffs", "payments", "dashboard",
-            "reports-admin", "trial-features", "audit", "subscription-admin", "jobs",
+            "clients",
+            "clinic-applications-admin",
+            "tariffs",
+            "payments",
+            "dashboard",
+            "reports-admin",
+            "trial-features",
+            "audit",
+            "subscription-admin",
+            "jobs",
         ],
     },
     {
         "name": "Рабочее приложение клиники",
         "tags": [
-            "staff", "roles", "schedule", "patients", "services", "appointments", "cash",
-            "reports", "subscription", "clinic-settings", "push",
+            "staff",
+            "roles",
+            "schedule",
+            "patients",
+            "services",
+            "appointments",
+            "cash",
+            "reports",
+            "subscription",
+            "clinic-settings",
+            "push",
         ],
     },
     {
@@ -334,6 +351,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await realtime_listener
     await close_job_queue()
     await redis_client.aclose()
+    await close_shared_clients()  # Ф8: общие httpx-пулы (Meta, Google)
     await engine.dispose()
 
 

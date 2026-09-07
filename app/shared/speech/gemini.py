@@ -25,6 +25,7 @@ from app.shared.speech.provider import SpeechError, SpeechResult
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 60.0
+SPEECH_TIMEOUT = _TIMEOUT
 
 _PROMPT = (
     "Расшифруй голосовое сообщение пациента стоматологической клиники. "
@@ -38,9 +39,7 @@ _PROMPT = (
 class GeminiSpeechProvider:
     """Расшифровка через ``generateContent`` с инлайн-аудио."""
 
-    def __init__(
-        self, api_key: str, model: str, client: httpx.AsyncClient | None = None
-    ) -> None:
+    def __init__(self, api_key: str, model: str, client: httpx.AsyncClient | None = None) -> None:
         self._api_key = api_key
         self.model_name = model
         self._client = client or httpx.AsyncClient(timeout=_TIMEOUT)
@@ -81,9 +80,7 @@ class GeminiSpeechProvider:
         except httpx.HTTPError as exc:
             raise SpeechError(f"Gemini ASR: {exc}") from exc
         if resp.status_code >= 400:
-            logger.warning(
-                "gemini_asr_failed", status=resp.status_code, body=resp.text[:300]
-            )
+            logger.warning("gemini_asr_failed", status=resp.status_code, body=resp.text[:300])
             raise SpeechError(f"Gemini ASR: HTTP {resp.status_code}")
         return _parse(resp.json())
 
@@ -105,6 +102,6 @@ def _parse(data: dict[str, Any]) -> SpeechResult:
     text = str(payload.get("text") or "").strip()
     try:
         confidence = float(payload.get("confidence") or 0.0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         confidence = 0.0
     return SpeechResult(text=text, confidence=max(0.0, min(1.0, confidence)))
