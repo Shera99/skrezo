@@ -13,7 +13,7 @@ from typing import Any
 
 from app.shared.db.enums import AiMode
 
-SKILLS: tuple[str, ...] = ("booking", "changes", "reminders")
+SKILLS: tuple[str, ...] = ("booking", "changes", "reminders", "debts", "recall")
 SKILL_TITLES: dict[str, tuple[str, str]] = {
     "booking": ("Запись на приём", "Подбор времени и кнопка подтверждения записи"),
     "changes": ("Перенос и отмена", "Своих будущих записей пациента — по кнопке"),
@@ -21,11 +21,22 @@ SKILL_TITLES: dict[str, tuple[str, str]] = {
         "Напоминание о визите",
         "Шаблон за сутки с кнопками «Приду» / «Перенести»; без ответа — администратору",
     ),
+    "debts": ("Напоминание о долге", "Шаблон по остатку в кассе через несколько дней после приёма"),
+    "recall": (
+        "Повторный осмотр",
+        "Приглашение спустя полгода после визита с кнопками «Записаться» / «Не сейчас»",
+    ),
 }
 CAP_LEVELS: tuple[str, ...] = ("off", "assisted", "auto")
 #: Напоминания по умолчанию выключены: рассылку пациентам включает владелец,
 #: когда шаблон одобрен Meta и клиника к этому готова.
-DEFAULT_SKILLS: dict[str, str] = {"booking": "auto", "changes": "auto", "reminders": "off"}
+DEFAULT_SKILLS: dict[str, str] = {
+    "booking": "auto",
+    "changes": "auto",
+    "reminders": "off",
+    "debts": "off",
+    "recall": "off",
+}
 
 #: Инструменты, принадлежащие умению: при ``off`` модель их не видит.
 SKILL_TOOLS: dict[str, frozenset[str]] = {

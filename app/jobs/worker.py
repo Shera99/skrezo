@@ -49,6 +49,7 @@ from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
 from app.jobs.tasks.notifications_cleanup import cleanup_notifications
+from app.jobs.tasks.patient_reminders import send_patient_reminders
 from app.jobs.tasks.subscriptions import (
     expire_paid_periods,
     expire_trials,
@@ -137,6 +138,8 @@ class WorkerSettings:
         cron(check_ai_health, minute=set(range(0, 60, 5))),
         # Ф7: напоминания о визите за сутки и контроль ответа — раз в час.
         cron(send_visit_reminders, minute=7),
+        # Ф7: долг и повторный осмотр — раз в сутки утром (04:12 UTC = 10:12 Бишкек).
+        cron(send_patient_reminders, hour=4, minute=12),
         # Сводки дня: тик раз в 5 минут, окно совпадения 15 — момент сводки
         # (за час до открытия / в закрытие) не проскочит; дубль давит push_event.
         cron(send_daily_digests, minute=set(range(0, 60, 5))),

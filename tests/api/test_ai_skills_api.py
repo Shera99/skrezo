@@ -59,6 +59,8 @@ async def test_effective_level_is_min_of_ladder_and_cap(
         "booking": ("auto", "off"),
         "changes": ("auto", "off"),
         "reminders": ("off", "off"),
+        "debts": ("off", "off"),
+        "recall": ("off", "off"),
     }  # бот выключен
 
     await _set_mode(admin_client, ctx, "assisted")
@@ -72,6 +74,8 @@ async def test_effective_level_is_min_of_ladder_and_cap(
         "booking": ("assisted", "assisted"),
         "changes": ("off", "off"),
         "reminders": ("auto", "auto"),
+        "debts": ("off", "off"),
+        "recall": ("off", "off"),
     }
 
     await _set_mode(admin_client, ctx, "shadow")  # ступень ниже потолка — режет ступень
@@ -79,6 +83,8 @@ async def test_effective_level_is_min_of_ladder_and_cap(
         "booking": ("assisted", "shadow"),
         "changes": ("off", "off"),
         "reminders": ("auto", "shadow"),
+        "debts": ("off", "off"),
+        "recall": ("off", "off"),
     }
 
     bad = await client.put(

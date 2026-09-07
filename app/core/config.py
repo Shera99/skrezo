@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     #: За сколько часов напоминать и за сколько считать визит неподтверждённым.
     visit_reminder_hours_before: int = 24
     visit_unconfirmed_hours_before: int = 3
+    #: Напоминание о долге (Ф7): шаблон (переменные — имя, сумма в сомах, клиника)
+    #: и через сколько дней после приёма напоминать об остатке.
+    wa_debt_reminder_template: str = "debt_reminder"
+    debt_reminder_days_after: int = 3
+    #: Повторный осмотр (Ф7): шаблон (имя, месяцев, клиника) с кнопками
+    #: «Записаться» / «Не сейчас» и срок с последнего визита в месяцах.
+    wa_recall_reminder_template: str = "recall_reminder"
+    wa_recall_buttons: bool = True
+    recall_months: int = 6
 
     # ── AI-ассистент (Ф2) ────────────────────────────────────────────────────
     # Провайдер за интерфейсом AiProvider: смена — переменной окружения.

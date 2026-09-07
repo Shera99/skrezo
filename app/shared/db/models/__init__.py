@@ -44,6 +44,7 @@ from app.shared.db.models.notification_delivery import NotificationDelivery
 from app.shared.db.models.notification_pref import NotificationPref
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_file import PatientFile
+from app.shared.db.models.patient_reminder import PatientReminder
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.permission import Permission
 from app.shared.db.models.push_event import PushEvent
@@ -100,6 +101,7 @@ __all__ = [
     "NotificationPref",
     "Patient",
     "PatientFile",
+    "PatientReminder",
     "PatientTooth",
     "Permission",
     "PushEvent",

@@ -74,7 +74,7 @@ _STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 9}
 
 
 #: Кнопки, которые обрабатываются детерминированно, мимо модели.
-_BUTTON_PREFIXES = ("hold:", "visit:")
+_BUTTON_PREFIXES = ("hold:", "visit:", "recall:")
 
 
 def _confirm_button_id(msg: dict[str, Any]) -> str | None:
@@ -335,6 +335,12 @@ class InboundProcessor:
             from app.modules.ai.application.visits import VisitReminderService
 
             reply_text = await VisitReminderService(self._session, self._client).handle_button(
+                conversation, button_id
+            )
+        elif button_id.startswith("recall:"):
+            from app.modules.ai.application.patient_reminders import PatientReminderService
+
+            reply_text = await PatientReminderService(self._session, self._client).handle_button(
                 conversation, button_id
             )
         else:
