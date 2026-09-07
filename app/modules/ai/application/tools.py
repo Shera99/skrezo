@@ -184,6 +184,12 @@ class ToolContext:
         return self.conversation.patient_id
 
 
+#: Что можно звать в сухом прогоне регрессии — ничего не меняет в базе.
+_READ_ONLY_TOOLS = frozenset(
+    {"get_services", "get_doctors", "get_available_days", "get_available_slots"}
+)
+
+
 class ToolExecutor:
     """Исполняет вызовы модели против БД и журналирует их."""
 
@@ -217,6 +223,21 @@ class ToolExecutor:
             duration_ms=int((time_mod.monotonic() - started) * 1000),
         )
         return result
+
+    async def dry_dispatch(
+        self, context: ToolContext, name: str, args: dict[str, Any]
+    ) -> dict[str, Any] | list[Any]:
+        """Инструменты чтения без журнала и без диалога — для сухого прогона (Ф6).
+
+        Всё, что пишет (пациент, резерв слота, глоссарий), в прогоне недоступно:
+        модель получает отказ данными, как при любой ошибке инструмента.
+        """
+        if name not in _READ_ONLY_TOOLS:
+            return {"error": f"инструмент {name} недоступен в прогоне регрессии"}
+        try:
+            return await self._dispatch(context, name, args)
+        except Exception as exc:  # как в боевом execute: отказ уходит модели текстом
+            return {"error": str(exc)[:300]}
 
     async def _dispatch(
         self, context: ToolContext, name: str, args: dict[str, Any]

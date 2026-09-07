@@ -9,6 +9,7 @@ from app.modules.ai.presentation.routes import (
     glossary,
     kb,
     knowledge_gaps,
+    regression,
     set_ai_mode,
     simulate,
 )
@@ -18,5 +19,6 @@ router.include_router(drafts.router)
 router.include_router(glossary.router)
 router.include_router(knowledge_gaps.router)
 router.include_router(kb.router)
+router.include_router(regression.router)
 router.include_router(set_ai_mode.router)
 router.include_router(simulate.router)

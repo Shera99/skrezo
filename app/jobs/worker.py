@@ -37,12 +37,13 @@ from app.core.config import settings
 from app.core.jobs import (
     AI_REPLY,
     PROCESS_WA_INBOUND,
+    RUN_AI_REGRESSION,
     SEND_NOTIFICATION,
     SEND_TEAM_NOTIFICATION,
     SUMMARIZE_CONVERSATION,
 )
 from app.jobs.dispatcher_loop import run_dispatcher_loop
-from app.jobs.tasks.ai import ai_reply, summarize_conversation
+from app.jobs.tasks.ai import ai_reply, run_ai_regression, summarize_conversation
 from app.jobs.tasks.ai_health import check_ai_health
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
@@ -99,6 +100,14 @@ class WorkerSettings:
         # Резюме закрытого диалога — по одному, а не пачкой в cron: пачка не
         # укладывалась в таймаут, и закрытые диалоги оставались без резюме.
         func(summarize_conversation, name=SUMMARIZE_CONVERSATION, max_tries=2, timeout=120),
+        # Ф6: прогон регрессии клиники — до сотен вызовов модели; повтор безопасен,
+        # оценённые кейсы не оцениваются второй раз.
+        func(
+            run_ai_regression,
+            name=RUN_AI_REGRESSION,
+            max_tries=2,
+            timeout=settings.ai_regression_job_timeout,
+        ),
         expire_trials,
         expire_paid_periods,
         warn_trial_ending,

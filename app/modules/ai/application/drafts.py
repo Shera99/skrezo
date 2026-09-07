@@ -21,10 +21,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import structlog
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAppError
 from app.core.jobs import AI_REPLY, JobQueue
+from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.whatsapp.domain.window import is_window_open
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -110,6 +112,17 @@ class DraftService:
         draft.reviewed_at = now
         draft.sent_at = now
         draft.wa_message_id = sent.wa_message_id
+        question = await self._question_before(conversation_id, draft.id)
+        if question:
+            # Ф6: одобренный (тем более правленый) ответ — эталон регрессии.
+            await RegressionCaseService(self._session).from_reply(
+                conversation,
+                question=question,
+                reply=text,
+                edited=draft.review == "edited",
+                message_id=draft.id,
+                actor_id=actor_id,
+            )
         conversation.last_msg_at = now
         await publish_realtime(
             self._session,
@@ -156,6 +169,22 @@ class DraftService:
         return conversation, draft
 
     # ── Кто ведёт диалог ────────────────────────────────────────────────────
+
+    async def _question_before(self, conversation_id: uuid.UUID, message_id: int) -> str:
+        """Вопрос пациента, на который отвечал черновик (последний перед ним)."""
+        last = (
+            await self._session.execute(
+                select(AiMessage)
+                .where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                    AiMessage.id < message_id,
+                )
+                .order_by(AiMessage.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return ((last.transcript or last.body) if last else "").strip()
 
     async def toggle(
         self,

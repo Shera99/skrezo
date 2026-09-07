@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.modules.ai.application.booking import BookingService
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
+from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.summary import recent_summaries
 from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
 from app.modules.ai.domain.facts import TurnFacts
@@ -124,6 +125,11 @@ class ProcessAiReplyService:
         # проверки провайдера намеренно: неотложное состояние пациента не
         # должно зависеть от того, доступна ли сейчас модель.
         medical = classify(last.transcript or last.body)
+        if medical.kind is not MedicalKind.NONE:
+            # Ф6: сработавший фильтр — кейс регрессии на то, что сработает и завтра.
+            await RegressionCaseService(self._session).from_medical(
+                conversation, question=last.transcript or last.body, kind=medical.kind.value
+            )
         if medical.kind is MedicalKind.URGENT:
             return await self._urgent(conversation, clinic, medical)
         if medical.kind is MedicalKind.COMPLAINT:
@@ -159,7 +165,7 @@ class ProcessAiReplyService:
         # модель распознаёт язык сама, и V07 не применяется.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
         lang: str | None = None if first_reply else ("ky" if conversation.lang is Lang.KG else "ru")
-        system = await self._build_system(clinic, lang, conversation)
+        system = await self.system_prompt(clinic, lang, conversation.wa_phone)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
         binding = await self._whatsapp.binding_by_clinic(clinic.id)
@@ -244,7 +250,7 @@ class ProcessAiReplyService:
                 conversation, clinic, "tool_error", {"note": "модель не дала текста"}
             )
 
-        facts = await self._turn_facts(clinic, system, parts)
+        facts = await self.turn_facts(clinic, system, parts)
         try:
             reply, verdict = await self._parse_and_validate(
                 conversation, system, parts, raw_text, lang, facts
@@ -287,13 +293,12 @@ class ProcessAiReplyService:
 
     # ── Контекст ────────────────────────────────────────────────────────────
 
-    async def _build_system(
-        self, clinic: Clinic, lang: str | None, conversation: AiConversation
-    ) -> str:
+    async def system_prompt(self, clinic: Clinic, lang: str | None, wa_phone: str | None) -> str:
+        """Системный промпт клиники; без номера — без резюме (сухой прогон регрессии)."""
         glossary = await self._repository.approved_glossary(clinic.id)
         kb = await self._repository.kb_for_prompt(clinic.id, lang or "ru")
         # §4.1: последние пять резюме по номеру — разговор не с чистого листа.
-        summaries = await recent_summaries(self._session, clinic.id, conversation.wa_phone)
+        summaries = await recent_summaries(self._session, clinic.id, wa_phone) if wa_phone else []
         card = ClinicCard(
             name=clinic.name,
             address=clinic.address,
@@ -494,6 +499,13 @@ class ProcessAiReplyService:
             # Ответ без единого факта = модели не хватило знаний — в очередь (Ф6).
             # Ошибка при наличии фактов (перепутала цену) — не пробел, а промах.
             await self._note_gap(conversation, source="no_facts", hint=verdict.notes)
+        last = await self._last_patient_message(conversation)
+        question = ((last.transcript or last.body) if last else "").strip()
+        if question:
+            # Ф6: снятая выдумка — кейс регрессии «на этот вопрос не выдумывать».
+            await RegressionCaseService(self._session).from_incident(
+                conversation, question=question, proposed=reply.reply, codes=list(verdict.codes)
+            )
         return await self._escalate(
             conversation,
             clinic,
@@ -578,7 +590,7 @@ class ProcessAiReplyService:
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
 
-    async def _turn_facts(
+    async def turn_facts(
         self, clinic: Clinic, system: str, parts: list[AiMessagePart]
     ) -> TurnFacts:
         """Собрать факты хода для V01–V03 (§7.1).

@@ -335,3 +335,154 @@ class UpdateKbDocumentRequest(NotNullFieldsModel):
 
 class KbRollbackRequest(CamelModel):
     version_no: int = Field(ge=1, description="К какой версии вернуться", examples=[1])
+
+
+class RegressionCaseOut(CamelModel):
+    """Кейс регрессии: вопрос пациента и ожидание, зависящее от вида."""
+
+    id: uuid.UUID
+    kind: str = Field(
+        description="knowledge — ответ из документа; reply — одобренный ответ; "
+        "refusal — не выдумывать; medical — медфильтр"
+    )
+    lang: str
+    question: str
+    expect: dict[str, Any] = Field(
+        description="knowledge/reply: keywords (+reply); refusal: proposed, codes; medical: medical"
+    )
+    source: str = Field(
+        description="knowledge_gap | approved_draft | edited_draft | incident | medical | manual"
+    )
+    origin: dict[str, Any] = Field(
+        description="Ссылки: conversationId, messageId, gapId, kbDocumentId"
+    )
+    note: str | None = None
+    is_active: bool
+    last_result: str | None = Field(default=None, description="passed | failed | skipped")
+    last_run_at: datetime | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_orm_case(cls, c: Any) -> RegressionCaseOut:
+        return cls(
+            id=c.id,
+            kind=c.kind,
+            lang=c.lang,
+            question=c.question,
+            expect=dict(c.expect or {}),
+            source=c.source,
+            origin=dict(c.origin or {}),
+            note=c.note,
+            is_active=c.is_active,
+            last_result=c.last_result,
+            last_run_at=c.last_run_at,
+            created_at=c.created_at,
+        )
+
+
+class RegressionCaseCounts(CamelModel):
+    total: int
+    active: int
+    failing: int = Field(description="Активных с последним итогом failed")
+
+
+class RegressionCasesResponse(CamelModel):
+    list: list[RegressionCaseOut]
+    counts: RegressionCaseCounts
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class CreateRegressionCaseRequest(CamelModel):
+    """Ручной кейс — когда эталон известен без диалога."""
+
+    kind: str = Field(description="knowledge | reply | refusal | medical", examples=["reply"])
+    lang: str = Field(pattern="^(ru|ky)$", examples=["ru"])
+    question: str = Field(min_length=3, max_length=1000, examples=["Есть ли у вас парковка?"])
+    expected_reply: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Эталон (knowledge/reply): ключевые слова возьмутся из него",
+    )
+    keywords: list[str] | None = Field(default=None, description="Или ключевые слова явно")
+    medical: str | None = Field(default=None, description="Для medical: urgent | complaint | none")
+    proposed: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Для refusal: выдуманный ответ, который валидатор обязан снять",
+    )
+    note: str | None = Field(default=None, max_length=500)
+
+
+class UpdateRegressionCaseRequest(NotNullFieldsModel):
+    NOT_NULL_FIELDS = ("isActive",)
+
+    is_active: bool | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class StartRegressionRunRequest(CamelModel):
+    mode: str = Field(
+        default="offline",
+        pattern="^(offline|model)$",
+        description="offline — без модели, бесплатно; model — сухой прогон модели по каждому кейсу",
+    )
+
+
+class RegressionRunOut(CamelModel):
+    id: uuid.UUID
+    mode: str
+    status: str = Field(description="queued | running | done | failed")
+    trigger: str
+    prompt_version: str
+    model_name: str | None = None
+    total: int
+    passed: int
+    failed: int
+    skipped: int
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    note: str | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_orm_run(cls, r: Any) -> RegressionRunOut:
+        return cls(
+            id=r.id,
+            mode=r.mode,
+            status=r.status,
+            trigger=r.trigger,
+            prompt_version=r.prompt_version,
+            model_name=r.model_name,
+            total=r.total,
+            passed=r.passed,
+            failed=r.failed,
+            skipped=r.skipped,
+            started_at=r.started_at,
+            finished_at=r.finished_at,
+            note=r.note,
+            created_at=r.created_at,
+        )
+
+
+class RegressionResultOut(CamelModel):
+    case_id: uuid.UUID
+    kind: str
+    question: str
+    status: str = Field(description="passed | failed | skipped")
+    expected: str
+    actual: str
+    note: str | None = None
+    latency_ms: int | None = None
+
+
+class RegressionRunDetail(RegressionRunOut):
+    results: list[RegressionResultOut] = Field(description="Проваленные первыми")
+
+
+class RegressionRunsResponse(CamelModel):
+    list: list[RegressionRunOut]
+    current_page: int
+    page_size: int = 25
+    total_count: int

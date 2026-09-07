@@ -11,6 +11,9 @@ from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_knowledge_gap import AiKnowledgeGap
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.ai_regression_case import AiRegressionCase
+from app.shared.db.models.ai_regression_result import AiRegressionResult
+from app.shared.db.models.ai_regression_run import AiRegressionRun
 from app.shared.db.models.ai_summary import AiSummary
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
@@ -63,6 +66,9 @@ __all__ = [
     "AiEscalation",
     "AiKnowledgeGap",
     "AiMessage",
+    "AiRegressionCase",
+    "AiRegressionResult",
+    "AiRegressionRun",
     "AiSummary",
     "AiToolCall",
     "Appointment",

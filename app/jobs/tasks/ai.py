@@ -17,8 +17,9 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.db import session_factory
-from app.core.jobs import AI_REPLY, SUMMARIZE_CONVERSATION
+from app.core.jobs import AI_REPLY, RUN_AI_REGRESSION, SUMMARIZE_CONVERSATION
 from app.jobs.tasks.context import attempt
+from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_coordinator import (
     ConversationLock,
     CoordinatorResult,
@@ -120,3 +121,15 @@ async def summarize_conversation(ctx: dict[str, Any], conversation_id: str) -> b
                 await session.commit()
         run.note(f"диалог {conversation_id}: {'резюме готово' if summary else 'пропущен'}")
         return summary is not None
+
+
+async def run_ai_regression(ctx: dict[str, Any], run_id: str) -> str:
+    """Прогон регрессии клиники (Ф6); повтор задания продолжает с неоценённых кейсов."""
+    async with JobRunRecorder(RUN_AI_REGRESSION, attempt(ctx)) as run:
+        async with session_factory() as session:
+            runner = RegressionRunner(
+                session, build_ai_provider(_queue(ctx)), build_whatsapp_client()
+            )
+            summary = await runner.run(uuid.UUID(run_id))
+        run.note(summary)
+        return summary

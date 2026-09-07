@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, UpstreamError
 from app.modules.ai.application.kb import KbService
+from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.domain.knowledge import (
     KB_CATEGORIES,
     MIN_NORMALIZED_LEN,
@@ -150,6 +151,16 @@ class KnowledgeGapService:
             category=category,
             body=answer,
             lang=gap.lang,
+        )
+        # Ф6: выученный вопрос — кейс регрессии «бот отвечает из документа».
+        await RegressionCaseService(self._session).from_knowledge(
+            clinic_id,
+            question=gap.question,
+            lang=gap.lang,
+            document_id=document.id,
+            document_body=document.body,
+            gap_id=gap.id,
+            actor_id=actor_id,
         )
         now = datetime.now(UTC)
         gap.status = "answered"

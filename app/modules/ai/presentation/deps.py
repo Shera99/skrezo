@@ -12,6 +12,8 @@ from app.core.redis import get_redis
 from app.modules.ai.application.drafts import DraftService
 from app.modules.ai.application.kb import KbService
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
+from app.modules.ai.application.regression_cases import RegressionCaseService
+from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_service import ProcessAiReplyService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.ai.infrastructure.repositories.kb_repository import KbRepository
@@ -78,3 +80,18 @@ def get_knowledge_gap_service(
 def get_kb_service(session: AsyncSession = Depends(get_session)) -> KbService:
     """Редактор базы знаний: документы, версии, откат, сводка токенов."""
     return KbService(session, KbRepository(session))
+
+
+def get_regression_case_service(
+    session: AsyncSession = Depends(get_session),
+) -> RegressionCaseService:
+    return RegressionCaseService(session)
+
+
+def get_regression_runner(
+    session: AsyncSession = Depends(get_session),
+    provider: AiProvider | None = Depends(get_ai_provider),
+    wa_client: WhatsAppCloudClient = Depends(get_wa_client_for_ai),
+) -> RegressionRunner:
+    """Прогон регрессии: ставит задание воркеру, без очереди выполняет на месте."""
+    return RegressionRunner(session, provider, wa_client)

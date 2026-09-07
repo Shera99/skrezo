@@ -5305,6 +5305,257 @@
           "response": []
         },
         {
+          "name": "Кейсы регрессии клиники",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/cases?kind=string&active=True&result=string&q=string&page=1&pageSize=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "string",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "active",
+                  "value": "True",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "result",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "По итогу последнего прогона"
+                },
+                {
+                  "key": "q",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Поиск по вопросу и заметке"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Каждый одобренный ответ, выученный вопрос и инцидент — кейс. Кейс уникален по\nвиду и вопросу: повтор обновляет ожидание, а не плодит дубли."
+          },
+          "response": []
+        },
+        {
+          "name": "Ручной кейс",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/cases",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "cases"
+              ]
+            },
+            "description": "Когда эталон известен без диалога: knowledge/reply — эталонный ответ или\nключевые слова; refusal — выдуманный ответ, который валидатор обязан снять;\nmedical — ожидание фильтра.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"reply\",\n  \"lang\": \"ru\",\n  \"question\": \"Есть ли у вас парковка?\",\n  \"expectedReply\": \"string\",\n  \"keywords\": [\n    \"string\"\n  ],\n  \"medical\": \"string\",\n  \"proposed\": \"string\",\n  \"note\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Выключить/включить кейс, заметка",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "cases",
+                "{{case_id}}"
+              ]
+            },
+            "description": "Выключенный кейс в прогон не попадает и от новых одобрений не воскресает.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true,\n  \"note\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Удалить кейс",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "cases",
+                "{{case_id}}"
+              ]
+            },
+            "description": "Вместе с итогами прошлых прогонов по нему."
+          },
+          "response": []
+        },
+        {
+          "name": "Запустить прогон",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/runs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "runs"
+              ]
+            },
+            "description": "Перед сменой промпта, базы знаний, глоссария или модели. `offline` — без модели\nи бесплатно (медфильтр, валидатор на снятой выдумке, наличие знания в промпте);\n`model` — сухой прогон модели по каждому кейсу: ничего не уходит пациентам,\nтокены учитываются клинике. Выполняется в воркере — опрашивайте прогон.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"offline\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "История прогонов",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/runs?page=1&pageSize=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Новые сверху; у каждого — версия промпта и модель, на которых прогонялось."
+          },
+          "response": []
+        },
+        {
+          "name": "Прогон с итогами по кейсам",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/regression/runs/{{run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "regression",
+                "runs",
+                "{{run_id}}"
+              ]
+            },
+            "description": "Проваленные кейсы первыми: что ожидали, что получили, заметка валидатора."
+          },
+          "response": []
+        },
+        {
           "name": "Режим AI-ассистента клиники",
           "request": {
             "method": "PUT",
@@ -5421,6 +5672,11 @@
       "type": "string"
     },
     {
+      "key": "case_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
       "key": "clinic_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
@@ -5477,6 +5733,11 @@
     },
     {
       "key": "role_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "run_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },
