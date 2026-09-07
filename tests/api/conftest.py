@@ -74,7 +74,7 @@ class _FakeProvider:
         temperature: float,
         max_tokens: int,
     ) -> AiResult:
-        self.calls.append({"system": system, "parts": parts})
+        self.calls.append({"system": system, "parts": parts, "tools": tools})
         if not self.script:
             return AiResult(text=_reply_json("Хорошо."), model=self.model_name)
         return self.script.pop(0)

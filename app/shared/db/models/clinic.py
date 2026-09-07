@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -50,5 +52,9 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     )
     ai_mode_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_mode_before_off: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ф7: потолки умений {booking, changes}: off | assisted | auto; пусто — как ступень.
+    ai_skills: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     # Заметки саппорта — видны и правятся только в платформенной зоне.
     support_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

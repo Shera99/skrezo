@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 PROMPT_VERSION = "v2"
@@ -75,6 +76,53 @@ _RULES = """Ты — ассистент стоматологической кл�
   medical, needs_human: true."""
 
 
+# Ф7: правила режутся на блоки — умение можно выключить или ограничить.
+_BOOKING_START = _RULES.index("КАК ВЕСТИ ЗАПИСЬ")
+_CHANGES_START = _RULES.index("ПЕРЕНОС И ОТМЕНА ЗАПИСИ")
+_TAIL_START = _RULES.index("ФОРМАТ ОТВЕТА")
+_RULES_HEAD = _RULES[:_BOOKING_START]
+_BOOKING_BLOCK = _RULES[_BOOKING_START:_CHANGES_START]
+_CHANGES_BLOCK = _RULES[_CHANGES_START:_TAIL_START]
+_RULES_TAIL = _RULES[_TAIL_START:]
+
+_BOOKING_OFF = """ЗАПИСЬ ЧЕРЕЗ БОТА ОТКЛЮЧЕНА клиникой: инструментов записи у тебя нет. На
+просьбу записаться ответь, что запись оформит администратор, и поставь
+needs_human: true.
+
+"""
+_BOOKING_ASSISTED_NOTE = """   Внимание: кнопка подтверждения пациенту НЕ уходит — после
+   propose_appointment скажи, что администратор подтвердит запись и напишет."""
+_CHANGES_OFF = """ПЕРЕНОС И ОТМЕНА ЧЕРЕЗ БОТА ОТКЛЮЧЕНЫ клиникой: на такую просьбу ответь, что
+этим займётся администратор, и поставь needs_human: true.
+
+"""
+_CHANGES_ASSISTED_NOTE = """- Внимание: кнопка пациенту НЕ уходит — после propose_reschedule или
+  propose_cancel скажи, что администратор подтвердит изменение и напишет."""
+
+
+def _skill_block(block: str, level: str, off_text: str, assisted_note: str) -> str:
+    if level == "off":
+        return off_text
+    if level == "assisted":
+        return block.rstrip("\n") + "\n" + assisted_note + "\n\n"
+    return block
+
+
+def rules_for(skills: Mapping[str, str] | None) -> str:
+    """Правила с блоками умений по их действующим уровням (Ф7)."""
+    levels = skills or {}
+    return (
+        _RULES_HEAD
+        + _skill_block(
+            _BOOKING_BLOCK, levels.get("booking", "auto"), _BOOKING_OFF, _BOOKING_ASSISTED_NOTE
+        )
+        + _skill_block(
+            _CHANGES_BLOCK, levels.get("changes", "auto"), _CHANGES_OFF, _CHANGES_ASSISTED_NOTE
+        )
+        + _RULES_TAIL
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ClinicCard:
     """Карточка клиники для префикса (§4.1, блок 2)."""
@@ -91,11 +139,13 @@ def build_system_prompt(
     glossary: list[tuple[str, str]],
     kb_documents: list[tuple[str, str]],
     summaries: list[str] | None = None,
+    skills: Mapping[str, str] | None = None,
 ) -> str:
     """Собрать префикс: правила → карточка → глоссарий → база знаний → резюме.
 
     ``lang=None`` — язык диалога ещё не определён (первое сообщение): модель
-    сама распознаёт язык собеседника (§10.2) и отвечает на нём.
+    сама распознаёт язык собеседника (§10.2) и отвечает на нём. ``skills`` —
+    действующие уровни умений (Ф7): выключенное умение теряет свой блок правил.
     """
     lang_rule = (
         f"Отвечай на языке диалога ({lang}): ru — русский, ky — кыргызский."
@@ -103,7 +153,7 @@ def build_system_prompt(
         else "Определи язык собеседника (ru — русский, ky — кыргызский; смешанная "
         "речь — по большинству текста, при неуверенности ru) и отвечай на нём."
     )
-    blocks = [_RULES.format(clinic_name=card.name, lang_rule=lang_rule)]
+    blocks = [rules_for(skills).format(clinic_name=card.name, lang_rule=lang_rule)]
 
     card_lines = [f"КАРТОЧКА КЛИНИКИ:\nНазвание: {card.name}"]
     if card.address:

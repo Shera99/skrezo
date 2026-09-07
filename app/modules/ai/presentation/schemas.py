@@ -631,8 +631,21 @@ class TrustStatsOut(CamelModel):
     fact_error_days: int
 
 
+class SkillOut(CamelModel):
+    """Умение × клиника: потолок и действующий уровень."""
+
+    key: str = Field(description="booking | changes", examples=["booking"])
+    title: str = Field(examples=["Запись на приём"])
+    description: str
+    cap: str = Field(description="Потолок клиники: off | assisted | auto", examples=["assisted"])
+    effective: str = Field(
+        description="Действующий уровень = min(ступень, потолок): off | shadow | assisted | auto",
+        examples=["assisted"],
+    )
+
+
 class TrustLadderResponse(CamelModel):
-    """Экран «Настройки → Ассистент»: выключатель и лестница Наблюдаю → Проверяю → Доверяю."""
+    """Экран «Настройки → Ассистент»: выключатель, лестница и матрица умений."""
 
     mode: AiMode
     enabled: bool = Field(description="false — ассистент выключен (off)")
@@ -648,6 +661,10 @@ class TrustLadderResponse(CamelModel):
     stats: TrustStatsOut
     steps: list[TrustStepOut]
     next: TrustStepOut | None = Field(default=None, description="Следующая ступень и её условия")
+    skills: list[SkillOut] = Field(
+        default_factory=list,
+        description="Матрица умений: запись, перенос/отмена — потолок и действующий уровень",
+    )
 
 
 class SetTrustRequest(CamelModel):
@@ -660,9 +677,14 @@ class SetTrustRequest(CamelModel):
     level: str | None = Field(
         default=None, pattern="^(shadow|assisted|auto)$", examples=["assisted"]
     )
+    skills: dict[str, str] | None = Field(
+        default=None,
+        description="Потолки умений: {booking?: off|assisted|auto, changes?: off|assisted|auto}",
+        examples=[{"booking": "assisted"}],
+    )
 
     @model_validator(mode="after")
     def _something_requested(self) -> SetTrustRequest:
-        if self.enabled is None and self.level is None:
-            raise ValueError("Укажите level или enabled")
+        if self.enabled is None and self.level is None and not self.skills:
+            raise ValueError("Укажите level, enabled или skills")
         return self

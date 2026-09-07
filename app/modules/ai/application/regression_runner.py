@@ -22,11 +22,12 @@ from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.modules.ai.application.kb import KbService
 from app.modules.ai.application.reply_service import ProcessAiReplyService
-from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
+from app.modules.ai.application.tools import ToolContext, ToolExecutor, tool_decls_for
 from app.modules.ai.domain.learning import RUN_MODES, Evaluation, evaluate_keywords
 from app.modules.ai.domain.medical import MedicalKind, classify
 from app.modules.ai.domain.prompt import PROMPT_VERSION
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
+from app.modules.ai.domain.skills import effective_skills
 from app.modules.ai.domain.validator import VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.ai.infrastructure.repositories.kb_repository import KbRepository
@@ -284,13 +285,14 @@ class RegressionRunner:
             binding_phone_number_id=None,
         )
         raw_text: str | None = None
+        tools = tool_decls_for(effective_skills(clinic.ai_mode, clinic.ai_skills))
         try:
             for _ in range(settings.ai_max_tool_calls + 1):
                 await self._session.commit()  # соединение свободно на время модели
                 result = await self._provider.complete(
                     system=system,
                     parts=parts,
-                    tools=TOOL_DECLS,
+                    tools=tools,
                     temperature=settings.ai_temperature,
                     max_tokens=settings.ai_max_tokens,
                 )

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import time as time_mod
 import uuid
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ from app.modules.ai.application.booking import (
     BookingService,
     ProposeResult,
 )
+from app.modules.ai.domain.skills import DEFAULT_SKILLS, disabled_tools
 from app.modules.ai.domain.texts import booking_text
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.patients.infrastructure.repositories.patient_repository import (
@@ -40,7 +42,7 @@ from app.modules.schedule.infrastructure.repositories.schedule_repository import
     ScheduleRepository,
 )
 from app.shared.ai import AiToolDecl
-from app.shared.db.enums import AiMode, AppointmentStatus, Lang
+from app.shared.db.enums import AppointmentStatus, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.appointment import Appointment
@@ -213,6 +215,8 @@ class ToolContext:
     clinic: Clinic
     wa_client: WhatsAppCloudClient
     binding_phone_number_id: str | None
+    #: Действующие уровни умений (Ф7): off | shadow | assisted | auto.
+    skills: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SKILLS))
 
     @property
     def clinic_id(self) -> uuid.UUID:
@@ -288,6 +292,10 @@ class ToolExecutor:
     async def _dispatch(
         self, context: ToolContext, name: str, args: dict[str, Any]
     ) -> dict[str, Any] | list[Any]:
+        if name in disabled_tools(context.skills):
+            # Вторая линия: декларации уже отфильтрованы, но модель могла
+            # вспомнить инструмент по истории диалога.
+            return {"error": f"инструмент {name} отключён настройками клиники"}
         if name == "get_services":
             return await self._get_services(context, str(args.get("query") or ""))
         if name == "get_doctors":
@@ -428,7 +436,7 @@ class ToolExecutor:
             **result.card,
             "startsAt": starts_at.astimezone(self._clinic_tz(context)).isoformat(),
         }
-        return {**card, "buttonSent": button_sent}
+        return {**card, "buttonSent": button_sent, **self._handoff(context, "booking", card)}
 
     async def _propose_change(
         self, context: ToolContext, args: dict[str, Any], *, kind: str
@@ -459,13 +467,30 @@ class ToolExecutor:
         except WhatsAppSendError as exc:
             return {"error": f"кнопка не отправилась: {exc}"}
         card = {**result.card, "startsAt": when.astimezone(self._clinic_tz(context)).isoformat()}
-        return {**card, "buttonSent": button_sent}
+        return {**card, "buttonSent": button_sent, **self._handoff(context, "changes", card)}
+
+    @staticmethod
+    def _handoff(context: ToolContext, skill: str, card: dict[str, Any]) -> dict[str, Any]:
+        """Потолок умения assisted (Ф7): действие за администратором — эскалация с карточкой."""
+        if context.skills.get(skill, "auto") != "assisted":
+            return {}
+        reason = "booking_needs_human" if skill == "booking" else "change_needs_human"
+        when = datetime.fromisoformat(str(card["startsAt"])).strftime("%d.%m %H:%M")
+        bits = [str(card.get("service") or "Приём"), f"врач {card.get('doctor')}", when]
+        if skill == "changes":
+            bits.insert(0, "отмена" if card.get("kind") == HOLD_CANCEL else "перенос")
+        return {"_escalate": reason, "_note": ", ".join(bits)}
 
     async def _send_button(
         self, context: ToolContext, kind: str, result: ProposeResult, when: datetime
     ) -> bool:
-        """Кнопка подтверждения — только в auto: в shadow/assisted пациент бота не видит."""
-        if context.clinic.ai_mode is not AiMode.AUTO or context.binding_phone_number_id is None:
+        """Кнопка подтверждения — только при действующем уровне умения auto.
+
+        В shadow/assisted пациент бота не видит; при потолке умения assisted
+        (Ф7) кнопку заменяет эскалация — запись подтверждает администратор.
+        """
+        skill = "booking" if kind == HOLD_BOOK else "changes"
+        if context.skills.get(skill, "auto") != "auto" or context.binding_phone_number_id is None:
             return False
         lang = "ky" if context.conversation.lang is Lang.KG else "ru"
         text_key, title_key = _BUTTON_TEXTS[kind]
@@ -616,3 +641,9 @@ def _same_person(said: str, on_card: str) -> bool:
         return True
     stem = min(len(a), len(b), 4)
     return stem >= 3 and a[:stem] == b[:stem]
+
+
+def tool_decls_for(skills: Mapping[str, str]) -> list[AiToolDecl]:
+    """Декларации инструментов без выключенных умений (Ф7)."""
+    hidden = disabled_tools(skills)
+    return [decl for decl in TOOL_DECLS if decl.name not in hidden]

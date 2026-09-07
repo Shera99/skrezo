@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ConflictError, ValidationAppError
+from app.modules.ai.domain.skills import CAP_LEVELS, SKILLS, caps_from, effective_level
 from app.modules.ai.domain.trust import (
     LEVELS,
     StepGate,
@@ -32,6 +33,13 @@ from app.shared.db.models.clinic import Clinic
 
 
 @dataclass(frozen=True, slots=True)
+class SkillState:
+    key: str
+    cap: str
+    effective: str
+
+
+@dataclass(frozen=True, slots=True)
 class TrustOverview:
     mode: AiMode
     level_before_off: str | None
@@ -39,6 +47,7 @@ class TrustOverview:
     reason: str | None
     stats: TrustStats
     steps: tuple[StepGate, ...]
+    skills: tuple[SkillState, ...] = ()
 
     @property
     def enabled(self) -> bool:
@@ -69,6 +78,29 @@ class TrustLadderService:
             reason=clinic.ai_mode_reason,
             stats=stats,
             steps=tuple(self._gate(level, stats) for level in LEVELS),
+            skills=self._skills(clinic),
+        )
+
+    async def set_skills(self, clinic: Clinic, caps: dict[str, str]) -> dict[str, str]:
+        """Потолки умений (Ф7): off | assisted | auto; гейта нет — потолок только режет."""
+        for skill, cap in caps.items():
+            if skill not in SKILLS or cap not in CAP_LEVELS:
+                raise ValidationAppError(
+                    "Умение: booking или changes; уровень: off, assisted или auto",
+                    code="skill_unknown",
+                )
+        merged = {**caps_from(clinic.ai_skills), **caps}
+        # Дефолт (auto) не храним — пустой объект значит «как ступень».
+        clinic.ai_skills = {k: v for k, v in merged.items() if v != "auto"}
+        await self._session.commit()
+        return merged
+
+    @staticmethod
+    def _skills(clinic: Clinic) -> tuple[SkillState, ...]:
+        caps = caps_from(clinic.ai_skills)
+        return tuple(
+            SkillState(skill, caps[skill], effective_level(clinic.ai_mode, caps[skill]))
+            for skill in SKILLS
         )
 
     async def change(

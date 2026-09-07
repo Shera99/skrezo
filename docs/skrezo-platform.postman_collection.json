@@ -5642,10 +5642,10 @@
                 "trust"
               ]
             },
-            "description": "`level` ставит ступень (и включает бота); вверх — только когда гейт открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
+            "description": "`level` ставит ступень (и включает бота); вверх — только когда гейт открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её.\n`skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у\nмодели, `assisted` оставляет подбор боту, а действие — администратору\n(эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"enabled\": true,\n  \"level\": \"assisted\"\n}",
+              "raw": "{\n  \"enabled\": true,\n  \"level\": \"assisted\",\n  \"skills\": {\n    \"booking\": \"assisted\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"

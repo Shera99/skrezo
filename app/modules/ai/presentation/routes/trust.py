@@ -11,10 +11,12 @@ from app.core.db import get_session
 from app.core.errors import ForbiddenError, NotFoundError
 from app.modules.access.presentation.deps import require_permission
 from app.modules.ai.application.trust import TrustLadderService, TrustOverview
+from app.modules.ai.domain.skills import SKILL_TITLES
 from app.modules.ai.domain.trust import LEVEL_TITLES
 from app.modules.ai.presentation.deps import get_trust_ladder_service
 from app.modules.ai.presentation.schemas import (
     SetTrustRequest,
+    SkillOut,
     TrustLadderResponse,
     TrustRequirementOut,
     TrustStatsOut,
@@ -89,6 +91,16 @@ def _response(overview: TrustOverview) -> TrustLadderResponse:
         ),
         steps=steps,
         next=next((s for s in steps if nxt is not None and s.level == nxt.level), None),
+        skills=[
+            SkillOut(
+                key=skill.key,
+                title=SKILL_TITLES[skill.key][0],
+                description=SKILL_TITLES[skill.key][1],
+                cap=skill.cap,
+                effective=skill.effective,
+            )
+            for skill in overview.skills
+        ],
     )
 
 
@@ -127,17 +139,31 @@ async def set_trust_ladder(
 ) -> TrustLadderResponse:
     """`level` ставит ступень (и включает бота); вверх — только когда гейт открыт
     (иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`
-    выключает, помня ступень; `enabled:true` без `level` возвращает её. Команда
+    выключает, помня ступень; `enabled:true` без `level` возвращает её.
+    `skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у
+    модели, `assisted` оставляет подбор боту, а действие — администратору
+    (эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда
     Skrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`."""
     clinic = await _clinic(context, session)
-    was, now = await service.change(clinic, enabled=body.enabled, level=body.level)
-    if was is not now:
+    if body.enabled is not None or body.level is not None:
+        was, now = await service.change(clinic, enabled=body.enabled, level=body.level)
+        if was is not now:
+            await audit.record_clinic(
+                actor_id=context.account_id,
+                clinic_id=clinic.id,
+                action="assistant.trust",
+                entity_type="clinic",
+                entity_id=clinic.id,
+                payload={"from": was.value, "to": now.value},
+            )
+    if body.skills:
+        caps = await service.set_skills(clinic, body.skills)
         await audit.record_clinic(
             actor_id=context.account_id,
             clinic_id=clinic.id,
-            action="assistant.trust",
+            action="assistant.skills",
             entity_type="clinic",
             entity_id=clinic.id,
-            payload={"from": was.value, "to": now.value},
+            payload={"skills": caps},
         )
     return _response(await service.overview(clinic))

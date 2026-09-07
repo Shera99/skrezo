@@ -27,11 +27,12 @@ from app.modules.ai.application.booking import BookingService
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.summary import recent_summaries
-from app.modules.ai.application.tools import TOOL_DECLS, ToolContext, ToolExecutor
+from app.modules.ai.application.tools import ToolContext, ToolExecutor, tool_decls_for
 from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
+from app.modules.ai.domain.skills import effective_skills
 from app.modules.ai.domain.texts import medical_text, service_text
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
@@ -165,6 +166,7 @@ class ProcessAiReplyService:
         # модель распознаёт язык сама, и V07 не применяется.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
         lang: str | None = None if first_reply else ("ky" if conversation.lang is Lang.KG else "ru")
+        skills = effective_skills(clinic.ai_mode, clinic.ai_skills)
         system = await self.system_prompt(clinic, lang, conversation.wa_phone)
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
@@ -176,7 +178,9 @@ class ProcessAiReplyService:
             binding_phone_number_id=(
                 binding.phone_number_id if binding is not None and binding.active else None
             ),
+            skills=skills,
         )
+        tools = tool_decls_for(skills)
 
         escalate_call: dict[str, Any] | None = None
         raw_text: str | None = None
@@ -192,7 +196,7 @@ class ProcessAiReplyService:
                 result = await provider.complete(
                     system=system,
                     parts=parts,
-                    tools=TOOL_DECLS,
+                    tools=tools,
                     temperature=settings.ai_temperature,
                     max_tokens=settings.ai_max_tokens,
                 )
@@ -208,9 +212,13 @@ class ProcessAiReplyService:
                     conversation.id, tool_context, call.name, call.args
                 )
                 # Инструмент может потребовать человека сам (§6.5 «чужой
-                # телефон»): такие случаи не отдаём на усмотрение модели.
+                # телефон», Ф7 «запись подтверждает администратор»): такие
+                # случаи не отдаём на усмотрение модели.
                 if isinstance(outcome, dict) and outcome.get("_escalate"):
-                    escalate_call = {"reason": str(outcome["_escalate"])}
+                    escalate_call = {
+                        "reason": str(outcome["_escalate"]),
+                        "note": outcome.get("_note"),
+                    }
                     break
                 parts.append(
                     AiMessagePart(
@@ -305,7 +313,9 @@ class ProcessAiReplyService:
             phone=clinic.business_phone,
             working_hours=None,  # человекочитаемый график — вместе с KB-редактором
         )
-        return build_system_prompt(card, lang, glossary, kb, summaries)
+        return build_system_prompt(
+            card, lang, glossary, kb, summaries, effective_skills(clinic.ai_mode, clinic.ai_skills)
+        )
 
     async def _history_parts(self, conversation: AiConversation) -> list[AiMessagePart]:
         """Последние 20 сообщений диалога → реплики хода (§4.1, блок 7)."""
