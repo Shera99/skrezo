@@ -17,6 +17,9 @@ class UsageTotalsOut(CamelModel):
     model_calls: int = Field(description="Вызовов модели (ответы ассистента и резюме)")
     model_input_tokens: int = Field(description="Токенов запроса суммарно")
     model_output_tokens: int = Field(description="Токенов ответа суммарно")
+    model_cached_tokens: int = Field(
+        default=0, description="Из токенов запроса взято из кэша префикса (Ф8) — дешевле"
+    )
     assistant_replies: int = Field(
         description="Ответов ассистента: отправленных, черновиков, теневых"
     )

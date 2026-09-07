@@ -167,7 +167,8 @@ class ProcessAiReplyService:
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
         lang: str | None = None if first_reply else ("ky" if conversation.lang is Lang.KG else "ru")
         skills = effective_skills(clinic.ai_mode, clinic.ai_skills)
-        system = await self.system_prompt(clinic, lang, conversation.wa_phone)
+        system = await self.system_prompt(clinic, lang)
+        cache_scope = f"clinic:{clinic.id}"
         parts = await self._history_parts(conversation)
         executor = ToolExecutor(self._session, self._repository)
         binding = await self._whatsapp.binding_by_clinic(clinic.id)
@@ -199,6 +200,7 @@ class ProcessAiReplyService:
                     tools=tools,
                     temperature=settings.ai_temperature,
                     max_tokens=settings.ai_max_tokens,
+                    cache_scope=cache_scope,
                 )
                 await self._meter.model_call(clinic.id, result.usage)
                 if result.tool_call is None:
@@ -301,12 +303,16 @@ class ProcessAiReplyService:
 
     # ── Контекст ────────────────────────────────────────────────────────────
 
-    async def system_prompt(self, clinic: Clinic, lang: str | None, wa_phone: str | None) -> str:
-        """Системный промпт клиники; без номера — без резюме (сухой прогон регрессии)."""
+    async def system_prompt(self, clinic: Clinic, lang: str | None) -> str:
+        """Системный промпт клиники — одинаков для всех её диалогов на языке.
+
+        Ф8: именно поэтому в нём нет ничего про пациента — префикс кэшируется
+        у провайдера на клинику; резюме прошлых обращений едут в первую
+        реплику (см. ``_history_parts``).
+        """
         glossary = await self._repository.approved_glossary(clinic.id)
         kb = await self._repository.kb_for_prompt(clinic.id, lang or "ru")
-        # §4.1: последние пять резюме по номеру — разговор не с чистого листа.
-        summaries = await recent_summaries(self._session, clinic.id, wa_phone) if wa_phone else []
+        summaries: list[str] = []
         card = ClinicCard(
             name=clinic.name,
             address=clinic.address,
@@ -341,6 +347,22 @@ class ProcessAiReplyService:
                 parts.append(AiMessagePart(role="model", text=message.body))
         if not parts or parts[-1].role != "user":
             parts.append(AiMessagePart(role="user", text=""))
+        # §4.1: последние пять резюме по номеру — разговор не с чистого листа.
+        # Ф8: они про пациента, а не про клинику, поэтому не в системном промпте
+        # (тот кэшируется на клинику), а в первой реплике пациента.
+        summaries = await recent_summaries(
+            self._session, conversation.clinic_id, conversation.wa_phone
+        )
+        if summaries:
+            first = next(i for i, part in enumerate(parts) if part.role == "user")
+            past = "\n".join(f"— {s}" for s in summaries)
+            parts[first] = AiMessagePart(
+                role="user",
+                text=(
+                    "О ЧЁМ ГОВОРИЛИ РАНЬШЕ (прошлые обращения этого номера, свежие "
+                    f"сверху; фон, а не факты для ответа):\n{past}\n\n{parts[first].text or ''}"
+                ),
+            )
         return parts
 
     # ── Разбор и перегенерация ──────────────────────────────────────────────
@@ -407,6 +429,7 @@ class ProcessAiReplyService:
             tools=[],
             temperature=settings.ai_temperature,
             max_tokens=settings.ai_max_tokens,
+            cache_scope=f"clinic:{clinic_id}",
         )
         await self._meter.model_call(clinic_id, result.usage)
         return result.text or ""

@@ -26,6 +26,10 @@ def build_ai_provider(redis: Redis | None = None) -> AiProvider | None:
             settings.gemini_api_key,
             settings.gemini_model,
             thinking_level=settings.gemini_thinking_level,
+            # Ф8: реестр кэшей префикса общий для всех процессов — тот же Redis.
+            redis=redis,
+            cache_ttl_seconds=settings.ai_prefix_cache_ttl_seconds,
+            cache_enabled=settings.ai_prefix_cache_enabled,
         )
         return ResilientProvider(
             inner,

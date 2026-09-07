@@ -18,6 +18,7 @@ def rate_card_from_settings() -> RateCard:
     return RateCard(
         ai_input_per_mtok=settings.ai_rate_input_tiyin_per_mtok,
         ai_output_per_mtok=settings.ai_rate_output_tiyin_per_mtok,
+        ai_cached_input_per_mtok=settings.ai_rate_cached_input_tiyin_per_mtok,
         wa_utility=settings.wa_rate_utility_tiyin,
         wa_marketing=settings.wa_rate_marketing_tiyin,
         wa_authentication=settings.wa_rate_authentication_tiyin,

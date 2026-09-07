@@ -207,7 +207,7 @@ class RegressionRunner:
             proposed = str(expect.get("proposed") or "")
             if not proposed:
                 return Evaluation("skipped", "отказ или факты", "", note=_NEEDS_MODEL)
-            system = await self._reply.system_prompt(clinic, case.lang, None)
+            system = await self._reply.system_prompt(clinic, case.lang)
             facts = await self._reply.turn_facts(
                 clinic, system, [AiMessagePart(role="user", text=case.question)]
             )
@@ -268,7 +268,7 @@ class RegressionRunner:
         if self._provider is None:
             return DryRun(outcome="error", note="модель не настроена")
 
-        system = await self._reply.system_prompt(clinic, lang, None)
+        system = await self._reply.system_prompt(clinic, lang)
         parts = [AiMessagePart(role="user", text=question)]
         executor = ToolExecutor(self._session, AiRepository(self._session))
         # Диалог-пустышка вне сессии: инструментам чтения нужны только клиника и язык.
@@ -295,6 +295,7 @@ class RegressionRunner:
                     tools=tools,
                     temperature=settings.ai_temperature,
                     max_tokens=settings.ai_max_tokens,
+                    cache_scope=f"clinic:{clinic.id}",
                 )
                 await self._meter.model_call(clinic.id, result.usage)
                 if result.tool_call is None:

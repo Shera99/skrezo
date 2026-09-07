@@ -18,6 +18,8 @@ class RateCard:
 
     ai_input_per_mtok: int = 0
     ai_output_per_mtok: int = 0
+    #: Токены из кэша префикса (Ф8) — своя, меньшая ставка.
+    ai_cached_input_per_mtok: int = 0
     wa_utility: int = 0
     wa_marketing: int = 0
     wa_authentication: int = 0
@@ -30,6 +32,8 @@ class UsageTotals:
     model_calls: int = 0
     model_input_tokens: int = 0
     model_output_tokens: int = 0
+    #: Из них взято из кэша префикса (входят в model_input_tokens).
+    model_cached_tokens: int = 0
     assistant_replies: int = 0
     dialogs: int = 0
     wa_sent: int = 0
@@ -51,8 +55,10 @@ def estimate_cost_tiyin(totals: UsageTotals, rates: RateCard) -> int:
     Платные сообщения неизвестной категории считаются по utility-ставке —
     самой частой у клиники (напоминания) и потому наименее удивительной.
     """
+    cached = min(totals.model_cached_tokens, totals.model_input_tokens)
     model = (
-        totals.model_input_tokens * rates.ai_input_per_mtok
+        (totals.model_input_tokens - cached) * rates.ai_input_per_mtok
+        + cached * rates.ai_cached_input_per_mtok
         + totals.model_output_tokens * rates.ai_output_per_mtok
     ) // 1_000_000
     whatsapp = (

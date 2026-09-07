@@ -23,6 +23,7 @@ USAGE_COUNTERS: tuple[str, ...] = (
     "model_calls",
     "model_input_tokens",
     "model_output_tokens",
+    "model_cached_tokens",
     "assistant_replies",
     "dialogs",
     "wa_sent",
@@ -49,6 +50,8 @@ class ClinicUsageDay(Base, UUIDPKMixin):
     model_calls: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     model_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     model_output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    #: Из токенов запроса взято из кэша префикса (Ф8) — тарифицируется дешевле.
+    model_cached_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     assistant_replies: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     dialogs: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     wa_sent: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")

@@ -188,6 +188,12 @@ class Settings(BaseSettings):
     #: ответы откладываются вместо лавины эскалаций администраторам.
     ai_breaker_threshold: int = 5
     ai_breaker_open_seconds: int = 60
+    #: Кэш префикса промпта у провайдера (Ф8): системный промпт клиники с
+    #: инструментами кладётся в cachedContents Gemini и переиспользуется всеми
+    #: ходами клиники, пока не изменится. TTL — сколько живёт кэш без правок;
+    #: реестр имён в Redis.
+    ai_prefix_cache_enabled: bool = True
+    ai_prefix_cache_ttl_seconds: int = 1800
     #: Регрессия клиники (Ф6): таймаут задания прогона и потолок кейсов за прогон.
     #: В режиме model каждый кейс — вызов модели (десятки секунд на free tier).
     ai_regression_job_timeout: int = 1800
@@ -206,6 +212,8 @@ class Settings(BaseSettings):
     #: провайдеров; смета пересчитывается по тем же счётчикам задним числом.
     ai_rate_input_tiyin_per_mtok: int = 0
     ai_rate_output_tiyin_per_mtok: int = 0
+    #: Ставка за токены, взятые из кэша префикса (обычно ~четверть входной).
+    ai_rate_cached_input_tiyin_per_mtok: int = 0
     wa_rate_utility_tiyin: int = 0
     wa_rate_marketing_tiyin: int = 0
     wa_rate_authentication_tiyin: int = 0

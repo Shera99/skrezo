@@ -42,6 +42,7 @@ class UsageMeter:
             model_calls=1,
             model_input_tokens=int(usage.get("input") or 0),
             model_output_tokens=int(usage.get("output") or 0),
+            model_cached_tokens=int(usage.get("cached") or 0),
         )
 
     async def assistant_reply(self, conversation: AiConversation) -> None:

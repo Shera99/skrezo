@@ -740,12 +740,16 @@ async def test_closed_conversation_gets_summary_and_next_talk_sees_it(
     assert "чистку" in summaries[0].body
     assert summaries[0].wa_phone == phone
 
-    # Новый разговор с того же номера: резюме уехало в системный промпт.
+    # Новый разговор с того же номера: резюме едет в первую реплику пациента —
+    # системный промпт кэшируется на клинику (Ф8) и про пациента не знает.
     fake.script = [AiResult(text=_reply_json("Здравствуйте снова!"))]
     await _simulate(admin_client, ctx, "Здравствуйте", phone)
     system = fake.calls[-1]["system"]
-    assert "О ЧЁМ ГОВОРИЛИ РАНЬШЕ" in system
-    assert "записалась на чистку" in system
+    assert "О ЧЁМ ГОВОРИЛИ РАНЬШЕ" not in system
+    first_user = next(p for p in fake.calls[-1]["parts"] if p.role == "user")
+    assert "О ЧЁМ ГОВОРИЛИ РАНЬШЕ" in (first_user.text or "")
+    assert "записалась на чистку" in (first_user.text or "")
+    assert fake.calls[-1]["cache_scope"] == f"clinic:{ctx.clinic_id}"
 
 
 async def test_summary_is_built_once(

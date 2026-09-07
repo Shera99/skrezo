@@ -69,6 +69,7 @@ class ResilientProvider:
         tools: list[AiToolDecl],
         temperature: float,
         max_tokens: int,
+        cache_scope: str | None = None,
     ) -> AiResult:
         if await self._is_open():
             raise AiProviderUnavailableError("провайдер на паузе: предохранитель разомкнут")
@@ -80,6 +81,7 @@ class ResilientProvider:
                     tools=tools,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    cache_scope=cache_scope,
                 )
             except AiProviderUnavailableError as exc:
                 if attempt < self._retries:

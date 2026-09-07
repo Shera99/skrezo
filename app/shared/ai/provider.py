@@ -91,6 +91,12 @@ class AiProvider(Protocol):
         tools: list[AiToolDecl],
         temperature: float,
         max_tokens: int,
+        cache_scope: str | None = None,
     ) -> AiResult:
-        """Один вызов модели; ошибки транспорта — :class:`AiProviderError`."""
+        """Один вызов модели; ошибки транспорта — :class:`AiProviderError`.
+
+        ``cache_scope`` — область кэша префикса (Ф8), например ``clinic:<id>``:
+        системный промпт и инструменты одинаковы для всех диалогов клиники и
+        кэшируются у провайдера; ``None`` — без кэша (резюме, разовые вызовы).
+        """
         ...
