@@ -950,6 +950,7 @@ async def test_dead_model_downgrades_auto_clinics(
         clinic = await session.get(Clinic, uuid.UUID(ctx.clinic_id))
         assert clinic is not None
         assert clinic.ai_mode is AiMode.ASSISTED
+        assert clinic.ai_mode_reason == "health" and clinic.ai_mode_changed_at is not None
 
 
 async def test_healthy_model_changes_nothing(

@@ -47,9 +47,7 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     PermissionDef(
         "schedule.manage_all", "schedule", "Управлять записями всех врачей", is_write=True
     ),
-    PermissionDef(
-        "schedule.manage_own", "schedule", "Управлять своими записями", is_write=True
-    ),
+    PermissionDef("schedule.manage_own", "schedule", "Управлять своими записями", is_write=True),
     # Пациенты
     PermissionDef("patients.view", "patients", "Просмотр списка пациентов"),
     PermissionDef("patients.edit", "patients", "Редактирование пациентов", is_write=True),
@@ -89,9 +87,7 @@ PERMISSION_CATALOG: list[PermissionDef] = [
     ),
     # Настройки клиники
     PermissionDef("settings.view", "settings", "Просмотр настроек клиники"),
-    PermissionDef(
-        "settings.edit", "settings", "Редактирование настроек клиники", is_write=True
-    ),
+    PermissionDef("settings.edit", "settings", "Редактирование настроек клиники", is_write=True),
     # Напоминания
     PermissionDef("reminders.manage", "reminders", "Управление напоминаниями", is_write=True),
     # Подписка / оплата
@@ -108,13 +104,20 @@ PERMISSION_CATALOG: list[PermissionDef] = [
         "Переписка WhatsApp с пациентами",
         is_write=True,
     ),
+    # Настройки ассистента (Ф7): ступени доверия и выключатель. По умолчанию
+    # только у владельца (is_owner) — решение доверить боту ответы пациентам
+    # не делегируется ролью автоматически.
+    PermissionDef(
+        "assistant.manage",
+        "settings",
+        "Настройки ассистента: ступени доверия и выключатель",
+        is_write=True,
+    ),
 ]
 
 ALL_PERMISSION_KEYS: tuple[str, ...] = tuple(p.key for p in PERMISSION_CATALOG)
 #: Права, меняющие данные, — их теряет клиника с закрытой подпиской.
-WRITE_PERMISSION_KEYS: frozenset[str] = frozenset(
-    p.key for p in PERMISSION_CATALOG if p.is_write
-)
+WRITE_PERMISSION_KEYS: frozenset[str] = frozenset(p.key for p in PERMISSION_CATALOG if p.is_write)
 
 
 class RoleDef(NamedTuple):

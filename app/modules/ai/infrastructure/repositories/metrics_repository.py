@@ -88,6 +88,22 @@ class MetricsRepository:
             ).scalar_one()
         )
 
+    async def shadow_replies_total(self, clinic_id: uuid.UUID) -> int:
+        """Ответов, прошедших валидатор в тени, за всё время — гейт ступени «Проверяю»."""
+        return int(
+            (
+                await self._session.execute(
+                    select(func.count()).where(
+                        AiMessage.clinic_id == clinic_id,
+                        AiMessage.role == AiMessageRole.BOT,
+                        AiMessage.sent_at.is_(None),
+                        AiMessage.review.is_(None),
+                        AiMessage.validator["passed"].as_boolean().is_(True),
+                    )
+                )
+            ).scalar_one()
+        )
+
     async def fact_errors_since(self, clinic_id: uuid.UUID, since: datetime) -> int:
         return int(
             (

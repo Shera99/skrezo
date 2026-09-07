@@ -16,6 +16,7 @@ from app.modules.ai.application.metrics import AssistantMetricsService
 from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_service import ProcessAiReplyService
+from app.modules.ai.application.trust import TrustLadderService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.ai.infrastructure.repositories.kb_repository import KbRepository
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
@@ -103,3 +104,8 @@ def get_assistant_metrics_service(
 ) -> AssistantMetricsService:
     """Метрики обучения и гейт доверия."""
     return AssistantMetricsService(session)
+
+
+def get_trust_ladder_service(session: AsyncSession = Depends(get_session)) -> TrustLadderService:
+    """Лестница доверия: ступени, гейт, выключатель."""
+    return TrustLadderService(session)

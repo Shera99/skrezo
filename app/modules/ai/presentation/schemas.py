@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import AiMode, GlossaryStatus
@@ -604,3 +604,65 @@ class AssistantMetricsResponse(CamelModel):
     series: list[MetricsSeriesPointOut] = Field(
         description="По дням в таймзоне клиники; для all — последние 92 дня"
     )
+
+
+class TrustRequirementOut(CamelModel):
+    key: str = Field(examples=["approvals"])
+    label: str = Field(examples=["одобренных ответов в режиме «Проверяю»"])
+    value: int = Field(examples=[153])
+    required: int = Field(examples=[200])
+    met: bool
+
+
+class TrustStepOut(CamelModel):
+    level: str = Field(description="shadow | assisted | auto", examples=["assisted"])
+    title: str = Field(examples=["Проверяю"])
+    description: str
+    current: bool
+    ready: bool = Field(description="Все условия ступени выполнены")
+    requirements: list[TrustRequirementOut]
+    blockers: list[str] = Field(description="Чего не хватает — готовые подписи")
+
+
+class TrustStatsOut(CamelModel):
+    shadow_replies: int = Field(description="Ответов, прошедших валидатор в тени, за всё время")
+    approvals: int = Field(description="Одобренных ответов за всё время")
+    fact_errors: int = Field(description="Ошибок V01–V03 за factErrorDays дней")
+    fact_error_days: int
+
+
+class TrustLadderResponse(CamelModel):
+    """Экран «Настройки → Ассистент»: выключатель и лестница Наблюдаю → Проверяю → Доверяю."""
+
+    mode: AiMode
+    enabled: bool = Field(description="false — ассистент выключен (off)")
+    level: str | None = Field(default=None, description="Ступень; null, когда выключен")
+    level_before_off: str | None = Field(
+        default=None, description="Заработанная ступень до выключения — вернётся при включении"
+    )
+    changed_at: datetime | None = None
+    reason: str | None = Field(
+        default=None,
+        description="Кто менял последним: manual (владелец) | health (мониторинг) | admin (Skrezo)",
+    )
+    stats: TrustStatsOut
+    steps: list[TrustStepOut]
+    next: TrustStepOut | None = Field(default=None, description="Следующая ступень и её условия")
+
+
+class SetTrustRequest(CamelModel):
+    """`level` ставит ступень (и включает); `enabled` — выключатель."""
+
+    enabled: bool | None = Field(
+        default=None,
+        description="false — выключить, помня ступень; true — включить на заработанную",
+    )
+    level: str | None = Field(
+        default=None, pattern="^(shadow|assisted|auto)$", examples=["assisted"]
+    )
+
+    @model_validator(mode="after")
+    def _something_requested(self) -> SetTrustRequest:
+        if self.enabled is None and self.level is None:
+            raise ValueError("Укажите level или enabled")
+        return self

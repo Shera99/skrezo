@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -19,6 +20,7 @@ from app.modules.ai.presentation.schemas import AiModeResponse, SetAiModeRequest
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
 from app.modules.platform_auth.presentation.deps import get_authenticated_user_id
+from app.shared.db.enums import AiMode
 from app.shared.db.models.clinic import Clinic
 
 router = APIRouter()
@@ -43,7 +45,12 @@ async def set_ai_mode(
     clinic = await session.get(Clinic, clinic_id)
     if clinic is None:
         raise NotFoundError("Клиент не найден", code="client_not_found")
+    if body.mode is AiMode.OFF and clinic.ai_mode is not AiMode.OFF:
+        clinic.ai_mode_before_off = clinic.ai_mode.value
     clinic.ai_mode = body.mode
+    # Ф7: команда Skrezo обходит гейт — причина видна владельцу на лестнице.
+    clinic.ai_mode_reason = "admin"
+    clinic.ai_mode_changed_at = datetime.now(UTC)
     await session.commit()
     await audit.record(
         actor_id=actor,

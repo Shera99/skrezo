@@ -176,7 +176,7 @@ class AiHealthService:
         result = await self._session.execute(
             update(Clinic)
             .where(Clinic.ai_mode == AiMode.AUTO)
-            .values(ai_mode=AiMode.ASSISTED)
+            .values(ai_mode=AiMode.ASSISTED, ai_mode_reason="health", ai_mode_changed_at=func.now())
             .returning(Clinic.id)
         )
         changed = list(result.scalars())

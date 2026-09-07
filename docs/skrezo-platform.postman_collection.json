@@ -5598,6 +5598,64 @@
           "response": []
         },
         {
+          "name": "Лестница доверия: текущая ступень, условия следующей",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "assistant",
+                "trust"
+              ]
+            },
+            "description": "Наблюдаю → Проверяю → Доверяю. Каждая ступень показывает свои условия:\n«Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —\nодобренные ответы («153 из 200») и ноль фактических ошибок за неделю.\nСмотреть может ресепшен, менять — право `assistant.manage` (владелец всегда)."
+          },
+          "response": []
+        },
+        {
+          "name": "Сменить ступень или выключить ассистента",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "assistant",
+                "trust"
+              ]
+            },
+            "description": "`level` ставит ступень (и включает бота); вверх — только когда гейт открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"level\": \"assisted\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Режим AI-ассистента клиники",
           "request": {
             "method": "PUT",

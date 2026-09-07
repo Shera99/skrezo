@@ -13,6 +13,7 @@ from app.modules.ai.presentation.routes import (
     regression,
     set_ai_mode,
     simulate,
+    trust,
 )
 
 router = APIRouter(tags=["ai"])
@@ -22,5 +23,6 @@ router.include_router(knowledge_gaps.router)
 router.include_router(kb.router)
 router.include_router(regression.router)
 router.include_router(metrics.router)
+router.include_router(trust.router)
 router.include_router(set_ai_mode.router)
 router.include_router(simulate.router)

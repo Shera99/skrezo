@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -42,5 +43,12 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     ai_mode: Mapped[AiMode] = mapped_column(
         AiModeType, nullable=False, server_default=AiMode.OFF.value
     )
+    # Ф7: память смены режима — когда, почему (manual | health | admin) и какая
+    # ступень была до выключения, чтобы «включить обратно» вернуло её.
+    ai_mode_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ai_mode_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_mode_before_off: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Заметки саппорта — видны и правятся только в платформенной зоне.
     support_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
