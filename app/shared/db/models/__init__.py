@@ -33,6 +33,7 @@ from app.shared.db.models.glossary_term import GlossaryTerm
 from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.kb_document import KbDocument
+from app.shared.db.models.kb_document_version import KbDocumentVersion
 from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.notification_delivery import NotificationDelivery
@@ -84,6 +85,7 @@ __all__ = [
     "InboxItem",
     "JobRun",
     "KbDocument",
+    "KbDocumentVersion",
     "Lead",
     "Membership",
     "NotificationDelivery",

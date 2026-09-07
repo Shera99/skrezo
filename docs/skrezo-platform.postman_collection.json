@@ -4997,6 +4997,43 @@
           "response": []
         },
         {
+          "name": "Переписать ответ моделью в документ базы знаний — на подтверждение",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/rewrite",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "knowledge-gaps",
+                "{{gap_id}}",
+                "rewrite"
+              ]
+            },
+            "description": "Администратор пишет как умеет — модель делает из этого аккуратный документ\nна языке вопроса (нейтрально, коротко, без цен). Человек правит и подтверждает\nчерез `answer`; токены вызова учитываются клинике.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"да парковка есть бесплатная во дворе заезд с токтогула\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Ответить своими словами — бот выучит сразу",
           "request": {
             "method": "POST",
@@ -5053,6 +5090,217 @@
               ]
             },
             "description": "Вопрос вычёркивается из очереди и больше в неё не возвращается."
+          },
+          "response": []
+        },
+        {
+          "name": "База знаний клиники со сводкой токенов",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb?lang=string&category=string&active=True&q=string&page=1&pageSize=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb"
+              ],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "string",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "string",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "active",
+                  "value": "True",
+                  "disabled": true,
+                  "description": "Только активные / только выключенные"
+                },
+                {
+                  "key": "q",
+                  "value": "string",
+                  "disabled": true,
+                  "description": "Поиск по заголовку и тексту"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true,
+                  "description": ""
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25",
+                  "disabled": true,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Что знает бот, кроме прайса и расписания. Сводка — оценка токенов активных\nдокументов по языкам против порога 30 000: до него база уходит в промпт целиком,\nу каждого документа — признак `inPrompt`."
+          },
+          "response": []
+        },
+        {
+          "name": "Новый документ базы знаний",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb"
+              ]
+            },
+            "description": "Только редко меняющийся текст: как доехать, подготовка к приёму, что после\nудаления, правила отмены. Цены, график и врачей бот берёт из живой базы —\nдокумент с ценой не сохранится (422 `kb_price_forbidden`). Знание действует\nсо следующего хода бота.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Как доехать\",\n  \"category\": \"logistics\",\n  \"body\": \"string\",\n  \"lang\": \"ru\",\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Документ с историей версий",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Версии — новые сверху; последняя всегда равна текущему тексту."
+          },
+          "response": []
+        },
+        {
+          "name": "Правка документа — новая версия",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Передаются только изменяемые поля. `isActive:false` выключает документ для\nбота, не удаляя его. Каждое сохранение — версия, к которой можно вернуться.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"string\",\n  \"category\": \"string\",\n  \"body\": \"string\",\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Удалить документ безвозвратно",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Вместе с историей версий. Чтобы бот перестал использовать документ, но текст\nостался — `PATCH {isActive:false}`."
+          },
+          "response": []
+        },
+        {
+          "name": "Вернуться к версии",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}/rollback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clinic",
+                "kb",
+                "{{document_id}}",
+                "rollback"
+              ]
+            },
+            "description": "Содержимое версии N становится текущим — как новая версия с пометкой\n«к версии N»; история не переписывается.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"versionNo\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         },
@@ -5184,6 +5432,11 @@
     },
     {
       "key": "doctor_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "document_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

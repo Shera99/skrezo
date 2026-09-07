@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Index, Text, text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -22,9 +22,7 @@ from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
 
 class KbDocument(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "kb_document"
-    __table_args__ = (
-        Index("ix_kb_document_clinic_lang", "clinic_id", "lang"),
-    )
+    __table_args__ = (Index("ix_kb_document_clinic_lang", "clinic_id", "lang"),)
 
     clinic_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("clinic.id", ondelete="CASCADE"), nullable=False
@@ -34,6 +32,6 @@ class KbDocument(Base, UUIDPKMixin, TimestampMixin):
     category: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     lang: Mapped[str] = mapped_column(Text, nullable=False)  # ru | ky
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    #: Номер текущей версии — равен последней строке kb_document_version.
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")

@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ai.domain.knowledge import KB_PROMPT_MAX_CHARS, fits_in_prompt
 from app.shared.db.enums import AiMessageRole, GlossaryStatus
 from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
@@ -101,12 +102,13 @@ class AiRepository:
     # ── База знаний ─────────────────────────────────────────────────────────
 
     async def kb_for_prompt(
-        self, clinic_id: uuid.UUID, lang: str, *, max_chars: int = 20_000
+        self, clinic_id: uuid.UUID, lang: str, *, max_chars: int = KB_PROMPT_MAX_CHARS
     ) -> list[tuple[str, str]]:
         """Активные документы на языке диалога, суммарно не длиннее потолка.
 
-        Потолок — страховка кэшируемого префикса (spec_1: полный контекст до
-        30 000 токенов; счётчик и включение поиска — следующий инкремент).
+        Потолок — тот же, что показывает редактор базы знаний (30 000 токенов ≈
+        90 000 символов): что не поместилось, помечено там «не в промпте».
+        Подбор нужных документов вместо всех — когда клиника упрётся в порог.
         """
         rows = (
             await self._session.execute(
@@ -116,17 +118,13 @@ class AiRepository:
                     KbDocument.lang == lang,
                     KbDocument.is_active.is_(True),
                 )
-                .order_by(KbDocument.created_at)
+                .order_by(KbDocument.created_at, KbDocument.id)
             )
         ).all()
-        docs: list[tuple[str, str]] = []
-        used = 0
-        for title, body in rows:
-            used += len(body)
-            if used > max_chars:
-                break
-            docs.append((title, body))
-        return docs
+        flags = fits_in_prompt(
+            (len(title) + len(body) for title, body in rows), max_chars=max_chars
+        )
+        return [(title, body) for (title, body), ok in zip(rows, flags, strict=True) if ok]
 
     # ── Журнал инструментов и эскалации ─────────────────────────────────────
 

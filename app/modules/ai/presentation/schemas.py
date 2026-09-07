@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import datetime
 from typing import Any
 
 from pydantic import Field
 
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import AiMode, GlossaryStatus
 from app.shared.db.models.glossary_term import GlossaryTerm
 
@@ -206,3 +207,131 @@ class AnswerKnowledgeGapRequest(CamelModel):
         description="Категория базы знаний: logistics | aftercare | faq | policy | payment",
         examples=["logistics"],
     )
+
+
+class RewriteKnowledgeGapRequest(CamelModel):
+    """Ответ администратора своими словами — на переписывание моделью."""
+
+    answer: str = Field(
+        min_length=3,
+        max_length=4000,
+        examples=["да парковка есть бесплатная во дворе заезд с токтогула"],
+    )
+
+
+class KnowledgeGapRewriteResponse(CamelModel):
+    """Документ, предложенный моделью. Ничего не сохранено — подтверждают через `answer`."""
+
+    title: str = Field(examples=["Парковка"])
+    body: str = Field(
+        examples=["У клиники есть бесплатная парковка во дворе, въезд с улицы Токтогула."]
+    )
+    category: str = Field(description="Предложенная категория", examples=["logistics"])
+    notes: str | None = Field(
+        default=None, description="Что модель изменила или на что обратить внимание"
+    )
+    mentions_price: bool = Field(
+        description="В тексте осталась цена — сохранить не получится, уберите", examples=[False]
+    )
+    tokens_estimate: int = Field(description="Оценка токенов документа", examples=[24])
+
+
+class KbVersionOut(CamelModel):
+    """Снимок документа после одного сохранения."""
+
+    version_no: int = Field(examples=[2])
+    title: str
+    category: str
+    body: str
+    lang: str
+    is_active: bool
+    action: str = Field(description="created | updated | rolled_back", examples=["updated"])
+    note: str | None = Field(default=None, examples=["к версии 1"])
+    actor_id: uuid.UUID | None = None
+    created_at: datetime
+
+
+class KbDocumentOut(CamelModel):
+    """Документ базы знаний глазами редактора."""
+
+    id: uuid.UUID
+    title: str = Field(examples=["Как доехать"])
+    category: str = Field(description="logistics | aftercare | faq | policy | payment")
+    body: str
+    lang: str = Field(description="ru | ky — язык диалогов, в которые уходит документ")
+    is_active: bool = Field(description="Выключенный документ бот не видит, но он сохранён")
+    version_no: int = Field(description="Номер текущей версии", examples=[3])
+    tokens_estimate: int = Field(description="Оценка токенов документа (3 символа ≈ токен)")
+    in_prompt: bool = Field(
+        description="Помещается ли в промпт целиком: активные документы языка в порядке "
+        "создания до потолка 30 000 токенов; что не поместилось — бот не знает"
+    )
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_orm_doc(cls, d: Any, *, in_prompt: bool) -> KbDocumentOut:
+        return cls(
+            id=d.id,
+            title=d.title,
+            category=d.category,
+            body=d.body,
+            lang=d.lang,
+            is_active=d.is_active,
+            version_no=d.version_no,
+            tokens_estimate=math.ceil((len(d.title) + len(d.body)) / 3),
+            in_prompt=in_prompt,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+        )
+
+
+class KbDocumentDetail(KbDocumentOut):
+    versions: list[KbVersionOut] = Field(description="История, новые сверху")
+
+
+class KbLangUsageOut(CamelModel):
+    docs: int = Field(description="Активных документов на языке", examples=[12])
+    tokens_estimate: int = Field(description="Оценка токенов активных документов", examples=[4100])
+
+
+class KbUsageOut(CamelModel):
+    """Сколько знания уходит в промпт — против порога полного контекста."""
+
+    by_lang: dict[str, KbLangUsageOut] = Field(description="Ключи ru и ky")
+    limit_tokens: int = Field(
+        description="Порог: до него база уходит в промпт целиком", examples=[30000]
+    )
+
+
+class KbListResponse(CamelModel):
+    list: list[KbDocumentOut]
+    usage: KbUsageOut
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class CreateKbDocumentRequest(CamelModel):
+    """Новый документ — без цен, категория и язык из словаря."""
+
+    title: str = Field(min_length=1, max_length=200, examples=["Как доехать"])
+    category: str = Field(examples=["logistics"])
+    body: str = Field(min_length=3, max_length=20_000)
+    lang: str = Field(description="ru | ky", examples=["ru"])
+    is_active: bool = True
+
+
+class UpdateKbDocumentRequest(NotNullFieldsModel):
+    """Правка документа: только изменяемые поля; `null` для них — 422."""
+
+    NOT_NULL_FIELDS = ("title", "category", "body", "isActive")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = None
+    body: str | None = Field(default=None, min_length=3, max_length=20_000)
+    is_active: bool | None = None
+
+
+class KbRollbackRequest(CamelModel):
+    version_no: int = Field(ge=1, description="К какой версии вернуться", examples=[1])

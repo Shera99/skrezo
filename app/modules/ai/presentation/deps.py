@@ -10,9 +10,11 @@ from app.core.db import get_session
 from app.core.jobs import JobQueue, get_job_queue
 from app.core.redis import get_redis
 from app.modules.ai.application.drafts import DraftService
+from app.modules.ai.application.kb import KbService
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.application.reply_service import ProcessAiReplyService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.ai.infrastructure.repositories.kb_repository import KbRepository
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
     KnowledgeGapRepository,
 )
@@ -71,3 +73,8 @@ def get_knowledge_gap_service(
 ) -> KnowledgeGapService:
     """Очередь «Обучение»: ответ своими словами и «не нужно отвечать»."""
     return KnowledgeGapService(session, repository)
+
+
+def get_kb_service(session: AsyncSession = Depends(get_session)) -> KbService:
+    """Редактор базы знаний: документы, версии, откат, сводка токенов."""
+    return KbService(session, KbRepository(session))

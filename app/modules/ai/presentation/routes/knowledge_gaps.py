@@ -13,15 +13,22 @@ from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
     KnowledgeGapRepository,
 )
-from app.modules.ai.presentation.deps import get_knowledge_gap_repository, get_knowledge_gap_service
+from app.modules.ai.presentation.deps import (
+    get_ai_provider,
+    get_knowledge_gap_repository,
+    get_knowledge_gap_service,
+)
 from app.modules.ai.presentation.schemas import (
     AnswerKnowledgeGapRequest,
     KnowledgeGapCounts,
     KnowledgeGapOut,
+    KnowledgeGapRewriteResponse,
     KnowledgeGapsResponse,
+    RewriteKnowledgeGapRequest,
 )
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
+from app.shared.ai import AiProvider
 from app.shared.auth import ClientContext
 
 router = APIRouter()
@@ -103,6 +110,49 @@ async def list_knowledge_gaps(
         current_page=page,
         page_size=page_size,
         total_count=total,
+    )
+
+
+@router.post(
+    "/clinic/knowledge-gaps/{gap_id}/rewrite",
+    response_model=KnowledgeGapRewriteResponse,
+    summary="Переписать ответ моделью в документ базы знаний — на подтверждение",
+    response_description="Предложенный документ; ничего не сохранено",
+    responses={
+        404: _ERRORS[404],
+        409: _ERRORS[409],
+        502: {
+            "description": "Модель не настроена или недоступна — сохраните ответ как есть",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "ai_unavailable",
+                        "message": "Модель сейчас недоступна — сохраните ответ как есть",
+                    }
+                }
+            },
+        },
+    },
+)
+async def rewrite_knowledge_gap(
+    gap_id: uuid.UUID,
+    body: RewriteKnowledgeGapRequest,
+    context: ClientContext = Depends(require_permission("conversations.manage")),
+    service: KnowledgeGapService = Depends(get_knowledge_gap_service),
+    provider: AiProvider | None = Depends(get_ai_provider),
+) -> KnowledgeGapRewriteResponse:
+    """Администратор пишет как умеет — модель делает из этого аккуратный документ
+    на языке вопроса (нейтрально, коротко, без цен). Человек правит и подтверждает
+    через `answer`; токены вызова учитываются клинике."""
+    clinic_id = _clinic(context)
+    proposal = await service.rewrite(clinic_id, gap_id, answer=body.answer, provider=provider)
+    return KnowledgeGapRewriteResponse(
+        title=proposal.title,
+        body=proposal.body,
+        category=proposal.category,
+        notes=proposal.notes,
+        mentions_price=proposal.mentions_price,
+        tokens_estimate=proposal.tokens_estimate,
     )
 
 
