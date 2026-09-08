@@ -22,6 +22,13 @@ def test_every_tag_is_listed_in_a_redoc_group() -> None:
     }
     grouped = [t for g in schema["x-tagGroups"] for t in g["tags"]]
 
+    untagged = [
+        f"{method.upper()} {path}"
+        for path, item in schema["paths"].items()
+        for method, op in item.items()
+        if method in ("get", "post", "put", "patch", "delete") and not op.get("tags")
+    ]
+    assert not untagged, f"операции без тега не видны в ReDoc: {untagged}"
     assert used <= declared, f"теги роутов без описания: {sorted(used - declared)}"
     assert set(grouped) >= declared, f"теги вне групп ReDoc: {sorted(declared - set(grouped))}"
     assert set(grouped) <= declared, (

@@ -1,4 +1,9 @@
-"""Сборка роутов платежей: журнал Skrezo, оплата подписки клиникой, колбэк провайдера."""
+"""Сборка роутов платежей: журнал Skrezo, оплата подписки клиникой, колбэк провайдера.
+
+Теги — по тому, кто читает ReDoc: журнал и возвраты — админка (``payments``),
+цена и платежи своей клиники — раздел «Подписка клиники» (``subscription``),
+серверный колбэк провайдера — публичное (``payments-webhook``).
+"""
 
 from __future__ import annotations
 
@@ -11,8 +16,8 @@ from app.modules.payments.presentation.routes import (
     refund_payment,
 )
 
-router = APIRouter(tags=["payments"])
-router.include_router(list_payments.router)
-router.include_router(refund_payment.router)
-router.include_router(clinic_payments.router)
-router.include_router(freedompay_result.router)
+router = APIRouter()
+router.include_router(list_payments.router, tags=["payments"])
+router.include_router(refund_payment.router, tags=["payments"])
+router.include_router(clinic_payments.router, tags=["subscription"])
+router.include_router(freedompay_result.router, tags=["payments-webhook"])

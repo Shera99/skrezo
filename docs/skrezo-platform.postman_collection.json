@@ -930,6 +930,124 @@
           ]
         },
         {
+          "name": "accounts",
+          "item": [
+            {
+              "name": "Список аккаунтов платформы",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts?query=string&clinicId=00000000-0000-0000-0000-000000000000&active=True&isPlatformAdmin=True&page=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts"
+                  ],
+                  "query": [
+                    {
+                      "key": "query",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск по ФИО и телефону"
+                    },
+                    {
+                      "key": "clinicId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только люди этой клиники — включая исключённых из неё"
+                    },
+                    {
+                      "key": "active",
+                      "value": "True",
+                      "disabled": true,
+                      "description": "`true` — работает хотя бы в одной клинике; `false` — исключён (вместе с `clinicId` — исключён именно из неё); пусто — все"
+                    },
+                    {
+                      "key": "isPlatformAdmin",
+                      "value": "True",
+                      "disabled": true,
+                      "description": "`true` — только команда Skrezo, `false` — только клиентские аккаунты"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": "Страница (1-based)"
+                    }
+                  ]
+                },
+                "description": "Все люди платформы одним списком: и команда Skrezo, и сотрудники клиник.\n\nСтрока — аккаунт, а не членство: человек может работать в нескольких\nклиниках, и дублировать его на строку в каждой означало бы, что `totalCount`\nбольше не отвечает на вопрос «сколько всего аккаунтов». Где он работает и\nоткуда исключён — во вложенном `memberships`.\n\nАккаунт сам по себе не удаляется: исключают из клиники, то есть членство.\nПоэтому «удалён» здесь — это `memberships[].active = false`, а\n`hasActiveMembership` сводит это в одну колонку списка."
+              },
+              "response": []
+            },
+            {
+              "name": "Заблокировать аккаунт",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/{{account_id}}/block",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "{{account_id}}",
+                    "block"
+                  ]
+                },
+                "description": "Отобрать у человека доступ целиком — единственный способ это сделать.\n\nИсключение из клиники (`DELETE /admin/clients/{id}/doctors/{docId}`) закрывает\nтолько её: аккаунт глобальный, и уволенный по-прежнему войдёт в любую другую\nклинику, где числится. Блокировка не пускает вовсе — ни по коду, ни по паролю.\n\nДействует **сразу**: все сессии аккаунта гасятся, а уже выданный access-токен\nполучает `403 account_blocked` на любой ручке обоих контуров.\n\nСебя заблокировать нельзя (`409 cannot_block_self`): иначе админ теряет доступ\nк ручке, которой блокировку снимают.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Уволен, доступ отозван по просьбе владельца\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Разблокировать аккаунт",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/{{account_id}}/unblock",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "{{account_id}}",
+                    "unblock"
+                  ]
+                },
+                "description": "Вернуть доступ. Сессии не восстанавливаются — входить нужно заново."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "clinic-applications-admin",
           "item": [
             {
@@ -1227,151 +1345,75 @@
                 }
               },
               "response": []
-            },
+            }
+          ]
+        },
+        {
+          "name": "usage",
+          "item": [
             {
-              "name": "Цена подписки по тарифу за N месяцев",
+              "name": "Использование по всем клиникам за месяц",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/subscription/price?months=1",
+                  "raw": "{{base_url}}/api/v1/admin/usage?period=2026-09",
                   "host": [
                     "{{base_url}}"
                   ],
                   "path": [
                     "api",
                     "v1",
-                    "clinic",
-                    "subscription",
-                    "price"
+                    "admin",
+                    "usage"
                   ],
                   "query": [
                     {
-                      "key": "months",
-                      "value": "1",
+                      "key": "period",
+                      "value": "2026-09",
                       "disabled": true,
-                      "description": ""
+                      "description": "Месяц `YYYY-MM`; пусто — текущий"
                     }
                   ]
                 },
-                "description": "Соло — фиксированная цена, клиника — пакет по числу мест (лимит по тарифу\nили занятые места, если он не задан). `available=false` — реквизиты провайдера\nещё не заданы, оплата пока по счёту через Skrezo."
+                "description": "Основа для цен и тарифных пакетов: сколько диалогов, токенов и платных\nсообщений WhatsApp съедает каждая клиника и во что это обходится по\nпрайс-листу из настроек (нули в ставках — смета не считается)."
               },
               "response": []
             },
             {
-              "name": "Начать оплату подписки — получить страницу оплаты FreedomPay",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "clinic",
-                    "subscription",
-                    "payments"
-                  ]
-                },
-                "description": "Провайдер пока без автосписания: владелец выбирает срок, уходит на страницу\nоплаты и возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Период\nоткрывает только серверный колбэк провайдера (с подписью) — состояние\nплатежа смотрите в `GET /clinic/subscription/payments/{id}`; ссылка живёт\n`FREEDOMPAY_LIFETIME_SECONDS`.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"months\": 1\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Платежи клиники за подписку",
+              "name": "Использование клиники по дням",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments?page=1&pageSize=25",
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/usage?dateFrom=2026-01-01&dateTo=2026-01-01",
                   "host": [
                     "{{base_url}}"
                   ],
                   "path": [
                     "api",
                     "v1",
-                    "clinic",
-                    "subscription",
-                    "payments"
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "usage"
                   ],
                   "query": [
                     {
-                      "key": "page",
-                      "value": "1",
+                      "key": "dateFrom",
+                      "value": "2026-01-01",
                       "disabled": true,
-                      "description": ""
+                      "description": "Начало (UTC-день)"
                     },
                     {
-                      "key": "pageSize",
-                      "value": "25",
+                      "key": "dateTo",
+                      "value": "2026-01-01",
                       "disabled": true,
-                      "description": ""
+                      "description": "Конец включительно"
                     }
                   ]
                 },
-                "description": "Новые сверху; у ожидающих — ссылка на страницу оплаты."
-              },
-              "response": []
-            },
-            {
-              "name": "Состояние платежа",
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments/{{payment_id}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "clinic",
-                    "subscription",
-                    "payments",
-                    "{{payment_id}}"
-                  ]
-                },
-                "description": "Опрашивайте после возврата со страницы оплаты: `paid` — период открыт."
-              },
-              "response": []
-            },
-            {
-              "name": "Результат платежа (вызывает FreedomPay)",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/payments/freedompay/result",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "payments",
-                    "freedompay",
-                    "result"
-                  ]
-                },
-                "description": "Публичный `result_url` платёжной страницы. Подпись `pg_sig` сверяется\nпервой; сумма — с нашей строкой платежа. `ok` — оплата учтена, период открыт\n(повтор колбэка тоже `ok`); `rejected` — сумма не совпала, провайдер отменит\nплатёж; `error` — подпись или заказ не наши."
+                "description": "По умолчанию — текущий месяц. Дни без активности в списке отсутствуют."
               },
               "response": []
             }
@@ -1943,6 +1985,1401 @@
                   ]
                 },
                 "description": "Показать запуски задач: когда, сколько заняли, чем закончились.\n\nПагинация смещением, а не курсором: журнал читают глазами с первой\nстраницы, и глубоко в него не уходят — записи старше\n``JOB_RUN_RETENTION_DAYS`` удаляет уборочная задача."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp и AI-ассистент",
+      "item": [
+        {
+          "name": "whatsapp",
+          "item": [
+            {
+              "name": "Верификация вебхука (вызывает Meta)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/whatsapp/webhook?hub.mode=string&hub.verify_token=string&hub.challenge=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "whatsapp",
+                    "webhook"
+                  ],
+                  "query": [
+                    {
+                      "key": "hub.mode",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Всегда `subscribe`"
+                    },
+                    {
+                      "key": "hub.verify_token",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Токен, заданный при настройке подписки"
+                    },
+                    {
+                      "key": "hub.challenge",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Строка, которую надо вернуть"
+                    }
+                  ]
+                },
+                "description": "Подтвердить подписку вебхука в кабинете Meta.\n\nТокен сверяется с ``WA_CLOUD_VERIFY_TOKEN``; пустая настройка означает\n«подписку не подтверждаем вовсе» — случайно открытой верификации нет."
+              },
+              "response": []
+            },
+            {
+              "name": "События WhatsApp (вызывает Meta)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/whatsapp/webhook",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "whatsapp",
+                    "webhook"
+                  ]
+                },
+                "description": "Принять пачку событий: входящие сообщения, эхо Coexistence, статусы.\n\nПодпись проверяется по сырому телу до разбора JSON. Пустой\n``WA_CLOUD_APP_SECRET`` отключает проверку — только для локальной\nразработки, в бою секрет обязателен."
+              },
+              "response": []
+            },
+            {
+              "name": "Диалоги WhatsApp клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations?status=&filter=all&q=Абдиева&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Фильтр по статусу (`active` / `closed` / `escalated`)"
+                    },
+                    {
+                      "key": "filter",
+                      "value": "all",
+                      "disabled": true,
+                      "description": "Вкладка кабинета: `all` / `awaiting` (ждут ответа) / `needs_human`"
+                    },
+                    {
+                      "key": "q",
+                      "value": "Абдиева",
+                      "disabled": true,
+                      "description": "Поиск по имени пациента, номеру или тексту сообщений"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Список переписок с пациентами: шапка, превью и состояние 24-часового окна.\n\n`windowOpen: false` — сутки с последнего сообщения пациента прошли, поле\nввода в интерфейсе подменяется списком одобренных шаблонов."
+              },
+              "response": []
+            },
+            {
+              "name": "Счётчики вкладок и бейдж раздела",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/counters",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "counters"
+                  ]
+                },
+                "description": "Одна ручка вместо трёх списков: интерфейс рисует вкладки и бейдж по ней.\n\n`unread` — число диалогов с непрочитанным (бейдж «Ассистент N»), остальные\n— размеры вкладок. Закрытые диалоги в `total` и `awaiting` не входят."
+              },
+              "response": []
+            },
+            {
+              "name": "Отметить диалог прочитанным",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/read",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "read"
+                  ]
+                },
+                "description": "Зовётся при открытии диалога (и при показе новых сообщений в открытом).\n\nОтметка **общая для клиники**: ресепшен один на всех, и точка гаснет у\nвсех сразу. Назад отметка не двигается — два устройства могут подтвердить\nчтение в разном порядке. В сокет уходит `conversation.read`, чтобы бейдж\nупал и на втором устройстве без перечитывания списка.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"upToMessageId\": 1042\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "История диалога WhatsApp",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages?beforeId=0&limit=50",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "messages"
+                  ],
+                  "query": [
+                    {
+                      "key": "beforeId",
+                      "value": "0",
+                      "disabled": true,
+                      "description": "Курсор «старше этого id» — прокрутка истории вверх"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Сообщения диалога новыми сверху; продолжение — `beforeId` = id последнего."
+              },
+              "response": []
+            },
+            {
+              "name": "Ответить пациенту в WhatsApp",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "messages"
+                  ]
+                },
+                "description": "Свободный текст пациенту — только пока открыто 24-часовое окно Meta.\n\nОкно закрыто (сутки с последнего сообщения пациента) → 422 `window_closed`:\nинтерфейс подменяет поле ввода списком одобренных шаблонов.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"body\": \"Здравствуйте! Завтра в 11:00 вас ждёт Асель Кубатовна.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Шаблоны WhatsApp клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "whatsapp",
+                    "templates"
+                  ]
+                },
+                "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`."
+              },
+              "response": []
+            },
+            {
+              "name": "Синхронизировать шаблоны из кабинета Meta",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/sync",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "whatsapp",
+                    "templates",
+                    "sync"
+                  ]
+                },
+                "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка\nне трогает. Дёргать после правок шаблонов в кабинете — расписания нет."
+              },
+              "response": []
+            },
+            {
+              "name": "Отправить шаблон в диалог",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/templates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "templates"
+                  ]
+                },
+                "description": "Единственный способ написать пациенту в **закрытое** 24-часовое окно.\n\nШаблон обязан быть `approved`, переменные — по числу плейсхолдеров тела.\nВ открытое окно шаблон тоже отправится — запрета нет.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"templateId\": \"00000000-0000-0000-0000-000000000000\",\n  \"variables\": [\n    \"Айгүл\",\n    \"завтра в 11:00\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Вложение сообщения (голосовое, снимок, документ)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages/{{message_id}}/media",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "messages",
+                    "{{message_id}}",
+                    "media"
+                  ]
+                },
+                "description": "Отдать скачанное вложение; раздачи статикой нет — доступ идёт через право.\n\n`hasMedia: false` у сообщения означает, что вложение не скачивалось\n(например, канал работал без кредов Meta) — тогда здесь 404."
+              },
+              "response": []
+            },
+            {
+              "name": "Привязать номер WhatsApp к клинике",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/whatsapp",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "whatsapp"
+                  ]
+                },
+                "description": "Завести или обновить привязку номера Cloud API (одна на клинику).\n\n`phoneNumberId` — идентификатор номера в кабинете Meta; по нему вебхук\nнаходит клинику. Секреты (access token, APP_SECRET) сюда не входят — они\nживут в переменных окружения сервиса. `active: false` выключает приём\nвебхука, сохраняя историю переписки.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phoneNumberId\": \"712233445566778\",\n  \"displayPhone\": \"+996700123456\",\n  \"wabaId\": \"string\",\n  \"mode\": \"api_only\",\n  \"active\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "ai",
+          "item": [
+            {
+              "name": "Отправить черновик ассистента пациенту",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/send",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "drafts",
+                    "{{message_id}}",
+                    "send"
+                  ]
+                },
+                "description": "Кнопка «Отправить» в панели «Ассистент предлагает» (режим «Проверяю»).\n\nС правкой текста — `review = edited`, исходник бота остаётся в\n`originalBody` как материал для обучения. Черновик, после которого пациент\nнаписал снова, отправить нельзя (409 `draft_stale`): бот готовит свежий.\nОкно 24 часов проверяется так же, как у свободного текста.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"body\": \"Здравствуйте! Профессиональная гигиена стоит 1 500 сом.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Отклонить черновик ассистента",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/discard",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "drafts",
+                    "{{message_id}}",
+                    "discard"
+                  ]
+                },
+                "description": "Кнопка «Не отправлять»: пациенту ничего не уходит, отказ учитывается в обучении."
+              },
+              "response": []
+            },
+            {
+              "name": "Передать диалог человеку или вернуть боту",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/assistant",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "assistant"
+                  ]
+                },
+                "description": "`active=false` — «дальше отвечаю сам»: бот замолкает (диалог в `escalated`).\n\n`active=true` — вернуть боту: открытые эскалации закрываются, и если пациент\nждёт ответа, ассистенту сразу ставится задание — возврат не означает тишину.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"active\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Глоссарий клиники (+ общий словарь платформы)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/glossary?status=",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "glossary"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "`pending` — очередь предложений бота на одобрение"
+                    }
+                  ]
+                },
+                "description": "Словарь, которым бот понимает пациентов.\n\nВ промпт попадают только `approved`. `pending` — предложения бота: он\nпереспросил пациента, получил подтверждение и положил пару сюда; автозаписи\nв действующий словарь нет намеренно — неверно понятая фраза стала бы\nсистемной ошибкой для всех следующих пациентов."
+              },
+              "response": []
+            },
+            {
+              "name": "Добавить термин вручную (сразу approved)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/glossary",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "glossary"
+                  ]
+                },
+                "description": "Термин от администратора действует сразу — человек и есть контроль.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phrase\": \"тиш ооруп жатат\",\n  \"meaning\": \"болит зуб\",\n  \"lang\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Одобрить предложение бота",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}/approve",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "glossary",
+                    "{{term_id}}",
+                    "approve"
+                  ]
+                },
+                "description": "С этого момента фраза попадает в промпт — бот не переспрашивает снова."
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить термин (или отклонить предложение)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "glossary",
+                    "{{term_id}}"
+                  ]
+                },
+                "description": "Общий словарь платформы клиника не правит — только свои термины."
+              },
+              "response": []
+            },
+            {
+              "name": "Очередь «Обучение»: вопросы, на которые бот не ответил",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps?status=string&q=string&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "knowledge-gaps"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Вкладка: `unknown` — не знает, `answered` — знает, `dismissed` — не нужно отвечать"
+                    },
+                    {
+                      "key": "q",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск по вопросу и подсказке"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Каждая строка — один смысл вопроса; похожие формулировки склеены, поэтому\n«спросили ×4» — честное число. Самые частые сверху: их выгоднее закрыть первыми."
+              },
+              "response": []
+            },
+            {
+              "name": "Переписать ответ моделью в документ базы знаний — на подтверждение",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/rewrite",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "knowledge-gaps",
+                    "{{gap_id}}",
+                    "rewrite"
+                  ]
+                },
+                "description": "Администратор пишет как умеет — модель делает из этого аккуратный документ\nна языке вопроса (нейтрально, коротко, без цен). Человек правит и подтверждает\nчерез `answer`; токены вызова учитываются клинике.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"answer\": \"да парковка есть бесплатная во дворе заезд с токтогула\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Ответить своими словами — бот выучит сразу",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/answer",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "knowledge-gaps",
+                    "{{gap_id}}",
+                    "answer"
+                  ]
+                },
+                "description": "Ответ становится активным документом базы знаний на языке вопроса и уходит\nв промпт со следующего хода. Цены в ответе запрещены — бот берёт их из прайса.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"answer\": \"Да, у нас бесплатная парковка во дворе, въезд с улицы Токтогула.\",\n  \"title\": \"string\",\n  \"category\": \"logistics\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "«Не нужно отвечать»",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/dismiss",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "knowledge-gaps",
+                    "{{gap_id}}",
+                    "dismiss"
+                  ]
+                },
+                "description": "Вопрос вычёркивается из очереди и больше в неё не возвращается."
+              },
+              "response": []
+            },
+            {
+              "name": "База знаний клиники со сводкой токенов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb?lang=string&category=string&active=True&q=string&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "category",
+                      "value": "string",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "active",
+                      "value": "True",
+                      "disabled": true,
+                      "description": "Только активные / только выключенные"
+                    },
+                    {
+                      "key": "q",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск по заголовку и тексту"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Что знает бот, кроме прайса и расписания. Сводка — оценка токенов активных\nдокументов по языкам против порога 30 000: до него база уходит в промпт целиком,\nу каждого документа — признак `inPrompt`."
+              },
+              "response": []
+            },
+            {
+              "name": "Новый документ базы знаний",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb"
+                  ]
+                },
+                "description": "Только редко меняющийся текст: как доехать, подготовка к приёму, что после\nудаления, правила отмены. Цены, график и врачей бот берёт из живой базы —\nдокумент с ценой не сохранится (422 `kb_price_forbidden`). Знание действует\nсо следующего хода бота.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Как доехать\",\n  \"category\": \"logistics\",\n  \"body\": \"string\",\n  \"lang\": \"ru\",\n  \"isActive\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Документ с историей версий",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb",
+                    "{{document_id}}"
+                  ]
+                },
+                "description": "Версии — новые сверху; последняя всегда равна текущему тексту."
+              },
+              "response": []
+            },
+            {
+              "name": "Правка документа — новая версия",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb",
+                    "{{document_id}}"
+                  ]
+                },
+                "description": "Передаются только изменяемые поля. `isActive:false` выключает документ для\nбота, не удаляя его. Каждое сохранение — версия, к которой можно вернуться.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"string\",\n  \"category\": \"string\",\n  \"body\": \"string\",\n  \"isActive\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить документ безвозвратно",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb",
+                    "{{document_id}}"
+                  ]
+                },
+                "description": "Вместе с историей версий. Чтобы бот перестал использовать документ, но текст\nостался — `PATCH {isActive:false}`."
+              },
+              "response": []
+            },
+            {
+              "name": "Вернуться к версии",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}/rollback",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "kb",
+                    "{{document_id}}",
+                    "rollback"
+                  ]
+                },
+                "description": "Содержимое версии N становится текущим — как новая версия с пометкой\n«к версии N»; история не переписывается.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"versionNo\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Кейсы регрессии клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/cases?kind=string&active=True&result=string&q=string&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "cases"
+                  ],
+                  "query": [
+                    {
+                      "key": "kind",
+                      "value": "string",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "active",
+                      "value": "True",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "result",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "По итогу последнего прогона"
+                    },
+                    {
+                      "key": "q",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск по вопросу и заметке"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Каждый одобренный ответ, выученный вопрос и инцидент — кейс. Кейс уникален по\nвиду и вопросу: повтор обновляет ожидание, а не плодит дубли."
+              },
+              "response": []
+            },
+            {
+              "name": "Ручной кейс",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/cases",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "cases"
+                  ]
+                },
+                "description": "Когда эталон известен без диалога: knowledge/reply — эталонный ответ или\nключевые слова; refusal — выдуманный ответ, который валидатор обязан снять;\nmedical — ожидание фильтра.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"kind\": \"reply\",\n  \"lang\": \"ru\",\n  \"question\": \"Есть ли у вас парковка?\",\n  \"expectedReply\": \"string\",\n  \"keywords\": [\n    \"string\"\n  ],\n  \"medical\": \"string\",\n  \"proposed\": \"string\",\n  \"note\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Выключить/включить кейс, заметка",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "cases",
+                    "{{case_id}}"
+                  ]
+                },
+                "description": "Выключенный кейс в прогон не попадает и от новых одобрений не воскресает.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"isActive\": true,\n  \"note\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Удалить кейс",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "cases",
+                    "{{case_id}}"
+                  ]
+                },
+                "description": "Вместе с итогами прошлых прогонов по нему."
+              },
+              "response": []
+            },
+            {
+              "name": "Запустить прогон",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/runs",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "runs"
+                  ]
+                },
+                "description": "Перед сменой промпта, базы знаний, глоссария или модели. `offline` — без модели\nи бесплатно (медфильтр, валидатор на снятой выдумке, наличие знания в промпте);\n`model` — сухой прогон модели по каждому кейсу: ничего не уходит пациентам,\nтокены учитываются клинике. Выполняется в воркере — опрашивайте прогон.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"offline\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "История прогонов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/runs?page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "runs"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Новые сверху; у каждого — версия промпта и модель, на которых прогонялось."
+              },
+              "response": []
+            },
+            {
+              "name": "Прогон с итогами по кейсам",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/regression/runs/{{run_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "regression",
+                    "runs",
+                    "{{run_id}}"
+                  ]
+                },
+                "description": "Проваленные кейсы первыми: что ожидали, что получили, заметка валидатора."
+              },
+              "response": []
+            },
+            {
+              "name": "Метрики обучения ассистента и гейт доверия",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/assistant/metrics?period=&dateFrom=2026-01-01&dateTo=2026-01-01",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "assistant",
+                    "metrics"
+                  ],
+                  "query": [
+                    {
+                      "key": "period",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Пресет: `7d`, `1m` (по умолчанию), `3m`, `all`"
+                    },
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "Явный диапазон"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Учится ли бот: доля ответов без человека, доля правок черновиков, очередь\n«Обучение» и «выучил за период», итог последней регрессии, токены. Гейт\nдоверия — по ТЗ: N одобренных ответов и ноль фактических ошибок (V01–V03)\nза неделю; отсюда берётся «153 из 200» для ступеней Ф7."
+              },
+              "response": []
+            },
+            {
+              "name": "Лестница доверия: текущая ступень, условия следующей",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "assistant",
+                    "trust"
+                  ]
+                },
+                "description": "Наблюдаю → Проверяю → Доверяю. Каждая ступень показывает свои условия:\n«Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —\nодобренные ответы («153 из 200») и ноль фактических ошибок за неделю.\nСмотреть может ресепшен, менять — право `assistant.manage` (владелец всегда)."
+              },
+              "response": []
+            },
+            {
+              "name": "Сменить ступень или выключить ассистента",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "assistant",
+                    "trust"
+                  ]
+                },
+                "description": "`level` ставит ступень (и включает бота); вверх — только когда гейт открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её.\n`skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у\nмодели, `assisted` оставляет подбор боту, а действие — администратору\n(эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"enabled\": true,\n  \"level\": \"assisted\",\n  \"skills\": {\n    \"booking\": \"assisted\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Режим AI-ассистента клиники",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/ai-mode",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "ai-mode"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"off\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Имитировать входящее сообщение пациента",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/ai/simulate-inbound",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "ai",
+                    "simulate-inbound"
+                  ]
+                },
+                "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"clinicId\": \"00000000-0000-0000-0000-000000000000\",\n  \"fromPhone\": \"+996700123456\",\n  \"text\": \"Канча турат чистка?\",\n  \"buttonPayload\": \"hold:6f1e0e6a-…\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "response": []
             }
@@ -3639,6 +5076,131 @@
                 "description": "Показать состояние подписки клиники из токена.\n\nЕдинственный способ для клиники узнать, что триал кончается: соло-врачу\nобещаны 30 дней, а на 31-й день без этой ручки не происходит ничего —\nклиент не может показать ни срок, ни повод продлить.\n\nКлиника берётся из токена, чужую подписку по этой ручке не посмотреть.\nПраво ``billing.view`` разумно оставлять доступным на триале (админка\nтриал-функций): иначе именно те, кому ручка нужнее всего, получат 403."
               },
               "response": []
+            },
+            {
+              "name": "Цена подписки по тарифу за N месяцев",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/price?months=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "price"
+                  ],
+                  "query": [
+                    {
+                      "key": "months",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Соло — фиксированная цена, клиника — пакет по числу мест (лимит по тарифу\nили занятые места, если он не задан). `available=false` — реквизиты провайдера\nещё не заданы, оплата пока по счёту через Skrezo."
+              },
+              "response": []
+            },
+            {
+              "name": "Начать оплату подписки — получить страницу оплаты FreedomPay",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments"
+                  ]
+                },
+                "description": "Провайдер пока без автосписания: владелец выбирает срок, уходит на страницу\nоплаты и возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Период\nоткрывает только серверный колбэк провайдера (с подписью) — состояние\nплатежа смотрите в `GET /clinic/subscription/payments/{id}`; ссылка живёт\n`FREEDOMPAY_LIFETIME_SECONDS`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"months\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Платежи клиники за подписку",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments?page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Новые сверху; у ожидающих — ссылка на страницу оплаты."
+              },
+              "response": []
+            },
+            {
+              "name": "Состояние платежа",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments/{{payment_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments",
+                    "{{payment_id}}"
+                  ]
+                },
+                "description": "Опрашивайте после возврата со страницы оплаты: `paid` — период открыт."
+              },
+              "response": []
             }
           ]
         },
@@ -3714,6 +5276,64 @@
                     }
                   }
                 }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "clinic-audit",
+          "item": [
+            {
+              "name": "Журнал действий клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/audit?actor=00000000-0000-0000-0000-000000000000&from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z&limit=20&cursor=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "audit"
+                  ],
+                  "query": [
+                    {
+                      "key": "actor",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01T00:00:00Z",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "string",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Кто из сотрудников что сделал: отмены, скидки, платежи, возвраты, правки.\n\nОтвечает на вопрос, на который клиника раньше ответить не могла. Скидка\nограничена потолком роли, возврат — это деньги из кассы, и оба действия\nделает человек: без журнала спор «я такого не делал» упирался в ничью.\n\nОтбор идёт по клинике **из токена**, чужой журнал не запросить: параметра\nклиники здесь нет вовсе. Фильтры — по сотруднику (``actor``) и датам.\nПишутся все мутации клиники: приёмы и их чек, касса, пациенты и\nодонтограмма, прайс, сотрудники, роли, расписание, настройки."
               },
               "response": []
             }
@@ -4221,6 +5841,33 @@
           ]
         },
         {
+          "name": "payments-webhook",
+          "item": [
+            {
+              "name": "Результат платежа (вызывает FreedomPay)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/payments/freedompay/result",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "payments",
+                    "freedompay",
+                    "result"
+                  ]
+                },
+                "description": "Публичный `result_url` платёжной страницы. Подпись `pg_sig` сверяется\nпервой; сумма — с нашей строкой платежа. `ok` — оплата учтена, период открыт\n(повтор колбэка тоже `ok`); `rejected` — сумма не совпала, провайдер отменит\nплатёж; `error` — подпись или заказ не наши."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "health",
           "item": [
             {
@@ -4244,1643 +5891,6 @@
               "response": []
             }
           ]
-        }
-      ]
-    },
-    {
-      "name": "accounts",
-      "item": [
-        {
-          "name": "Список аккаунтов платформы",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/accounts?query=string&clinicId=00000000-0000-0000-0000-000000000000&active=True&isPlatformAdmin=True&page=1",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "accounts"
-              ],
-              "query": [
-                {
-                  "key": "query",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Поиск по ФИО и телефону"
-                },
-                {
-                  "key": "clinicId",
-                  "value": "00000000-0000-0000-0000-000000000000",
-                  "disabled": true,
-                  "description": "Только люди этой клиники — включая исключённых из неё"
-                },
-                {
-                  "key": "active",
-                  "value": "True",
-                  "disabled": true,
-                  "description": "`true` — работает хотя бы в одной клинике; `false` — исключён (вместе с `clinicId` — исключён именно из неё); пусто — все"
-                },
-                {
-                  "key": "isPlatformAdmin",
-                  "value": "True",
-                  "disabled": true,
-                  "description": "`true` — только команда Skrezo, `false` — только клиентские аккаунты"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": "Страница (1-based)"
-                }
-              ]
-            },
-            "description": "Все люди платформы одним списком: и команда Skrezo, и сотрудники клиник.\n\nСтрока — аккаунт, а не членство: человек может работать в нескольких\nклиниках, и дублировать его на строку в каждой означало бы, что `totalCount`\nбольше не отвечает на вопрос «сколько всего аккаунтов». Где он работает и\nоткуда исключён — во вложенном `memberships`.\n\nАккаунт сам по себе не удаляется: исключают из клиники, то есть членство.\nПоэтому «удалён» здесь — это `memberships[].active = false`, а\n`hasActiveMembership` сводит это в одну колонку списка."
-          },
-          "response": []
-        },
-        {
-          "name": "Заблокировать аккаунт",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/accounts/{{account_id}}/block",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "accounts",
-                "{{account_id}}",
-                "block"
-              ]
-            },
-            "description": "Отобрать у человека доступ целиком — единственный способ это сделать.\n\nИсключение из клиники (`DELETE /admin/clients/{id}/doctors/{docId}`) закрывает\nтолько её: аккаунт глобальный, и уволенный по-прежнему войдёт в любую другую\nклинику, где числится. Блокировка не пускает вовсе — ни по коду, ни по паролю.\n\nДействует **сразу**: все сессии аккаунта гасятся, а уже выданный access-токен\nполучает `403 account_blocked` на любой ручке обоих контуров.\n\nСебя заблокировать нельзя (`409 cannot_block_self`): иначе админ теряет доступ\nк ручке, которой блокировку снимают.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reason\": \"Уволен, доступ отозван по просьбе владельца\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Разблокировать аккаунт",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/accounts/{{account_id}}/unblock",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "accounts",
-                "{{account_id}}",
-                "unblock"
-              ]
-            },
-            "description": "Вернуть доступ. Сессии не восстанавливаются — входить нужно заново."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "clinic-audit",
-      "item": [
-        {
-          "name": "Журнал действий клиники",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/audit?actor=00000000-0000-0000-0000-000000000000&from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z&limit=20&cursor=string",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "audit"
-              ],
-              "query": [
-                {
-                  "key": "actor",
-                  "value": "00000000-0000-0000-0000-000000000000",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "from",
-                  "value": "2026-01-01T00:00:00Z",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "to",
-                  "value": "2026-01-01T00:00:00Z",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "limit",
-                  "value": "20",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "cursor",
-                  "value": "string",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Кто из сотрудников что сделал: отмены, скидки, платежи, возвраты, правки.\n\nОтвечает на вопрос, на который клиника раньше ответить не могла. Скидка\nограничена потолком роли, возврат — это деньги из кассы, и оба действия\nделает человек: без журнала спор «я такого не делал» упирался в ничью.\n\nОтбор идёт по клинике **из токена**, чужой журнал не запросить: параметра\nклиники здесь нет вовсе. Фильтры — по сотруднику (``actor``) и датам.\nПишутся все мутации клиники: приёмы и их чек, касса, пациенты и\nодонтограмма, прайс, сотрудники, роли, расписание, настройки."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "whatsapp",
-      "item": [
-        {
-          "name": "Верификация вебхука (вызывает Meta)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/whatsapp/webhook?hub.mode=string&hub.verify_token=string&hub.challenge=string",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "whatsapp",
-                "webhook"
-              ],
-              "query": [
-                {
-                  "key": "hub.mode",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Всегда `subscribe`"
-                },
-                {
-                  "key": "hub.verify_token",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Токен, заданный при настройке подписки"
-                },
-                {
-                  "key": "hub.challenge",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Строка, которую надо вернуть"
-                }
-              ]
-            },
-            "description": "Подтвердить подписку вебхука в кабинете Meta.\n\nТокен сверяется с ``WA_CLOUD_VERIFY_TOKEN``; пустая настройка означает\n«подписку не подтверждаем вовсе» — случайно открытой верификации нет."
-          },
-          "response": []
-        },
-        {
-          "name": "События WhatsApp (вызывает Meta)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/whatsapp/webhook",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "whatsapp",
-                "webhook"
-              ]
-            },
-            "description": "Принять пачку событий: входящие сообщения, эхо Coexistence, статусы.\n\nПодпись проверяется по сырому телу до разбора JSON. Пустой\n``WA_CLOUD_APP_SECRET`` отключает проверку — только для локальной\nразработки, в бою секрет обязателен."
-          },
-          "response": []
-        },
-        {
-          "name": "Диалоги WhatsApp клиники",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations?status=&filter=all&q=Абдиева&page=1&pageSize=25",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "",
-                  "disabled": true,
-                  "description": "Фильтр по статусу (`active` / `closed` / `escalated`)"
-                },
-                {
-                  "key": "filter",
-                  "value": "all",
-                  "disabled": true,
-                  "description": "Вкладка кабинета: `all` / `awaiting` (ждут ответа) / `needs_human`"
-                },
-                {
-                  "key": "q",
-                  "value": "Абдиева",
-                  "disabled": true,
-                  "description": "Поиск по имени пациента, номеру или тексту сообщений"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "pageSize",
-                  "value": "25",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Список переписок с пациентами: шапка, превью и состояние 24-часового окна.\n\n`windowOpen: false` — сутки с последнего сообщения пациента прошли, поле\nввода в интерфейсе подменяется списком одобренных шаблонов."
-          },
-          "response": []
-        },
-        {
-          "name": "Счётчики вкладок и бейдж раздела",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/counters",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "counters"
-              ]
-            },
-            "description": "Одна ручка вместо трёх списков: интерфейс рисует вкладки и бейдж по ней.\n\n`unread` — число диалогов с непрочитанным (бейдж «Ассистент N»), остальные\n— размеры вкладок. Закрытые диалоги в `total` и `awaiting` не входят."
-          },
-          "response": []
-        },
-        {
-          "name": "Отметить диалог прочитанным",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/read",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "read"
-              ]
-            },
-            "description": "Зовётся при открытии диалога (и при показе новых сообщений в открытом).\n\nОтметка **общая для клиники**: ресепшен один на всех, и точка гаснет у\nвсех сразу. Назад отметка не двигается — два устройства могут подтвердить\nчтение в разном порядке. В сокет уходит `conversation.read`, чтобы бейдж\nупал и на втором устройстве без перечитывания списка.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"upToMessageId\": 1042\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "История диалога WhatsApp",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages?beforeId=0&limit=50",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "messages"
-              ],
-              "query": [
-                {
-                  "key": "beforeId",
-                  "value": "0",
-                  "disabled": true,
-                  "description": "Курсор «старше этого id» — прокрутка истории вверх"
-                },
-                {
-                  "key": "limit",
-                  "value": "50",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Сообщения диалога новыми сверху; продолжение — `beforeId` = id последнего."
-          },
-          "response": []
-        },
-        {
-          "name": "Ответить пациенту в WhatsApp",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "messages"
-              ]
-            },
-            "description": "Свободный текст пациенту — только пока открыто 24-часовое окно Meta.\n\nОкно закрыто (сутки с последнего сообщения пациента) → 422 `window_closed`:\nинтерфейс подменяет поле ввода списком одобренных шаблонов.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"body\": \"Здравствуйте! Завтра в 11:00 вас ждёт Асель Кубатовна.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Шаблоны WhatsApp клиники",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "whatsapp",
-                "templates"
-              ]
-            },
-            "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`."
-          },
-          "response": []
-        },
-        {
-          "name": "Синхронизировать шаблоны из кабинета Meta",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/sync",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "whatsapp",
-                "templates",
-                "sync"
-              ]
-            },
-            "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка\nне трогает. Дёргать после правок шаблонов в кабинете — расписания нет."
-          },
-          "response": []
-        },
-        {
-          "name": "Отправить шаблон в диалог",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/templates",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "templates"
-              ]
-            },
-            "description": "Единственный способ написать пациенту в **закрытое** 24-часовое окно.\n\nШаблон обязан быть `approved`, переменные — по числу плейсхолдеров тела.\nВ открытое окно шаблон тоже отправится — запрета нет.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"templateId\": \"00000000-0000-0000-0000-000000000000\",\n  \"variables\": [\n    \"Айгүл\",\n    \"завтра в 11:00\"\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Вложение сообщения (голосовое, снимок, документ)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/messages/{{message_id}}/media",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "messages",
-                "{{message_id}}",
-                "media"
-              ]
-            },
-            "description": "Отдать скачанное вложение; раздачи статикой нет — доступ идёт через право.\n\n`hasMedia: false` у сообщения означает, что вложение не скачивалось\n(например, канал работал без кредов Meta) — тогда здесь 404."
-          },
-          "response": []
-        },
-        {
-          "name": "Привязать номер WhatsApp к клинике",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/whatsapp",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "clients",
-                "{{clinic_id}}",
-                "whatsapp"
-              ]
-            },
-            "description": "Завести или обновить привязку номера Cloud API (одна на клинику).\n\n`phoneNumberId` — идентификатор номера в кабинете Meta; по нему вебхук\nнаходит клинику. Секреты (access token, APP_SECRET) сюда не входят — они\nживут в переменных окружения сервиса. `active: false` выключает приём\nвебхука, сохраняя историю переписки.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phoneNumberId\": \"712233445566778\",\n  \"displayPhone\": \"+996700123456\",\n  \"wabaId\": \"string\",\n  \"mode\": \"api_only\",\n  \"active\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "usage",
-      "item": [
-        {
-          "name": "Использование по всем клиникам за месяц",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/usage?period=2026-09",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "usage"
-              ],
-              "query": [
-                {
-                  "key": "period",
-                  "value": "2026-09",
-                  "disabled": true,
-                  "description": "Месяц `YYYY-MM`; пусто — текущий"
-                }
-              ]
-            },
-            "description": "Основа для цен и тарифных пакетов: сколько диалогов, токенов и платных\nсообщений WhatsApp съедает каждая клиника и во что это обходится по\nпрайс-листу из настроек (нули в ставках — смета не считается)."
-          },
-          "response": []
-        },
-        {
-          "name": "Использование клиники по дням",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/usage?dateFrom=2026-01-01&dateTo=2026-01-01",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "clients",
-                "{{clinic_id}}",
-                "usage"
-              ],
-              "query": [
-                {
-                  "key": "dateFrom",
-                  "value": "2026-01-01",
-                  "disabled": true,
-                  "description": "Начало (UTC-день)"
-                },
-                {
-                  "key": "dateTo",
-                  "value": "2026-01-01",
-                  "disabled": true,
-                  "description": "Конец включительно"
-                }
-              ]
-            },
-            "description": "По умолчанию — текущий месяц. Дни без активности в списке отсутствуют."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "ai",
-      "item": [
-        {
-          "name": "Отправить черновик ассистента пациенту",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/send",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "drafts",
-                "{{message_id}}",
-                "send"
-              ]
-            },
-            "description": "Кнопка «Отправить» в панели «Ассистент предлагает» (режим «Проверяю»).\n\nС правкой текста — `review = edited`, исходник бота остаётся в\n`originalBody` как материал для обучения. Черновик, после которого пациент\nнаписал снова, отправить нельзя (409 `draft_stale`): бот готовит свежий.\nОкно 24 часов проверяется так же, как у свободного текста.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"body\": \"Здравствуйте! Профессиональная гигиена стоит 1 500 сом.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Отклонить черновик ассистента",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/drafts/{{message_id}}/discard",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "drafts",
-                "{{message_id}}",
-                "discard"
-              ]
-            },
-            "description": "Кнопка «Не отправлять»: пациенту ничего не уходит, отказ учитывается в обучении."
-          },
-          "response": []
-        },
-        {
-          "name": "Передать диалог человеку или вернуть боту",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/assistant",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "conversations",
-                "{{conversation_id}}",
-                "assistant"
-              ]
-            },
-            "description": "`active=false` — «дальше отвечаю сам»: бот замолкает (диалог в `escalated`).\n\n`active=true` — вернуть боту: открытые эскалации закрываются, и если пациент\nждёт ответа, ассистенту сразу ставится задание — возврат не означает тишину.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"active\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Глоссарий клиники (+ общий словарь платформы)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/glossary?status=",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "glossary"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "",
-                  "disabled": true,
-                  "description": "`pending` — очередь предложений бота на одобрение"
-                }
-              ]
-            },
-            "description": "Словарь, которым бот понимает пациентов.\n\nВ промпт попадают только `approved`. `pending` — предложения бота: он\nпереспросил пациента, получил подтверждение и положил пару сюда; автозаписи\nв действующий словарь нет намеренно — неверно понятая фраза стала бы\nсистемной ошибкой для всех следующих пациентов."
-          },
-          "response": []
-        },
-        {
-          "name": "Добавить термин вручную (сразу approved)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/glossary",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "glossary"
-              ]
-            },
-            "description": "Термин от администратора действует сразу — человек и есть контроль.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phrase\": \"тиш ооруп жатат\",\n  \"meaning\": \"болит зуб\",\n  \"lang\": \"string\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Одобрить предложение бота",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}/approve",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "glossary",
-                "{{term_id}}",
-                "approve"
-              ]
-            },
-            "description": "С этого момента фраза попадает в промпт — бот не переспрашивает снова."
-          },
-          "response": []
-        },
-        {
-          "name": "Удалить термин (или отклонить предложение)",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/glossary/{{term_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "glossary",
-                "{{term_id}}"
-              ]
-            },
-            "description": "Общий словарь платформы клиника не правит — только свои термины."
-          },
-          "response": []
-        },
-        {
-          "name": "Очередь «Обучение»: вопросы, на которые бот не ответил",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps?status=string&q=string&page=1&pageSize=25",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "knowledge-gaps"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Вкладка: `unknown` — не знает, `answered` — знает, `dismissed` — не нужно отвечать"
-                },
-                {
-                  "key": "q",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Поиск по вопросу и подсказке"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "pageSize",
-                  "value": "25",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Каждая строка — один смысл вопроса; похожие формулировки склеены, поэтому\n«спросили ×4» — честное число. Самые частые сверху: их выгоднее закрыть первыми."
-          },
-          "response": []
-        },
-        {
-          "name": "Переписать ответ моделью в документ базы знаний — на подтверждение",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/rewrite",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "knowledge-gaps",
-                "{{gap_id}}",
-                "rewrite"
-              ]
-            },
-            "description": "Администратор пишет как умеет — модель делает из этого аккуратный документ\nна языке вопроса (нейтрально, коротко, без цен). Человек правит и подтверждает\nчерез `answer`; токены вызова учитываются клинике.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"answer\": \"да парковка есть бесплатная во дворе заезд с токтогула\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Ответить своими словами — бот выучит сразу",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/answer",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "knowledge-gaps",
-                "{{gap_id}}",
-                "answer"
-              ]
-            },
-            "description": "Ответ становится активным документом базы знаний на языке вопроса и уходит\nв промпт со следующего хода. Цены в ответе запрещены — бот берёт их из прайса.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"answer\": \"Да, у нас бесплатная парковка во дворе, въезд с улицы Токтогула.\",\n  \"title\": \"string\",\n  \"category\": \"logistics\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "«Не нужно отвечать»",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/knowledge-gaps/{{gap_id}}/dismiss",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "knowledge-gaps",
-                "{{gap_id}}",
-                "dismiss"
-              ]
-            },
-            "description": "Вопрос вычёркивается из очереди и больше в неё не возвращается."
-          },
-          "response": []
-        },
-        {
-          "name": "База знаний клиники со сводкой токенов",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb?lang=string&category=string&active=True&q=string&page=1&pageSize=25",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb"
-              ],
-              "query": [
-                {
-                  "key": "lang",
-                  "value": "string",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "category",
-                  "value": "string",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "active",
-                  "value": "True",
-                  "disabled": true,
-                  "description": "Только активные / только выключенные"
-                },
-                {
-                  "key": "q",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Поиск по заголовку и тексту"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "pageSize",
-                  "value": "25",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Что знает бот, кроме прайса и расписания. Сводка — оценка токенов активных\nдокументов по языкам против порога 30 000: до него база уходит в промпт целиком,\nу каждого документа — признак `inPrompt`."
-          },
-          "response": []
-        },
-        {
-          "name": "Новый документ базы знаний",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb"
-              ]
-            },
-            "description": "Только редко меняющийся текст: как доехать, подготовка к приёму, что после\nудаления, правила отмены. Цены, график и врачей бот берёт из живой базы —\nдокумент с ценой не сохранится (422 `kb_price_forbidden`). Знание действует\nсо следующего хода бота.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Как доехать\",\n  \"category\": \"logistics\",\n  \"body\": \"string\",\n  \"lang\": \"ru\",\n  \"isActive\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Документ с историей версий",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb",
-                "{{document_id}}"
-              ]
-            },
-            "description": "Версии — новые сверху; последняя всегда равна текущему тексту."
-          },
-          "response": []
-        },
-        {
-          "name": "Правка документа — новая версия",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb",
-                "{{document_id}}"
-              ]
-            },
-            "description": "Передаются только изменяемые поля. `isActive:false` выключает документ для\nбота, не удаляя его. Каждое сохранение — версия, к которой можно вернуться.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"string\",\n  \"category\": \"string\",\n  \"body\": \"string\",\n  \"isActive\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Удалить документ безвозвратно",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb",
-                "{{document_id}}"
-              ]
-            },
-            "description": "Вместе с историей версий. Чтобы бот перестал использовать документ, но текст\nостался — `PATCH {isActive:false}`."
-          },
-          "response": []
-        },
-        {
-          "name": "Вернуться к версии",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/kb/{{document_id}}/rollback",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "kb",
-                "{{document_id}}",
-                "rollback"
-              ]
-            },
-            "description": "Содержимое версии N становится текущим — как новая версия с пометкой\n«к версии N»; история не переписывается.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"versionNo\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Кейсы регрессии клиники",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/cases?kind=string&active=True&result=string&q=string&page=1&pageSize=25",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "cases"
-              ],
-              "query": [
-                {
-                  "key": "kind",
-                  "value": "string",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "active",
-                  "value": "True",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "result",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "По итогу последнего прогона"
-                },
-                {
-                  "key": "q",
-                  "value": "string",
-                  "disabled": true,
-                  "description": "Поиск по вопросу и заметке"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "pageSize",
-                  "value": "25",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Каждый одобренный ответ, выученный вопрос и инцидент — кейс. Кейс уникален по\nвиду и вопросу: повтор обновляет ожидание, а не плодит дубли."
-          },
-          "response": []
-        },
-        {
-          "name": "Ручной кейс",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/cases",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "cases"
-              ]
-            },
-            "description": "Когда эталон известен без диалога: knowledge/reply — эталонный ответ или\nключевые слова; refusal — выдуманный ответ, который валидатор обязан снять;\nmedical — ожидание фильтра.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"kind\": \"reply\",\n  \"lang\": \"ru\",\n  \"question\": \"Есть ли у вас парковка?\",\n  \"expectedReply\": \"string\",\n  \"keywords\": [\n    \"string\"\n  ],\n  \"medical\": \"string\",\n  \"proposed\": \"string\",\n  \"note\": \"string\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Выключить/включить кейс, заметка",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "cases",
-                "{{case_id}}"
-              ]
-            },
-            "description": "Выключенный кейс в прогон не попадает и от новых одобрений не воскресает.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"isActive\": true,\n  \"note\": \"string\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Удалить кейс",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/cases/{{case_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "cases",
-                "{{case_id}}"
-              ]
-            },
-            "description": "Вместе с итогами прошлых прогонов по нему."
-          },
-          "response": []
-        },
-        {
-          "name": "Запустить прогон",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/runs",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "runs"
-              ]
-            },
-            "description": "Перед сменой промпта, базы знаний, глоссария или модели. `offline` — без модели\nи бесплатно (медфильтр, валидатор на снятой выдумке, наличие знания в промпте);\n`model` — сухой прогон модели по каждому кейсу: ничего не уходит пациентам,\nтокены учитываются клинике. Выполняется в воркере — опрашивайте прогон.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"mode\": \"offline\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "История прогонов",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/runs?page=1&pageSize=25",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "runs"
-              ],
-              "query": [
-                {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": true,
-                  "description": ""
-                },
-                {
-                  "key": "pageSize",
-                  "value": "25",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Новые сверху; у каждого — версия промпта и модель, на которых прогонялось."
-          },
-          "response": []
-        },
-        {
-          "name": "Прогон с итогами по кейсам",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/regression/runs/{{run_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "regression",
-                "runs",
-                "{{run_id}}"
-              ]
-            },
-            "description": "Проваленные кейсы первыми: что ожидали, что получили, заметка валидатора."
-          },
-          "response": []
-        },
-        {
-          "name": "Метрики обучения ассистента и гейт доверия",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/assistant/metrics?period=&dateFrom=2026-01-01&dateTo=2026-01-01",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "assistant",
-                "metrics"
-              ],
-              "query": [
-                {
-                  "key": "period",
-                  "value": "",
-                  "disabled": true,
-                  "description": "Пресет: `7d`, `1m` (по умолчанию), `3m`, `all`"
-                },
-                {
-                  "key": "dateFrom",
-                  "value": "2026-01-01",
-                  "disabled": true,
-                  "description": "Явный диапазон"
-                },
-                {
-                  "key": "dateTo",
-                  "value": "2026-01-01",
-                  "disabled": true,
-                  "description": ""
-                }
-              ]
-            },
-            "description": "Учится ли бот: доля ответов без человека, доля правок черновиков, очередь\n«Обучение» и «выучил за период», итог последней регрессии, токены. Гейт\nдоверия — по ТЗ: N одобренных ответов и ноль фактических ошибок (V01–V03)\nза неделю; отсюда берётся «153 из 200» для ступеней Ф7."
-          },
-          "response": []
-        },
-        {
-          "name": "Лестница доверия: текущая ступень, условия следующей",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "assistant",
-                "trust"
-              ]
-            },
-            "description": "Наблюдаю → Проверяю → Доверяю. Каждая ступень показывает свои условия:\n«Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —\nодобренные ответы («153 из 200») и ноль фактических ошибок за неделю.\nСмотреть может ресепшен, менять — право `assistant.manage` (владелец всегда)."
-          },
-          "response": []
-        },
-        {
-          "name": "Сменить ступень или выключить ассистента",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/clinic/assistant/trust",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "clinic",
-                "assistant",
-                "trust"
-              ]
-            },
-            "description": "`level` ставит ступень (и включает бота); вверх — только когда гейт открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её.\n`skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у\nмодели, `assisted` оставляет подбор боту, а действие — администратору\n(эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"enabled\": true,\n  \"level\": \"assisted\",\n  \"skills\": {\n    \"booking\": \"assisted\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Режим AI-ассистента клиники",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/ai-mode",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "clients",
-                "{{clinic_id}}",
-                "ai-mode"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"mode\": \"off\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Имитировать входящее сообщение пациента",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/ai/simulate-inbound",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "ai",
-                "simulate-inbound"
-              ]
-            },
-            "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"clinicId\": \"00000000-0000-0000-0000-000000000000\",\n  \"fromPhone\": \"+996700123456\",\n  \"text\": \"Канча турат чистка?\",\n  \"buttonPayload\": \"hold:6f1e0e6a-…\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
         }
       ]
     }
