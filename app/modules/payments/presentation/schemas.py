@@ -1,13 +1,10 @@
-"""Схемы платежей (контракт фронта).
-
-v1 — заглушки формы: реального журнала платежей нет (биллинг/провайдер
-отложены), поэтому список пуст, а сводка нулевая. Форма ответа соответствует
-контракту, чтобы фронт завёлся без изменений типов.
-"""
+"""Схемы платежей: журнал Skrezo и оплата подписки клиникой (FreedomPay)."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import Field
 
@@ -30,12 +27,12 @@ class PaymentRow(CamelModel):
     date: datetime
     client: str
     client_type: str = Field(description="solo | clinic")
-    type: str = Field(description="«Продление» | «Активация» | «Ручная оплата» | «Возврат»")
-    period: str
+    type: str = Field(description="«Оплата подписки» | «Возврат»")
+    period: str = Field(description="Оплаченный период «дд.мм.гггг — дд.мм.гггг» или «—»")
     amount_tiyin: int  # отрицательная — возврат
-    status: str = Field(description="success | failed | refund")
-    method: str
-    txn_id: str
+    status: str = Field(description="success | failed | refund | pending")
+    method: str = Field(description="FreedomPay")
+    txn_id: str = Field(description="Идентификатор платежа у провайдера")
 
 
 class PaymentsBundle(CamelModel):
@@ -46,3 +43,65 @@ class PaymentsBundle(CamelModel):
 
 class RefundRequest(CamelModel):
     reason: str = Field(min_length=1, description="Причина возврата")
+
+
+class StartPaymentRequest(CamelModel):
+    """Сколько месяцев оплатить — цена считается по действующему тарифу."""
+
+    months: int = Field(ge=1, le=12, examples=[1])
+
+
+class PriceQuoteOut(CamelModel):
+    """Цена по тарифу до перехода к оплате."""
+
+    monthly_tiyin: int = Field(description="Цена в месяц по тарифу клиники", examples=[300000])
+    months: int
+    total_tiyin: int = Field(examples=[300000])
+    seats: int | None = Field(default=None, description="Мест по тарифу (клиника); null — соло")
+    currency: str = Field(default="KGS")
+    available: bool = Field(description="Онлайн-оплата подключена (реквизиты провайдера заданы)")
+
+
+class ClinicPaymentOut(CamelModel):
+    """Платёж за подписку глазами кабинета."""
+
+    id: uuid.UUID
+    status: str = Field(description="pending | paid | failed | refunded")
+    amount_tiyin: int
+    currency: str
+    months: int
+    description: str
+    redirect_url: str | None = Field(
+        default=None, description="Страница оплаты провайдера — куда отправить владельца"
+    )
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    paid_at: datetime | None = None
+    failure_code: str | None = None
+    failure_description: str | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_orm_payment(cls, p: Any) -> ClinicPaymentOut:
+        return cls(
+            id=p.id,
+            status=p.status,
+            amount_tiyin=p.amount_tiyin,
+            currency=p.currency,
+            months=p.months,
+            description=p.description,
+            redirect_url=p.redirect_url if p.status == "pending" else None,
+            period_start=p.period_start,
+            period_end=p.period_end,
+            paid_at=p.paid_at,
+            failure_code=p.failure_code,
+            failure_description=p.failure_description,
+            created_at=p.created_at,
+        )
+
+
+class ClinicPaymentsResponse(CamelModel):
+    list: list[ClinicPaymentOut]
+    current_page: int
+    page_size: int = 25
+    total_count: int

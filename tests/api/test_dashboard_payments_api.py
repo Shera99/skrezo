@@ -31,7 +31,8 @@ async def test_dashboard_summary_shape_and_counts(admin_client: AsyncClient) -> 
     assert "июля" in body["dateLabel"]
 
 
-async def test_payments_stub(admin_client: AsyncClient) -> None:
+async def test_payments_journal_is_empty_for_a_quiet_period(admin_client: AsyncClient) -> None:
+    """Период без платежей: пустой журнал и нулевая сводка; возврат неизвестного — 404."""
     resp = await admin_client.get(f"{API}/admin/payments?from=2026-07-01&to=2026-07-31")
     assert resp.status_code == 200
     body = resp.json()
@@ -40,7 +41,7 @@ async def test_payments_stub(admin_client: AsyncClient) -> None:
     assert body["summary"]["netTiyin"] == 0
 
     refund = await admin_client.post(
-        f"{API}/admin/payments/TXN-1/refund", json={"reason": "тест"}
+        f"{API}/admin/payments/{uuid.uuid4()}/refund", json={"reason": "тест"}
     )
     assert refund.status_code == 404
     assert refund.json()["error"] == "payment_not_found"

@@ -145,6 +145,10 @@ make run           # uvicorn с автоперезагрузкой
 | `AI_BREAKER_THRESHOLD` / `AI_BREAKER_OPEN_SECONDS` | предохранитель: сбоев подряд → пауза контура ассистента, секунд | `5` / `60` |
 | `AI_PREFIX_CACHE_ENABLED` / `AI_PREFIX_CACHE_TTL_SECONDS` | кэш префикса промпта у Gemini (cachedContents): включён ли, сколько живёт без правок | `true` / `1800` |
 | `AI_TOOL_CALL_RETENTION_DAYS` / `AI_MESSAGE_RETENTION_DAYS` | ретеншн: журнал инструментов; переписка закрытых диалогов с медиа (резюме остаются) | `90` / `730` |
+| `FREEDOMPAY_API_URL` / `FREEDOMPAY_MERCHANT_ID` / `FREEDOMPAY_SECRET_KEY` | FreedomPay (Кыргызстан): базовый URL и реквизиты мерчанта; пусто — онлайн-оплата недоступна | `https://api.freedompay.kg` / `` / `` |
+| `FREEDOMPAY_TESTING_MODE` / `FREEDOMPAY_LIFETIME_SECONDS` | тестовый режим провайдера; сколько живёт ссылка на оплату | `true` / `1800` |
+| `FREEDOMPAY_SUCCESS_URL` / `FREEDOMPAY_FAILURE_URL` | страницы кабинета, куда провайдер возвращает владельца | `` / `` |
+| `PUBLIC_API_URL` | публичный адрес API с префиксом `/api/v1` — для серверного колбэка провайдера | `` |
 | `AI_RATE_CACHED_INPUT_TIYIN_PER_MTOK` | ставка за токены из кэша префикса (≈ четверть входной) | `0` |
 | `AI_REGRESSION_JOB_TIMEOUT` / `AI_REGRESSION_MAX_CASES` | регрессия клиники (Ф6): таймаут задания прогона, кейсов за прогон | `1800` / `200` |
 | `AI_TRUST_GATE_APPROVALS` / `AI_TRUST_GATE_FACT_ERROR_DAYS` | гейт доверия (Ф7): одобренных ответов и дней без ошибок V01–V03 | `200` / `7` |
@@ -308,6 +312,13 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/dashboard/summary` | Метрики за период (`from`/`to`): active/trial/риски/конверсия/отмены |
 | `GET` | `/admin/dashboard/trends?months=6` | Ряды по месяцам: MRR (0), активные (solo/clinic), заявки→клиенты, срез solo/clinic |
 | `POST` | `/admin/clients/{id}/subscription/activate` | Отметить оплату: доступ до даты (`paidUntil`) |
+| `GET` | `/clinic/subscription/price?months=` | Цена подписки по тарифу за N месяцев (`billing.view`); `available` — подключена ли онлайн-оплата |
+| `POST` | `/clinic/subscription/payments` | Начать оплату через FreedomPay: платёж `pending` + `redirectUrl` страницы оплаты (`billing.manage`); 409 `payments_not_configured` / `tariff_not_configured`, 502 `payment_init_failed` |
+| `GET` | `/clinic/subscription/payments` | Платежи клиники за подписку |
+| `GET` | `/clinic/subscription/payments/{id}` | Состояние платежа — опрашивать после возврата со страницы оплаты |
+| `POST` | `/payments/freedompay/result` | **Публичный** серверный колбэк FreedomPay (`result_url`): подпись `pg_sig` обязательна; XML-ответ ok / rejected / error |
+| `GET` | `/admin/payments?from&to&query&status` | Skrezo: журнал платежей за подписку и сводка (успешно, отказы, возвраты, нетто) |
+| `POST` | `/admin/payments/{id}/refund` | Skrezo: отметить возврат оплаченного платежа (деньги возвращаются в кабинете провайдера) |
 | `POST` | `/admin/clients/{id}/subscription/block` | Заблокировать клинику решением Skrezo |
 | `GET` | `/admin/jobs` | Состояние воркера: жив ли и последний запуск каждой задачи |
 | `GET` | `/admin/jobs/runs` | Журнал запусков (фильтр `job`, offset-пагинация) |
@@ -1010,6 +1021,24 @@ WhatsApp → воркер → контекст (промпт + карточка 
 > удаляются порциями (вместе с медиа на диске), закрытые диалоги без
 > сообщений и с давней активностью — тоже. Открытые диалоги и резюме
 > (`ai_summary`, долгая память о пациенте) не трогаются.
+
+> **Оплата подписки через FreedomPay (платёжная страница).** Провайдер даёт
+> автосписание только через 2–3 месяца, поэтому оплата — явное действие
+> владельца: `GET /clinic/subscription/price` показывает цену по тарифу (соло —
+> фикс, клиника — пакет по местам: лимит по тарифу либо занятые места), `POST
+> /clinic/subscription/payments {months}` создаёт платёж и через
+> `init_payment.php` (form-data, подпись MD5 «скрипт;значения по алфавиту;
+> секрет», ответ XML с подписью, которую мы сверяем) получает `redirectUrl` —
+> фронт отправляет владельца на страницу оплаты и возвращает на
+> `FREEDOMPAY_SUCCESS_URL` / `FAILURE_URL`. **Период открывает только серверный
+> колбэк** `POST /payments/freedompay/result`: подпись `pg_sig` сверяется
+> первой, сумма — с нашей строкой платежа; `ok` — оплата учтена (повтор
+> колбэка тоже `ok`, второго продления нет), `rejected` — сумма не совпала
+> (провайдер отменит платёж), `error` — чужая подпись или неизвестный заказ.
+> Новый период начинается там, где кончается оплаченный, если он ещё идёт.
+> Возврат отмечает команда Skrezo (`/admin/payments/{id}/refund`), деньги —
+> в кабинете провайдера. Тестовый режим `FREEDOMPAY_TESTING_MODE=true`:
+> карты из документации (например `4716047261941981`, 12/30, CVV 123).
 
 > **Лимит потока (§14).** Больше 30 сообщений в час от одного пациента
 > (`AI_RATE_LIMIT_PER_HOUR`) — бот один раз пишет «слишком много сообщений

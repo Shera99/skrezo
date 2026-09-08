@@ -43,8 +43,12 @@ class ManageSubscriptionUseCase:
         *,
         paid_until: datetime,
         period_start: datetime | None = None,
+        reason: str = "manual_payment",
     ) -> Subscription:
         """Отметить оплату: подписка ``active`` до ``paid_until``.
+
+        ``reason`` — кто открыл период: ``manual_payment`` (команда Skrezo) или
+        ``freedompay`` (подтверждённый колбэк провайдера).
 
         Дата конца периода обязательна и должна быть в будущем: подписка,
         оплаченная «до вчера», сразу же уходит в режим чтения — это почти всегда
@@ -68,7 +72,7 @@ class ManageSubscriptionUseCase:
             subscription_id=subscription.id,
             from_status=from_status,
             to_status=SubscriptionStatus.ACTIVE,
-            reason="manual_payment",
+            reason=reason,
         )
         await self._session.commit()
         await self._policy.invalidate_clinic(clinic_id)

@@ -222,6 +222,22 @@ class Settings(BaseSettings):
     wa_rate_marketing_tiyin: int = 0
     wa_rate_authentication_tiyin: int = 0
 
+    # ── Оплата подписки: FreedomPay (Кыргызстан), платёжная страница ────────
+    #: Реквизиты мерчанта из кабинета FreedomPay; пусто — онлайн-оплата
+    #: недоступна (ручка отвечает 409, ручная отметка оплаты остаётся).
+    freedompay_api_url: str = "https://api.freedompay.kg"
+    freedompay_merchant_id: str = ""
+    freedompay_secret_key: str = ""
+    #: Тестовый режим провайдера (pg_testing_mode): тестовые карты, без денег.
+    freedompay_testing_mode: bool = True
+    #: Сколько живёт ссылка на оплату (секунды) и куда вернуть владельца.
+    freedompay_lifetime_seconds: int = 1800
+    freedompay_success_url: str = ""
+    freedompay_failure_url: str = ""
+    #: Публичный адрес API (с префиксом /api/v1) — для серверного колбэка
+    #: провайдера, например https://gateway-v2.kassir.kg/skrz/api/v1.
+    public_api_url: str = ""
+
     # ── Хранилище файлов ────────────────────────────────────────────────────
     # Каталог на диске сервера (относительно корня проекта или абсолютный).
     # Внутри — storage/{images|files}/ГГГГ/ММ/ДД/. В докере это volume: без него

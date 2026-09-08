@@ -1133,12 +1133,12 @@
           "name": "payments",
           "item": [
             {
-              "name": "Журнал платежей и сводка (v1 — заглушка)",
+              "name": "Журнал платежей за подписку и сводка",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/admin/payments?from=2026-01-01&to=2026-01-01&query=string&status=string&page=1",
+                  "raw": "{{base_url}}/api/v1/admin/payments?from=2026-01-01&to=2026-01-01&query=string&status=string&page=1&pageSize=25",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -1165,27 +1165,34 @@
                       "key": "query",
                       "value": "string",
                       "disabled": true,
-                      "description": "Поиск по клиенту"
+                      "description": "Поиск по клиенту или id у провайдера"
                     },
                     {
                       "key": "status",
                       "value": "string",
                       "disabled": true,
-                      "description": "success | failed | refund"
+                      "description": "success | failed | refund | pending"
                     },
                     {
                       "key": "page",
                       "value": "1",
                       "disabled": true,
                       "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
                     }
                   ]
-                }
+                },
+                "description": "Платежи клиник через FreedomPay: успешные открывают период, возвраты\nотмечает команда Skrezo вручную (`/admin/payments/{id}/refund`)."
               },
               "response": []
             },
             {
-              "name": "Пометить возврат (v1 — заглушка)",
+              "name": "Отметить возврат",
               "request": {
                 "method": "POST",
                 "header": [
@@ -1208,6 +1215,7 @@
                     "refund"
                   ]
                 },
+                "description": "Деньги возвращаются в кабинете провайдера; здесь — учёт и причина.\nДоступ клиники не закрывается автоматически: решение о блокировке —\nотдельное (`/admin/clients/{id}/subscription/block`).",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"reason\": \"string\"\n}",
@@ -1217,6 +1225,153 @@
                     }
                   }
                 }
+              },
+              "response": []
+            },
+            {
+              "name": "Цена подписки по тарифу за N месяцев",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/price?months=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "price"
+                  ],
+                  "query": [
+                    {
+                      "key": "months",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Соло — фиксированная цена, клиника — пакет по числу мест (лимит по тарифу\nили занятые места, если он не задан). `available=false` — реквизиты провайдера\nещё не заданы, оплата пока по счёту через Skrezo."
+              },
+              "response": []
+            },
+            {
+              "name": "Начать оплату подписки — получить страницу оплаты FreedomPay",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments"
+                  ]
+                },
+                "description": "Провайдер пока без автосписания: владелец выбирает срок, уходит на страницу\nоплаты и возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Период\nоткрывает только серверный колбэк провайдера (с подписью) — состояние\nплатежа смотрите в `GET /clinic/subscription/payments/{id}`; ссылка живёт\n`FREEDOMPAY_LIFETIME_SECONDS`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"months\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Платежи клиники за подписку",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments?page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Новые сверху; у ожидающих — ссылка на страницу оплаты."
+              },
+              "response": []
+            },
+            {
+              "name": "Состояние платежа",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/payments/{{payment_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "payments",
+                    "{{payment_id}}"
+                  ]
+                },
+                "description": "Опрашивайте после возврата со страницы оплаты: `paid` — период открыт."
+              },
+              "response": []
+            },
+            {
+              "name": "Результат платежа (вызывает FreedomPay)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/payments/freedompay/result",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "payments",
+                    "freedompay",
+                    "result"
+                  ]
+                },
+                "description": "Публичный `result_url` платёжной страницы. Подпись `pg_sig` сверяется\nпервой; сумма — с нашей строкой платежа. `ok` — оплата учтена, период открыт\n(повтор колбэка тоже `ok`); `rejected` — сумма не совпала, провайдер отменит\nплатёж; `error` — подпись или заказ не наши."
               },
               "response": []
             }
