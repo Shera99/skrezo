@@ -325,6 +325,9 @@ OPENAPI_TAGS = [
 ]
 
 # ``x-tagGroups`` — расширение ReDoc: верхнеуровневые группы разделов в меню.
+# ⚠️ Тег, не попавший ни в одну группу, ReDoc в меню НЕ показывает — так
+# «пропали» разделы ассистента и WhatsApp. Тест test_openapi_tag_groups
+# требует, чтобы каждый тег состоял в группе.
 # Пациентского API нет (клиническое ядро — приложение glo, вне скоупа); когда
 # появится — завести группу «Пациенты».
 OPENAPI_TAG_GROUPS = [
@@ -336,9 +339,11 @@ OPENAPI_TAG_GROUPS = [
         "name": "Админ-панель Skrezo",
         "tags": [
             "clients",
+            "accounts",
             "clinic-applications-admin",
             "tariffs",
             "payments",
+            "usage",
             "dashboard",
             "reports-admin",
             "trial-features",
@@ -346,6 +351,10 @@ OPENAPI_TAG_GROUPS = [
             "subscription-admin",
             "jobs",
         ],
+    },
+    {
+        "name": "WhatsApp и AI-ассистент",
+        "tags": ["whatsapp", "ai"],
     },
     {
         "name": "Рабочее приложение клиники",
@@ -360,6 +369,7 @@ OPENAPI_TAG_GROUPS = [
             "reports",
             "subscription",
             "clinic-settings",
+            "clinic-audit",
             "push",
         ],
     },
