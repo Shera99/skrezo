@@ -149,6 +149,7 @@ make run           # uvicorn с автоперезагрузкой
 | `FREEDOMPAY_TESTING_MODE` / `FREEDOMPAY_LIFETIME_SECONDS` | тестовый режим провайдера; сколько живёт ссылка на оплату | `true` / `1800` |
 | `FREEDOMPAY_SUCCESS_URL` / `FREEDOMPAY_FAILURE_URL` | страницы кабинета, куда провайдер возвращает владельца | `` / `` |
 | `PUBLIC_API_URL` | публичный адрес API с префиксом `/api/v1` — для серверного колбэка провайдера | `` |
+| `TOPUP_MIN_TIYIN` / `AUTOPAY_DAYS_BEFORE` | минимальное пополнение баланса; за сколько дней до конца периода списывать месяц с баланса | `100000` / `3` |
 | `AI_RATE_CACHED_INPUT_TIYIN_PER_MTOK` | ставка за токены из кэша префикса (≈ четверть входной) | `0` |
 | `AI_REGRESSION_JOB_TIMEOUT` / `AI_REGRESSION_MAX_CASES` | регрессия клиники (Ф6): таймаут задания прогона, кейсов за прогон | `1800` / `200` |
 | `AI_TRUST_GATE_APPROVALS` / `AI_TRUST_GATE_FACT_ERROR_DAYS` | гейт доверия (Ф7): одобренных ответов и дней без ошибок V01–V03 | `200` / `7` |
@@ -313,9 +314,14 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/dashboard/trends?months=6` | Ряды по месяцам: MRR (0), активные (solo/clinic), заявки→клиенты, срез solo/clinic |
 | `POST` | `/admin/clients/{id}/subscription/activate` | Отметить оплату: доступ до даты (`paidUntil`) |
 | `GET` | `/clinic/subscription/price?months=` | Цена подписки по тарифу за N месяцев (`billing.view`); `available` — подключена ли онлайн-оплата |
-| `POST` | `/clinic/subscription/payments` | Начать оплату через FreedomPay: платёж `pending` + `redirectUrl` страницы оплаты (`billing.manage`); 409 `payments_not_configured` / `tariff_not_configured`, 502 `payment_init_failed` |
+| `POST` | `/clinic/subscription/payments` | Начать оплату через FreedomPay: `{months}` — подписка, `{amountTiyin}` — пополнение баланса; платёж `pending` + `redirectUrl` (`billing.manage`); 409 `payments_not_configured` / `tariff_not_configured`, 422 `topup_too_small`, 502 `payment_init_failed` |
 | `GET` | `/clinic/subscription/payments` | Платежи клиники за подписку |
 | `GET` | `/clinic/subscription/payments/{id}` | Состояние платежа — опрашивать после возврата со страницы оплаты |
+| `GET` | `/clinic/ledger?page` | Баланс, автопродление и выписка операций клиники (`billing.view`) |
+| `POST` | `/clinic/subscription/pay-from-balance` | Оплатить N месяцев с баланса (`billing.manage`); 402 `insufficient_balance` с недостачей |
+| `PATCH` | `/clinic/subscription/autopay` | Включить/выключить автопродление с баланса |
+| `GET` | `/admin/clients/{id}/ledger` | Skrezo: баланс и выписка клиента |
+| `POST` | `/admin/clients/{id}/ledger/entries` | Skrezo: `credit` — перевод на счёт (продлит ждущую подписку), `debit` — корректировка |
 | `POST` | `/payments/freedompay/result` | **Публичный** серверный колбэк FreedomPay (`result_url`): подпись `pg_sig` обязательна; XML-ответ ok / rejected / error |
 | `GET` | `/admin/payments?from&to&query&status` | Skrezo: журнал платежей за подписку и сводка (успешно, отказы, возвраты, нетто) |
 | `POST` | `/admin/payments/{id}/refund` | Skrezo: отметить возврат оплаченного платежа (деньги возвращаются в кабинете провайдера) |
@@ -1039,6 +1045,31 @@ WhatsApp → воркер → контекст (промпт + карточка 
 > Возврат отмечает команда Skrezo (`/admin/payments/{id}/refund`), деньги —
 > в кабинете провайдера. Тестовый режим `FREEDOMPAY_TESTING_MODE=true`:
 > карты из документации (например `4716047261941981`, 12/30, CVV 123).
+
+> **Журнал операций и баланс клиники.** Правда о деньгах клиники у Skrezo —
+> в журнале `clinic_ledger_entry` (только добавление): `credit` — приход
+> (оплата провайдером, перевод на счёт), `debit` — расход (списание за
+> подписку, возврат, корректировка), у каждой строки остаток после операции;
+> `clinic_wallet` держит текущий остаток и рубильник автопродления, любое
+> движение — под блокировкой строки кошелька. Ключ идемпотентности не даёт
+> повторному колбэку провести деньги дважды; сырые ответы сервиса хранятся у
+> платежа (`providerResponse`, `callback`) и в строке журнала. Три таблицы,
+> три смысла: `cash_payment` — касса клиники (пациент → клиника),
+> `platform_payment` — попытка оплаты у провайдера (заказ, статус, ссылка),
+> журнал — движение денег клиники у Skrezo. **Потоки:** оплата подписки
+> провайдером = приход + списание + период; пополнение (`POST
+> /clinic/subscription/payments {amountTiyin}`) остаётся на балансе и сразу
+> продлевает подписку, если та ждёт денег; `POST
+> /clinic/subscription/pay-from-balance {months}` списывает цену по тарифу
+> (не хватает — 402 `insufficient_balance` с недостачей); перевод на счёт и
+> корректировки — `POST /admin/clients/{id}/ledger/entries`; возврат платежа
+> кладёт расход (остаток может уйти в минус — это факт, а не запрет).
+> **Автопродление** (`autopay_subscriptions`, 09:30 по Бишкеку): за
+> `AUTOPAY_DAYS_BEFORE` дней до конца периода месяц списывается с баланса;
+> не хватает — владельцу и команде уходит сообщение с суммой, один раз на
+> период; выключается в кабинете. Задел на будущее: когда провайдер откроет
+> автосписание, недостающее спишется с карты по профилю
+> `recurring_profile_id` — и продление пройдёт.
 
 > **Лимит потока (§14).** Больше 30 сообщений в час от одного пациента
 > (`AI_RATE_LIMIT_PER_HOUR`) — бот один раз пишет «слишком много сообщений

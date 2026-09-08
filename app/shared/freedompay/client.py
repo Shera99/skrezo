@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import secrets
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import httpx
@@ -49,6 +49,8 @@ class InitPaymentRequest:
 class InitPaymentResult:
     payment_id: str
     redirect_url: str
+    #: Разобранный ответ провайдера как есть — хранится у платежа.
+    raw: dict[str, str] = field(default_factory=dict)
 
 
 class FreedomPayClient(Protocol):
@@ -134,4 +136,4 @@ class FreedomPayHttpClient:
         redirect_url = data.get("pg_redirect_url") or ""
         if not payment_id or not redirect_url:
             raise FreedomPayError("в ответе нет pg_payment_id или pg_redirect_url")
-        return InitPaymentResult(payment_id=payment_id, redirect_url=redirect_url)
+        return InitPaymentResult(payment_id=payment_id, redirect_url=redirect_url, raw=data)

@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends
 
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
+from app.modules.payments.application.services.ledger_service import LedgerService
+from app.modules.payments.presentation.deps import get_ledger_service
 from app.modules.subscriptions.application.use_cases.get_subscription import (
     GetSubscriptionUseCase,
 )
@@ -42,6 +44,7 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 async def get_subscription(
     context: ClientContext = Depends(require_permission("billing.view")),
     use_case: GetSubscriptionUseCase = Depends(get_get_subscription_use_case),
+    ledger: LedgerService = Depends(get_ledger_service),
 ) -> ClinicSubscriptionResponse:
     """Показать состояние подписки клиники из токена.
 
@@ -56,4 +59,7 @@ async def get_subscription(
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     result = await use_case.execute(context.clinic_id)
-    return ClinicSubscriptionResponse.from_result(result)
+    wallet = await ledger.wallet(context.clinic_id)
+    return ClinicSubscriptionResponse.from_result(result).model_copy(
+        update={"balance_tiyin": wallet.balance_tiyin, "autopay_enabled": wallet.autopay_enabled}
+    )

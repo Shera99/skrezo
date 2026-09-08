@@ -129,7 +129,7 @@ async def test_quote_start_and_signed_callback_opens_period(
     assert sent.amount == "10000.00" and sent.currency == "KGS" and sent.testing_mode is True
     assert sent.result_url == "https://api.test/api/v1/payments/freedompay/result"
     assert sent.success_url == "https://app.test/billing/ok" and sent.user_phone
-    assert sent.extra == {"pg_param1": ctx.clinic_id}
+    assert sent.extra == {"pg_param1": ctx.clinic_id, "pg_param2": "subscription"}
 
     # Колбэк с верной подписью и суммой → оплачено, период на 2 месяца открыт.
     xml = await _post_result(client, _callback(payment["id"], "fp-1", "10000.00"))

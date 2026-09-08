@@ -1,8 +1,11 @@
-"""Серверный колбэк FreedomPay (``result_url``): единственный, кто открывает период.
+"""Серверный колбэк FreedomPay (``result_url``): единственный, кто проводит деньги.
 
 Подпись сверяется до всего остального; сумма — с нашей строкой платежа (не
-с тем, что прислали). Повтор колбэка по уже оплаченному платежу — «ok»
-без второго продления: провайдер шлёт результат, пока не получит ответ.
+с тем, что прислали). Оплата = приход в журнал; оплата подписки тут же
+списывает цену и открывает период, пополнение — остаётся на балансе (и, если
+подписка ждёт денег, продлевает её). Повтор колбэка по уже оплаченному
+платежу — «ok» без второго прихода: провайдер шлёт результат, пока не
+получит ответ.
 """
 
 from __future__ import annotations
@@ -16,17 +19,15 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.payments.domain.periods import amount_matches, next_period
+from app.modules.payments.application.services.ledger_service import LedgerService
+from app.modules.payments.domain.ledger import KIND_CREDIT, PURPOSE_SUBSCRIPTION, SOURCE_PROVIDER
+from app.modules.payments.domain.periods import amount_matches
 from app.modules.payments.infrastructure.repositories.platform_payment_repository import (
     PlatformPaymentRepository,
 )
 from app.modules.subscriptions.application.use_cases.manage_subscription import (
     ManageSubscriptionUseCase,
 )
-from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
-    SubscriptionRepository,
-)
-from app.shared.db.enums import SubscriptionStatus
 from app.shared.freedompay import verify
 
 logger = structlog.get_logger(__name__)
@@ -48,12 +49,12 @@ class HandleFreedomPayResultUseCase:
         self,
         session: AsyncSession,
         payments: PlatformPaymentRepository,
-        subscriptions: SubscriptionRepository,
+        ledger: LedgerService,
         manage: ManageSubscriptionUseCase,
     ) -> None:
         self._session = session
         self._payments = payments
-        self._subscriptions = subscriptions
+        self._ledger = ledger
         self._manage = manage
 
     async def execute(self, form: dict[str, str]) -> ResultReply:
@@ -103,31 +104,50 @@ class HandleFreedomPayResultUseCase:
             return ResultReply("rejected", "Сумма не совпадает с заказом")
 
         now = datetime.now(UTC)
-        subscription = await self._subscriptions.by_clinic(payment.clinic_id)
-        current_end = (
-            subscription.current_period_end
-            if subscription is not None and subscription.status is SubscriptionStatus.ACTIVE
-            else None
-        )
-        start, end = next_period(now, current_end, payment.months)
         payment.status = "paid"
         payment.paid_at = now
-        payment.period_start = start
-        payment.period_end = end
         payment.provider_payment_id = payment.provider_payment_id or provider_id or None
         payment.recurring_profile_id = (
             str(form.get("pg_recurring_profile_id") or "") or payment.recurring_profile_id
         )
         payment.callback = snapshot
-        await self._session.flush()
-        # Продление коммитит сам и сбрасывает кеш доступа: клиника пишет сразу.
-        await self._manage.activate(
-            payment.clinic_id, paid_until=end, period_start=start, reason="freedompay"
+        # Приход — в журнал; повтор колбэка упрётся в ключ идемпотентности.
+        await self._ledger.post(
+            payment.clinic_id,
+            kind=KIND_CREDIT,
+            source=SOURCE_PROVIDER,
+            amount_tiyin=payment.amount_tiyin,
+            description=payment.description,
+            payment_id=payment.id,
+            provider_payload=snapshot,
+            idempotency_key=f"freedompay:{payment.provider_payment_id or payment.id}",
+            created_by=payment.created_by,
         )
+        if payment.recurring_profile_id:
+            wallet = await self._ledger.wallet(payment.clinic_id)
+            wallet.recurring_profile_id = payment.recurring_profile_id
+        if payment.purpose == PURPOSE_SUBSCRIPTION:
+            # Списание за подписку + открытие периода (коммитит продление).
+            entry, _ = await self._ledger.charge_subscription(
+                payment.clinic_id,
+                payment.months,
+                manage=self._manage,
+                payment_id=payment.id,
+                created_by=payment.created_by,
+                reason="freedompay",
+            )
+            payment.period_start, payment.period_end = entry.period_start, entry.period_end
+            await self._session.commit()
+        else:
+            await self._session.commit()
+            # Пополнение: если подписка ждёт денег — продлить сразу, не ночью.
+            await self._ledger.try_autorenew(
+                payment.clinic_id, manage=self._manage, reason="autopay_balance"
+            )
         logger.info(
             "freedompay_payment_paid",
             order_id=str(payment.id),
             clinic_id=str(payment.clinic_id),
-            until=end.isoformat(),
+            purpose=payment.purpose,
         )
         return ResultReply("ok", "Оплата учтена")

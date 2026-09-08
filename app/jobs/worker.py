@@ -46,6 +46,7 @@ from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.ai import ai_reply, run_ai_regression, summarize_conversation
 from app.jobs.tasks.ai_cleanup import cleanup_ai_history
 from app.jobs.tasks.ai_health import check_ai_health, check_whatsapp_tokens
+from app.jobs.tasks.billing import autopay_subscriptions
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
@@ -131,6 +132,9 @@ class WorkerSettings:
         # Отдельной задачей, а не вместе с триалом: падение одной не должно
         # оставлять без предупреждения клиентов другой.
         cron(warn_period_ending, hour=3, minute=20),
+        # Автопродление подписок с баланса клиники — после предупреждений,
+        # до рабочего дня (03:30 UTC = 09:30 Бишкек).
+        cron(autopay_subscriptions, hour=3, minute=30),
         cron(cleanup_job_runs, hour=2, minute=30),
         # Сроки хранения контура уведомлений (§14): телеметрия 3 мес, события 12.
         cron(cleanup_notifications, hour=2, minute=40),

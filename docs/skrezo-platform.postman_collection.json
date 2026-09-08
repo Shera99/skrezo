@@ -1333,7 +1333,7 @@
                     "refund"
                   ]
                 },
-                "description": "Деньги возвращаются в кабинете провайдера; здесь — учёт и причина.\nДоступ клиники не закрывается автоматически: решение о блокировке —\nотдельное (`/admin/clients/{id}/subscription/block`).",
+                "description": "Деньги возвращаются в кабинете провайдера; здесь — учёт: платёж помечается,\nв журнал клиники ложится расход. Доступ клиники не закрывается\nавтоматически: решение о блокировке — отдельное\n(`/admin/clients/{id}/subscription/block`).",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"reason\": \"string\"\n}",
@@ -1911,6 +1911,81 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"reason\": \"нарушение условий\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Баланс и журнал операций клиента",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/ledger?page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "ledger"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Та же выписка, что видит клиника, плюс остаток и автопродление."
+              },
+              "response": []
+            },
+            {
+              "name": "Ручная операция: перевод на счёт или корректировка",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/ledger/entries",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "ledger",
+                    "entries"
+                  ]
+                },
+                "description": "`credit` — клиника перевела деньги на счёт (пополнение баланса; если\nподписка ждёт денег — продлится сразу); `debit` — корректировка с\nкомментарием, остаток может уйти в минус. Возвраты — через журнал платежей.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"kind\": \"credit\",\n  \"amountTiyin\": 3000000,\n  \"comment\": \"Перевод по счёту №12\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -5130,10 +5205,10 @@
                     "payments"
                   ]
                 },
-                "description": "Провайдер пока без автосписания: владелец выбирает срок, уходит на страницу\nоплаты и возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Период\nоткрывает только серверный колбэк провайдера (с подписью) — состояние\nплатежа смотрите в `GET /clinic/subscription/payments/{id}`; ссылка живёт\n`FREEDOMPAY_LIFETIME_SECONDS`.",
+                "description": "`months` — оплата подписки по тарифу, `amountTiyin` — пополнение баланса\n(не меньше `TOPUP_MIN_TIYIN`). Владелец уходит на страницу оплаты и\nвозвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Деньги проводит\nтолько серверный колбэк провайдера: оплата подписки тут же списывает цену\nи открывает период, пополнение остаётся на балансе (и продлевает подписку,\nесли она ждёт денег). Состояние — в `GET /clinic/subscription/payments/{id}`.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"months\": 1\n}",
+                  "raw": "{\n  \"months\": 1,\n  \"amountTiyin\": 0\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -5199,6 +5274,113 @@
                   ]
                 },
                 "description": "Опрашивайте после возврата со страницы оплаты: `paid` — период открыт."
+              },
+              "response": []
+            },
+            {
+              "name": "Баланс и журнал операций клиники",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/ledger?page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "ledger"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Каждая строка — приход или расход с остатком после операции: оплаты через\nпровайдера, переводы на счёт, списания за подписку, возвраты."
+              },
+              "response": []
+            },
+            {
+              "name": "Оплатить подписку с баланса",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/pay-from-balance",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "pay-from-balance"
+                  ]
+                },
+                "description": "Цена по тарифу за N месяцев списывается с баланса, период открывается\nот конца текущего. Не хватает — 402 с недостачей, журнал не меняется.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"months\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Включить или выключить автопродление с баланса",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/autopay",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "autopay"
+                  ]
+                },
+                "description": "Включено — за `AUTOPAY_DAYS_BEFORE` дней до конца периода месяц списывается\nс баланса сам; не хватает — владельцу приходит сообщение с суммой. Позже,\nкогда провайдер откроет автосписание, недостающее спишется с карты.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"enabled\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "response": []
             }

@@ -101,16 +101,18 @@ async def start_payment(
     use_case: StartSubscriptionPaymentUseCase = Depends(get_start_payment_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> ClinicPaymentOut:
-    """Провайдер пока без автосписания: владелец выбирает срок, уходит на страницу
-    оплаты и возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Период
-    открывает только серверный колбэк провайдера (с подписью) — состояние
-    платежа смотрите в `GET /clinic/subscription/payments/{id}`; ссылка живёт
-    `FREEDOMPAY_LIFETIME_SECONDS`."""
+    """`months` — оплата подписки по тарифу, `amountTiyin` — пополнение баланса
+    (не меньше `TOPUP_MIN_TIYIN`). Владелец уходит на страницу оплаты и
+    возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Деньги проводит
+    только серверный колбэк провайдера: оплата подписки тут же списывает цену
+    и открывает период, пополнение остаётся на балансе (и продлевает подписку,
+    если она ждёт денег). Состояние — в `GET /clinic/subscription/payments/{id}`."""
     clinic_id = _clinic(context)
     payment = await use_case.execute(
         clinic_id,
-        months=body.months,
         actor_id=context.account_id,
+        months=body.months,
+        topup_tiyin=body.amount_tiyin,
     )
     await audit.record_clinic(
         actor_id=context.account_id,
@@ -118,7 +120,11 @@ async def start_payment(
         action="subscription.payment_started",
         entity_type="platform_payment",
         entity_id=payment.id,
-        payload={"months": payment.months, "amountTiyin": payment.amount_tiyin},
+        payload={
+            "purpose": payment.purpose,
+            "months": payment.months,
+            "amountTiyin": payment.amount_tiyin,
+        },
     )
     return ClinicPaymentOut.from_orm_payment(payment)
 

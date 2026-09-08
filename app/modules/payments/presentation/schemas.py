@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.shared.api.schemas import CamelModel
 
@@ -46,9 +46,75 @@ class RefundRequest(CamelModel):
 
 
 class StartPaymentRequest(CamelModel):
-    """Сколько месяцев оплатить — цена считается по действующему тарифу."""
+    """Что оплатить: `months` — подписка по тарифу, `amountTiyin` — пополнение баланса."""
 
+    months: int | None = Field(default=None, ge=1, le=12, examples=[1])
+    amount_tiyin: int | None = Field(
+        default=None, gt=0, description="Пополнение баланса, тыйыны (не меньше минимума)"
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> StartPaymentRequest:
+        if (self.months is None) == (self.amount_tiyin is None):
+            raise ValueError("Укажите ровно одно: months или amountTiyin")
+        return self
+
+
+class PayFromBalanceRequest(CamelModel):
     months: int = Field(ge=1, le=12, examples=[1])
+
+
+class AutopayRequest(CamelModel):
+    enabled: bool = Field(description="Продлевать подписку с баланса автоматически")
+
+
+class LedgerEntryOut(CamelModel):
+    """Строка журнала операций клиники."""
+
+    id: uuid.UUID
+    kind: str = Field(description="credit — приход, debit — расход")
+    source: str = Field(
+        description="freedompay_payment | manual_topup | subscription_charge | refund | adjustment"
+    )
+    amount_tiyin: int
+    balance_after_tiyin: int = Field(description="Остаток после операции")
+    description: str
+    payment_id: uuid.UUID | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_orm_entry(cls, e: Any) -> LedgerEntryOut:
+        return cls(
+            id=e.id,
+            kind=e.kind,
+            source=e.source,
+            amount_tiyin=e.amount_tiyin,
+            balance_after_tiyin=e.balance_after_tiyin,
+            description=e.description,
+            payment_id=e.payment_id,
+            period_start=e.period_start,
+            period_end=e.period_end,
+            created_at=e.created_at,
+        )
+
+
+class LedgerResponse(CamelModel):
+    balance_tiyin: int = Field(description="Текущий остаток на балансе клиники")
+    autopay_enabled: bool
+    list: list[LedgerEntryOut]
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class AdminLedgerEntryRequest(CamelModel):
+    """Ручная операция Skrezo: приход (перевод на счёт) или корректировка."""
+
+    kind: str = Field(pattern="^(credit|debit)$", examples=["credit"])
+    amount_tiyin: int = Field(gt=0, examples=[3000000])
+    comment: str = Field(min_length=3, max_length=500, examples=["Перевод по счёту №12"])
 
 
 class PriceQuoteOut(CamelModel):
@@ -67,6 +133,7 @@ class ClinicPaymentOut(CamelModel):
 
     id: uuid.UUID
     status: str = Field(description="pending | paid | failed | refunded")
+    purpose: str = Field(default="subscription", description="subscription | topup")
     amount_tiyin: int
     currency: str
     months: int
@@ -86,6 +153,7 @@ class ClinicPaymentOut(CamelModel):
         return cls(
             id=p.id,
             status=p.status,
+            purpose=p.purpose,
             amount_tiyin=p.amount_tiyin,
             currency=p.currency,
             months=p.months,

@@ -42,9 +42,7 @@ class ClinicSubscriptionResponse(CamelModel):
         description="Целых суток до `expiresAt`; 0 — идёт последний день либо срок вышел",
         examples=[12],
     )
-    expired: bool = Field(
-        description="Срок вышел — доступ пора продлевать", examples=[False]
-    )
+    expired: bool = Field(description="Срок вышел — доступ пора продлевать", examples=[False])
     writes_blocked: bool = Field(
         description=(
             "Клиника в режиме ЧТЕНИЯ: мутирующие операции отвечают 403 "
@@ -61,8 +59,7 @@ class ClinicSubscriptionResponse(CamelModel):
     seats_used: int = Field(
         default=0,
         description=(
-            "Занято мест: активные сотрудники, кроме владельца — он платного "
-            "места не занимает"
+            "Занято мест: активные сотрудники, кроме владельца — он платного места не занимает"
         ),
         examples=[3],
     )
@@ -73,6 +70,12 @@ class ClinicSubscriptionResponse(CamelModel):
             "бывает. Свободно = `seatsLimit - seatsUsed`"
         ),
         examples=[5],
+    )
+    balance_tiyin: int = Field(
+        default=0, description="Остаток на балансе клиники у Skrezo (тыйыны)", examples=[250000]
+    )
+    autopay_enabled: bool = Field(
+        default=True, description="Продлевать подписку с баланса автоматически"
     )
 
     @classmethod

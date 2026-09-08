@@ -35,6 +35,8 @@ class PlatformPayment(Base, UUIDPKMixin):
     recurring_profile_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount_tiyin: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(Text, nullable=False, server_default="KGS")
+    #: subscription — оплата N месяцев; topup — пополнение баланса (months = 0).
+    purpose: Mapped[str] = mapped_column(Text, nullable=False, server_default="subscription")
     months: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
@@ -44,6 +46,8 @@ class PlatformPayment(Base, UUIDPKMixin):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Ответ провайдера на init_payment как есть — детальные данные сервиса.
+    provider_response: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     #: Последний колбэк провайдера как есть (без секретов — их там нет).
     callback: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

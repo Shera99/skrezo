@@ -39,9 +39,7 @@ def trial_expired_text(clinic_name: str) -> str:
 
 def team_trial_ending_text(clinic_name: str, days_left: int) -> str:
     """Команде: у клиники кончается триал — повод позвонить."""
-    return (
-        f"⏳ Триал заканчивается через {days_left} {_days_word(days_left)}: {clinic_name}"
-    )
+    return f"⏳ Триал заканчивается через {days_left} {_days_word(days_left)}: {clinic_name}"
 
 
 def paid_period_expired_text(clinic_name: str) -> str:
@@ -83,3 +81,21 @@ def period_ending_text(clinic_name: str, days_left: int) -> str:
 def team_period_ending_text(clinic_name: str, days_left: int) -> str:
     """Команде: у клиники кончается оплата — повод выставить счёт."""
     return f"💳 Оплата заканчивается через {days_left} {_days_word(days_left)}: {clinic_name}"
+
+
+def balance_low_text(clinic_name: str, shortfall_tiyin: int, days_left: int) -> str:
+    """Владельцу: автопродление не прошло — сколько положить и до какого срока."""
+    som = shortfall_tiyin // 100
+    when = "сегодня" if days_left <= 0 else f"в ближайшие {days_left} {_days_word(days_left)}"
+    return (
+        f"Skrezo: подписка «{clinic_name}» не продлилась автоматически — на балансе не "
+        f"хватает {som} сом. Пополните баланс {when}, и доступ продлится сам."
+    )
+
+
+def team_balance_low_text(clinic_name: str, shortfall_tiyin: int, days_left: int) -> str:
+    """Команде: у кого автопродление упёрлось в баланс."""
+    return (
+        f"Автопродление: «{clinic_name}» — не хватает {shortfall_tiyin // 100} сом, "
+        f"до конца периода {max(days_left, 0)} дн."
+    )

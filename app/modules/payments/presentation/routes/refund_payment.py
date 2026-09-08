@@ -12,10 +12,12 @@ from app.core.db import get_session
 from app.core.errors import ConflictError, NotFoundError
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.presentation.deps import get_audit_service
+from app.modules.payments.application.services.ledger_service import LedgerService
+from app.modules.payments.domain.ledger import KIND_DEBIT, SOURCE_REFUND
 from app.modules.payments.infrastructure.repositories.platform_payment_repository import (
     PlatformPaymentRepository,
 )
-from app.modules.payments.presentation.deps import get_payment_repository
+from app.modules.payments.presentation.deps import get_ledger_service, get_payment_repository
 from app.modules.payments.presentation.schemas import RefundRequest
 from app.modules.platform_auth.presentation.deps import get_authenticated_user_id
 from app.shared.api.schemas import OkResponse
@@ -40,11 +42,13 @@ async def refund_payment(
     actor: uuid.UUID = Depends(get_authenticated_user_id),
     repository: PlatformPaymentRepository = Depends(get_payment_repository),
     session: AsyncSession = Depends(get_session),
+    ledger: LedgerService = Depends(get_ledger_service),
     audit: AuditService = Depends(get_audit_service),
 ) -> OkResponse:
-    """Деньги возвращаются в кабинете провайдера; здесь — учёт и причина.
-    Доступ клиники не закрывается автоматически: решение о блокировке —
-    отдельное (`/admin/clients/{id}/subscription/block`)."""
+    """Деньги возвращаются в кабинете провайдера; здесь — учёт: платёж помечается,
+    в журнал клиники ложится расход. Доступ клиники не закрывается
+    автоматически: решение о блокировке — отдельное
+    (`/admin/clients/{id}/subscription/block`)."""
     payment = await repository.get(payment_id)
     if payment is None:
         raise NotFoundError("Платёж не найден", code="payment_not_found")
@@ -52,6 +56,18 @@ async def refund_payment(
         raise ConflictError("Вернуть можно только оплаченный платёж", code="payment_not_paid")
     payment.status = "refunded"
     payment.failure_description = f"возврат: {body.reason}"
+    # Деньги ушли обратно клинике — расход в журнале; остаток может уйти в минус,
+    # если приход уже потрачен на подписку: это факт, а не запрет.
+    await ledger.post(
+        payment.clinic_id,
+        kind=KIND_DEBIT,
+        source=SOURCE_REFUND,
+        amount_tiyin=payment.amount_tiyin,
+        description=f"Возврат платежа: {body.reason}",
+        payment_id=payment.id,
+        idempotency_key=f"refund:{payment.id}",
+        created_by=actor,
+    )
     await session.commit()
     await audit.record(
         actor_id=actor,
