@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     wa_cloud_access_token: str = ""  # system-user token приложения Meta
     wa_cloud_app_secret: str = ""  # APP_SECRET — подпись вебхука X-Hub-Signature-256
     wa_cloud_verify_token: str = ""  # проверочный токен подписки вебхука (GET)
+    #: Служебные шаблоны Meta (тестовый ``hello_world`` и подобные): в каталог
+    #: клиники не попадают и пациентам не отправляются. Список через запятую.
+    wa_service_template_names: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["hello_world"]
+    )
     #: Напоминание о визите (Ф7): имя одобренного шаблона в Meta (общий шаблон
     #: платформы или свой у клиники), переменные по порядку — имя, дата, время,
     #: клиника (сколько ждёт шаблон); две quick-reply-кнопки «Приду»/«Перенести».
@@ -261,7 +266,13 @@ class Settings(BaseSettings):
     card_attach_deadline_days: int = 7
     default_lang: str = "ru"
 
-    @field_validator("cors_origins", "otp_channels", "notify_channels", mode="before")
+    @field_validator(
+        "cors_origins",
+        "otp_channels",
+        "notify_channels",
+        "wa_service_template_names",
+        mode="before",
+    )
     @classmethod
     def _split_csv(cls, value: object) -> object:
         """Разрешаем задавать список строкой через запятую."""

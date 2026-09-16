@@ -295,3 +295,38 @@ async def test_takeover_silences_bot_and_return_resumes(
     fake.script = [AiResult(text=_reply_json("Отбеливание тоже делаем."))]
     back = await _simulate(admin_client, ctx, "Так что с отбеливанием?", phone)
     assert back["outcome"] == "draft"  # бот снова в деле
+
+
+async def test_toggle_works_on_closed_conversation(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Закрытый диалог — не тупик: переключатель работает и возобновляет его."""
+    await _set_mode(admin_client, ctx, "assisted")
+    phone = "+996700200308"
+    conv_id, _ = await _draft(admin_client, ctx, fake, _resources, phone, "Почём чистка?")
+    async with _resources.factory() as session:
+        conv = await session.get(AiConversation, uuid.UUID(conv_id))
+        assert conv is not None
+        conv.status = AiConversationStatus.CLOSED
+        await session.commit()
+
+    taken = await client.post(
+        f"{API}/clinic/conversations/{conv_id}/assistant",
+        headers=ctx.owner_headers,
+        json={"active": False},
+    )
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["status"] == "escalated"
+
+    returned = await client.post(
+        f"{API}/clinic/conversations/{conv_id}/assistant",
+        headers=ctx.owner_headers,
+        json={"active": True},
+    )
+    assert returned.status_code == 200, returned.text
+    assert returned.json()["status"] == "active"
+    assert returned.json()["resolvedEscalations"] == 1

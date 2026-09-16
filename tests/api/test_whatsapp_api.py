@@ -22,14 +22,20 @@ import hmac
 import itertools
 import json
 import time
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.config import settings
-from tests.conftest import API, otp_login, own_membership_id
+from app.shared.db.enums import AiConversationStatus
+from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.whatsapp_template import WhatsAppTemplate
+from tests.conftest import API, Resources, otp_login, own_membership_id
 
 _phone_seq = itertools.count(1)
 _wa_seq = itertools.count(1)
@@ -110,9 +116,7 @@ def _inbound_payload(
                                 "display_phone_number": "996700999000",
                                 "phone_number_id": phone_number_id,
                             },
-                            "contacts": [
-                                {"profile": {"name": "Пациент"}, "wa_id": from_phone}
-                            ],
+                            "contacts": [{"profile": {"name": "Пациент"}, "wa_id": from_phone}],
                             "messages": [
                                 {
                                     "from": from_phone,
@@ -360,9 +364,7 @@ async def test_reply_within_window(client: AsyncClient, ctx: ClinicCtx) -> None:
     assert msg["waMessageId"].startswith("log-")  # канал без кредов пишет в лог
 
     items = (
-        await client.get(
-            f"{API}/clinic/conversations/{conv_id}/messages", headers=ctx.headers
-        )
+        await client.get(f"{API}/clinic/conversations/{conv_id}/messages", headers=ctx.headers)
     ).json()["items"]
     assert [m["role"] for m in items] == ["admin", "patient"]
 
@@ -558,9 +560,7 @@ async def test_templates_sync_full_reconciliation(
 ) -> None:
     """Синк приводит каталог к кабинету Meta: новые появляются, удалённые пропадают."""
     await _bind_with_waba(admin_client, ctx)
-    synced = await client.post(
-        f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers
-    )
+    synced = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
     assert synced.status_code == 200, synced.text
     names = {t["metaName"]: t for t in synced.json()["list"]}
     assert set(names) == {"visit_reminder", "promo"}
@@ -616,9 +616,9 @@ async def test_send_template_into_closed_window(
     conv = (await _conversations(client, ctx))["list"][0]
     assert conv["windowOpen"] is False
 
-    templates = (
-        await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
-    ).json()["list"]
+    templates = (await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)).json()[
+        "list"
+    ]
     approved = next(t for t in templates if t["status"] == "approved")
     pending = next(t for t in templates if t["status"] == "pending")
 
@@ -651,3 +651,181 @@ async def test_send_template_into_closed_window(
     )
     assert mismatch.status_code == 422
     assert mismatch.json()["error"] == "template_variables_mismatch"
+
+
+_HELLO_WORLD = TemplateInfo(
+    meta_name="hello_world",
+    lang="en_US",
+    category="UTILITY",
+    body_preview=(
+        "Welcome and congratulations!! This message demonstrates your ability to send "
+        "a WhatsApp message notification from the Cloud API, hosted by Meta."
+    ),
+    variables=[],
+    status="approved",
+)
+
+
+async def test_service_templates_hidden_and_rejected(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    fake_graph: _FakeGraphClient,
+    _resources: Resources,
+) -> None:
+    """Тестовый hello_world Meta: синк не сохраняет, каталог не показывает, отправка — 422."""
+    await _bind_with_waba(admin_client, ctx)
+    fake_graph.templates = [_REMINDER, _HELLO_WORLD]
+    synced = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    assert synced.status_code == 200, synced.text
+    assert {t["metaName"] for t in synced.json()["list"]} == {"visit_reminder"}
+
+    # Строка, оставшаяся со старых сверок: каталог её скрывает, отправить нельзя.
+    async with _resources.factory() as session:
+        session.add(
+            WhatsAppTemplate(
+                clinic_id=uuid.UUID(ctx.clinic_id),
+                meta_name="hello_world",
+                lang="en_US",
+                category="UTILITY",
+                body_preview=_HELLO_WORLD.body_preview,
+                variables=[],
+                status="approved",
+            )
+        )
+        await session.commit()
+        hidden_id = (
+            await session.execute(
+                select(WhatsAppTemplate.id).where(WhatsAppTemplate.meta_name == "hello_world")
+            )
+        ).scalar_one()
+    listed = await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
+    assert {t["metaName"] for t in listed.json()["list"]} == {"visit_reminder"}
+
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id,
+            wa_message_id=_wamid(),
+            from_phone="996700113222",
+            text="старое",
+            ts=int(time.time()) - 30 * 3600,
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    rejected = await client.post(
+        f"{API}/clinic/conversations/{conv['id']}/templates",
+        headers=ctx.headers,
+        json={"templateId": str(hidden_id), "variables": []},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["error"] == "template_service"
+    assert fake_graph.sent_templates == []
+
+
+# ── 7. Постоянный диалог: закрытый возобновляется, а не дублируется ──────────
+
+
+async def _close_conversation(res: Resources, conversation_id: str) -> None:
+    """«Сутки тишины прошли»: диалог закрыт cron'ом, отметка учёта пакета стоит."""
+    async with res.factory() as session:
+        conv = await session.get(AiConversation, uuid.UUID(conversation_id))
+        assert conv is not None
+        conv.status = AiConversationStatus.CLOSED
+        conv.assistant_counted_at = datetime.now(UTC)
+        await session.commit()
+
+
+def _echo_payload(phone_number_id: str, *, to_phone: str, text: str) -> dict[str, Any]:
+    """Payload Coexistence: исходящее человека из приложения WhatsApp Business."""
+    return {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "smb_message_echoes",
+                        "value": {
+                            "metadata": {"phone_number_id": phone_number_id},
+                            "message_echoes": [
+                                {
+                                    "id": _wamid(),
+                                    "to": to_phone,
+                                    "timestamp": str(int(time.time())),
+                                    "type": "text",
+                                    "text": {"body": text},
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+
+
+async def test_closed_conversation_is_continued_by_next_message(
+    client: AsyncClient, ctx: ClinicCtx, _resources: Resources
+) -> None:
+    """Пациент написал после закрытия — тот же диалог снова active, а не новая строка."""
+    phone = "996700114001"
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id, wa_message_id=_wamid(), from_phone=phone, text="первое"
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    await _close_conversation(_resources, conv["id"])
+
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id, wa_message_id=_wamid(), from_phone=phone, text="снова я"
+        ),
+    )
+    listed = (await _conversations(client, ctx))["list"]
+    assert [c["id"] for c in listed] == [conv["id"]]
+    async with _resources.factory() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(AiConversation).where(AiConversation.wa_phone == f"+{phone}")
+                )
+            ).scalars()
+        )
+        assert len(rows) == 1
+        assert rows[0].status is AiConversationStatus.ACTIVE
+        # Обращение после суток тишины — новый диалог для пакета тарифа.
+        assert rows[0].assistant_counted_at is None
+    history = await client.get(
+        f"{API}/clinic/conversations/{conv['id']}/messages", headers=ctx.headers
+    )
+    assert [m["body"] for m in history.json()["items"]] == ["снова я", "первое"]
+
+
+async def test_closed_conversation_is_continued_by_echo(
+    client: AsyncClient, ctx: ClinicCtx, _resources: Resources
+) -> None:
+    """Ответ клиники из приложения WhatsApp Business после закрытия — тот же диалог."""
+    phone = "996700114002"
+    await _post_webhook(
+        client,
+        _inbound_payload(
+            ctx.phone_number_id, wa_message_id=_wamid(), from_phone=phone, text="вопрос"
+        ),
+    )
+    conv = (await _conversations(client, ctx))["list"][0]
+    await _close_conversation(_resources, conv["id"])
+
+    await _post_webhook(
+        client, _echo_payload(ctx.phone_number_id, to_phone=phone, text="Ответил из приложения")
+    )
+    listed = (await _conversations(client, ctx))["list"]
+    assert [c["id"] for c in listed] == [conv["id"]]
+    async with _resources.factory() as session:
+        row = await session.get(AiConversation, uuid.UUID(conv["id"]))
+        assert row is not None and row.status is AiConversationStatus.ACTIVE
+    history = await client.get(
+        f"{API}/clinic/conversations/{conv['id']}/messages", headers=ctx.headers
+    )
+    assert [m["role"] for m in history.json()["items"]] == ["admin", "patient"]

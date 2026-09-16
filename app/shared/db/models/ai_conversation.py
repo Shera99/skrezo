@@ -4,9 +4,11 @@
 глобальному пациенту платформы, если номер опознан (иначе NULL до Ф2, где
 ассистент заведёт карточку сам).
 
-Активный диалог на пару (клиника, номер) — ровно один: это partial unique в
-миграции. Закрывается диалог фоновой задачей после суток тишины; следующий
-входящий открывает новый.
+Диалог на пару (клиника, номер) — ровно один и постоянный (unique в миграции
+0064). После суток тишины фоновая задача переводит его в ``closed`` и строит
+резюме эпизода; следующее сообщение возобновляет тот же диалог
+(``whatsapp.domain.lifecycle``), а не заводит новый — в кабинете один чат на
+пациента, сколько бы ни прошло времени.
 
 ``last_patient_msg_at`` — отдельная колонка не случайно: 24-часовое окно Meta
 считается от последнего сообщения ПАЦИЕНТА, а ``last_msg_at`` двигают и наши
@@ -19,7 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, func, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -34,14 +36,9 @@ from app.shared.db.enums import (
 class AiConversation(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "ai_conversation"
     __table_args__ = (
-        # Один активный диалог на номер в пределах клиники.
-        Index(
-            "uq_ai_conversation_active",
-            "clinic_id",
-            "wa_phone",
-            unique=True,
-            postgresql_where=text("status = 'active'"),
-        ),
+        # Один диалог на пару (клиника, номер) — любого статуса: закрытый
+        # возобновляется следующим сообщением, дубли слиты миграцией 0064.
+        Index("uq_ai_conversation_phone", "clinic_id", "wa_phone", unique=True),
         # Список диалогов клиники — свежие сверху.
         Index("ix_ai_conversation_clinic_last", "clinic_id", "last_msg_at"),
     )

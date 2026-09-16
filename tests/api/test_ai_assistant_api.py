@@ -37,6 +37,7 @@ from app.shared.db.models.ai_summary import AiSummary
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_usage_day import ClinicUsageDay
 from app.shared.db.models.event import Event
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.slot_hold import SlotHold
@@ -788,6 +789,77 @@ async def test_summary_is_built_once(
     async with _resources.factory() as session:
         count = len(list((await session.execute(select(AiSummary))).scalars()))
     assert count == 1
+
+
+async def test_reopened_conversation_gets_summary_per_episode(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Диалог постоянный: после суток тишины возобновляется тот же, а не новый.
+
+    Каждый закрытый эпизод получает своё резюме — только по новым сообщениям,
+    и каждый считается пакетом тарифа отдельным диалогом.
+    """
+    from app.jobs.tasks import whatsapp as wa_job
+    from app.jobs.tasks.whatsapp import close_stale_conversations
+
+    _patch_job(monkeypatch, wa_job, fake, _resources)
+
+    await _set_mode(admin_client, ctx, "auto")
+    phone = "+996700200052"
+
+    async def a_day_of_silence(conversation_id: str) -> None:
+        async with _resources.factory() as session:
+            conv = await session.get(AiConversation, uuid.UUID(conversation_id))
+            assert conv is not None
+            conv.last_msg_at = datetime.now(UTC) - WINDOW - timedelta(minutes=5)
+            await session.commit()
+
+    fake.script = [AiResult(text=_reply_json("Записал вас на четверг."))]
+    first = await _simulate(admin_client, ctx, "Хочу записаться", phone)
+    conversation_id = first["conversationId"]
+
+    await a_day_of_silence(conversation_id)
+    fake.script = [AiResult(text="Пациент записался на четверг.")]
+    assert await close_stale_conversations({}) >= 1
+
+    # Второе обращение через сутки — тот же диалог, снова активный.
+    fake.script = [AiResult(text=_reply_json("Хорошо, до встречи."))]
+    second = await _simulate(admin_client, ctx, "Спасибо, приду", phone)
+    assert second["conversationId"] == conversation_id
+    async with _resources.factory() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(AiConversation).where(AiConversation.wa_phone == phone)
+                )
+            ).scalars()
+        )
+        assert [r.status for r in rows] == [AiConversationStatus.ACTIVE]
+
+    await a_day_of_silence(conversation_id)
+    fake.script = [AiResult(text="Пациент подтвердил, что придёт.")]
+    assert await close_stale_conversations({}) >= 1
+
+    async with _resources.factory() as session:
+        summaries = list(
+            (await session.execute(select(AiSummary).order_by(AiSummary.created_at))).scalars()
+        )
+        usage = (await session.execute(select(ClinicUsageDay))).scalars().all()
+    assert [s.body for s in summaries] == [
+        "Пациент записался на четверг.",
+        "Пациент подтвердил, что придёт.",
+    ]
+    assert {s.conversation_id for s in summaries} == {uuid.UUID(conversation_id)}
+    # Второе резюме строилось только по новому эпизоду.
+    transcript = fake.calls[-1]["parts"][0].text or ""
+    assert "Спасибо, приду" in transcript
+    assert "Хочу записаться" not in transcript
+    # Пакет тарифа: два обращения — два диалога, как раньше были две строки.
+    assert sum(row.dialogs for row in usage) == 2
 
 
 # ── 10. Голосовые и нечитаемые сообщения (§11) ──────────────────────────────

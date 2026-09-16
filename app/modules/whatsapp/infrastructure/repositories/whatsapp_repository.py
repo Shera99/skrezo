@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, true, tuple_, update
+from sqlalchemy import case, delete, func, or_, select, true, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,19 +98,25 @@ class WhatsAppRepository:
 
     # ── Диалоги ─────────────────────────────────────────────────────────────
 
-    async def open_conversation(self, clinic_id: uuid.UUID, wa_phone: str) -> AiConversation | None:
-        """Незакрытый диалог пары (клиника, номер) — active ЛИБО escalated.
+    async def conversation_by_phone(
+        self, clinic_id: uuid.UUID, wa_phone: str
+    ) -> AiConversation | None:
+        """Диалог пары (клиника, номер) — единственный, любого статуса.
 
-        Только по ``active`` искать нельзя: у эскалированного диалога (Ф2)
-        новое входящее заводило бы второй диалог параллельно живому.
+        Закрытый тоже: следующее сообщение продолжает его, а не заводит новый
+        (``domain.lifecycle.reopen_if_closed``). Порядок — страховка от дублей,
+        заведённых до миграции 0064: сначала незакрытый, затем свежий.
         """
+        closed_last = case((AiConversation.status == AiConversationStatus.CLOSED, 1), else_=0)
         return (
             await self._session.execute(
-                select(AiConversation).where(
+                select(AiConversation)
+                .where(
                     AiConversation.clinic_id == clinic_id,
                     AiConversation.wa_phone == wa_phone,
-                    AiConversation.status != AiConversationStatus.CLOSED,
                 )
+                .order_by(closed_last, AiConversation.last_msg_at.desc())
+                .limit(1)
             )
         ).scalar_one_or_none()
 
@@ -534,18 +541,26 @@ class WhatsAppRepository:
             row.status = info.status
         await self._session.flush()
 
-    async def list_templates(self, clinic_id: uuid.UUID) -> list[WhatsAppTemplate]:
-        """Шаблоны, доступные клинике: свои + общие платформы."""
+    async def list_templates(
+        self, clinic_id: uuid.UUID, *, exclude_names: Sequence[str] = ()
+    ) -> list[WhatsAppTemplate]:
+        """Шаблоны, доступные клинике: свои + общие платформы.
+
+        ``exclude_names`` — служебные шаблоны Meta (``hello_world``): каталог
+        кабинета их не показывает, даже если строка осталась с прежних сверок.
+        """
+        stmt = select(WhatsAppTemplate).where(
+            or_(
+                WhatsAppTemplate.clinic_id == clinic_id,
+                WhatsAppTemplate.clinic_id.is_(None),
+            )
+        )
+        hidden = [name.strip().lower() for name in exclude_names if name.strip()]
+        if hidden:
+            stmt = stmt.where(func.lower(WhatsAppTemplate.meta_name).not_in(hidden))
         rows = (
             await self._session.execute(
-                select(WhatsAppTemplate)
-                .where(
-                    or_(
-                        WhatsAppTemplate.clinic_id == clinic_id,
-                        WhatsAppTemplate.clinic_id.is_(None),
-                    )
-                )
-                .order_by(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang)
+                stmt.order_by(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang)
             )
         ).scalars()
         return list(rows)

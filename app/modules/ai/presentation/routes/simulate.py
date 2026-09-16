@@ -119,7 +119,7 @@ async def simulate_inbound(
     if body.button_payload:
         # Кнопка обработана детерминированно (мимо модели) — вернуть диалог.
         phone = body.from_phone if body.from_phone.startswith("+") else f"+{body.from_phone}"
-        conversation = await repository.open_conversation(body.clinic_id, phone)
+        conversation = await repository.conversation_by_phone(body.clinic_id, phone)
         if conversation is None:
             raise NotFoundError("Диалог не найден", code="conversation_not_found")
         conversation_id = conversation.id

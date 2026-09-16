@@ -15,9 +15,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.usage.application.services.usage_meter import UsageMeter
@@ -57,12 +58,13 @@ class ConversationSummaryService:
         conversation = await self._session.get(AiConversation, conversation_id)
         if conversation is None:
             return None
-        if await self._already_done(conversation_id):
-            return None
-
-        transcript = await self._transcript(conversation_id)
+        # Диалог постоянный: резюмируется эпизод — сообщения после прошлого
+        # резюме. Нет новых реплик пациента — подытоживать нечего (и повторный
+        # прогон задачи второго резюме не плодит).
+        since = await self._last_summary_at(conversation_id)
+        transcript = await self._transcript(conversation_id, since)
         if not transcript:
-            return None  # пустой диалог резюмировать нечего
+            return None
 
         lang = "ky" if conversation.lang is Lang.KG else "ru"
         lang_name = "на кыргызском" if lang == "ky" else "на русском"
@@ -94,27 +96,37 @@ class ConversationSummaryService:
         self._session.add(summary)
         return summary
 
-    async def _already_done(self, conversation_id: uuid.UUID) -> bool:
-        """Повторный прогон задачи не должен плодить резюме одного диалога."""
-        found = (
-            await self._session.execute(
-                select(AiSummary.id).where(AiSummary.conversation_id == conversation_id)
-            )
-        ).first()
-        return found is not None
+    async def _last_summary_at(self, conversation_id: uuid.UUID) -> datetime | None:
+        """Момент прошлого резюме диалога — граница текущего эпизода.
 
-    async def _transcript(self, conversation_id: uuid.UUID) -> str:
-        """Переписка одной строкой: «пациент: …» / «клиника: …»."""
-        rows = (
+        Повторный прогон задачи резюме одного эпизода не плодит: новых
+        сообщений после резюме нет — значит, подытожено.
+        """
+        return (
             await self._session.execute(
-                select(AiMessage)
-                .where(AiMessage.conversation_id == conversation_id)
-                .order_by(AiMessage.id.desc())
-                .limit(_HISTORY_LIMIT)
+                select(func.max(AiSummary.created_at)).where(
+                    AiSummary.conversation_id == conversation_id
+                )
             )
+        ).scalar_one()
+
+    async def _transcript(self, conversation_id: uuid.UUID, since: datetime | None) -> str:
+        """Переписка эпизода одной строкой: «пациент: …» / «клиника: …».
+
+        Пустая строка, если пациент в эпизоде не писал: напоминание клиники
+        без ответа — не разговор, вызов модели на него тратить незачем.
+        """
+        stmt = select(AiMessage).where(AiMessage.conversation_id == conversation_id)
+        if since is not None:
+            stmt = stmt.where(AiMessage.created_at > since)
+        rows = (
+            await self._session.execute(stmt.order_by(AiMessage.id.desc()).limit(_HISTORY_LIMIT))
         ).scalars()
+        messages = list(reversed(list(rows)))
+        if not any(message.role is AiMessageRole.PATIENT for message in messages):
+            return ""
         lines: list[str] = []
-        for message in reversed(list(rows)):
+        for message in messages:
             text = (message.transcript or message.body or "").strip()
             if not text:
                 continue

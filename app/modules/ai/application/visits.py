@@ -36,6 +36,7 @@ from app.modules.schedule.application.services.availability_service import (
     build_availability_service,
 )
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
+from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -118,11 +119,14 @@ class VisitReminderService:
         binding: ClinicWhatsApp,
         now: datetime,
     ) -> bool:
-        conversation = await self._repository.open_conversation(clinic.id, patient.phone)
+        conversation = await self._repository.conversation_by_phone(clinic.id, patient.phone)
         if conversation is None:
             conversation = await self._repository.create_conversation(
                 clinic.id, patient.phone, patient.id
             )
+        else:
+            # Диалог постоянный: напоминание в закрытый — возобновляет его.
+            reopen_if_closed(conversation)
         lang = _lang_of(patient, conversation)
         template = await self._template(clinic.id, lang)
         reminder = AppointmentReminder(

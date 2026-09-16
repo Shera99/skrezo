@@ -29,6 +29,7 @@ from app.core.errors import AppError
 from app.modules.push.application.outbox import emit_event
 from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.application.services.media import media_duration_seconds, save_media
+from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -212,11 +213,25 @@ class InboundProcessor:
             )
 
     async def _conversation_for(self, clinic_id: Any, wa_phone: str) -> AiConversation:
-        conversation = await self._repository.open_conversation(clinic_id, wa_phone)
+        """Диалог пары (клиника, номер): единственный; закрытый — возобновить.
+
+        Новый заводится только когда с номером ещё не переписывались. Так у
+        пациента в кабинете один чат, сколько бы ни прошло с последнего
+        сообщения.
+        """
+        conversation = await self._repository.conversation_by_phone(clinic_id, wa_phone)
         if conversation is None:
             patient_id = await self._repository.patient_id_by_phone(wa_phone)
-            conversation = await self._repository.create_conversation(
-                clinic_id, wa_phone, patient_id
+            return await self._repository.create_conversation(clinic_id, wa_phone, patient_id)
+        if reopen_if_closed(conversation):
+            logger.info("wa_conversation_reopened", conversation_id=str(conversation.id))
+            # Открытый экран диалога узнаёт о статусе сразу (Ф4), а не после
+            # перечитывания списка.
+            await publish_realtime(
+                self._session,
+                conversation.clinic_id,
+                "conversation.status",
+                {"conversationId": str(conversation.id), "status": conversation.status.value},
             )
         return conversation
 

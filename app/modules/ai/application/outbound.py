@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
+from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -40,11 +41,11 @@ class OutboundTemplates:
         self._repository = WhatsAppRepository(session)
 
     async def conversation_for(self, clinic_id: uuid.UUID, patient: Patient) -> AiConversation:
-        conversation = await self._repository.open_conversation(clinic_id, patient.phone)
+        """Диалог пациента в клинике — единственный; закрытый возобновляется."""
+        conversation = await self._repository.conversation_by_phone(clinic_id, patient.phone)
         if conversation is None:
-            conversation = await self._repository.create_conversation(
-                clinic_id, patient.phone, patient.id
-            )
+            return await self._repository.create_conversation(clinic_id, patient.phone, patient.id)
+        reopen_if_closed(conversation)
         return conversation
 
     async def template(

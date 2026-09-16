@@ -6,7 +6,9 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import AppError, ConflictError, ValidationAppError
+from app.modules.whatsapp.domain.templates import is_service_template
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -31,6 +33,8 @@ class SyncTemplatesUseCase:
         ``None`` от клиента (нет кредов либо Graph API не ответил) каталог не
         трогает: стирать шаблоны из-за недоступности API нельзя — клиника
         осталась бы без единственного способа писать в закрытое окно.
+        Служебные шаблоны Meta (тестовый ``hello_world``) в каталог не попадают:
+        кабинет предлагал их в закрытое окно, и тестовый текст уходил пациенту.
         """
         binding = await self._repository.binding_by_clinic(clinic_id)
         if binding is None or not binding.active:
@@ -48,6 +52,8 @@ class SyncTemplatesUseCase:
                 code="wa_templates_unavailable",
                 status_code=502,
             )
-        await self._repository.replace_templates(clinic_id, fetched)
+        hidden = settings.wa_service_template_names
+        kept = [t for t in fetched if not is_service_template(t.meta_name, hidden)]
+        await self._repository.replace_templates(clinic_id, kept)
         await self._session.commit()
-        return await self._repository.list_templates(clinic_id)
+        return await self._repository.list_templates(clinic_id, exclude_names=hidden)

@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, status
 
+from app.core.config import settings
 from app.core.errors import ForbiddenError
 from app.modules.access.presentation.deps import require_permission
 from app.modules.audit.application.services.audit_service import AuditService
@@ -47,7 +48,11 @@ _SEND_ERRORS: dict[int | str, dict[str, Any]] = {
     404: {"description": "Диалог или шаблон не найден"},
     409: {"description": "WhatsApp не подключён к клинике"},
     422: {
-        "description": "Шаблон не одобрен либо число переменных не совпало",
+        "description": (
+            "Шаблон не одобрен (`template_not_approved`), служебный шаблон Meta "
+            "(`template_service`) либо число переменных не совпало "
+            "(`template_variables_mismatch`)"
+        ),
         "content": {
             "application/json": {
                 "example": {
@@ -73,10 +78,14 @@ async def list_templates(
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> TemplatesResponse:
     """Локальный каталог шаблонов — то, что интерфейс показывает вместо поля
-    ввода при закрытом окне. Отправлять можно только `status: approved`."""
+    ввода при закрытом окне. Отправлять можно только `status: approved`.
+    Служебные шаблоны Meta (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`)
+    в каталоге не показываются."""
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
-    items = await repository.list_templates(context.clinic_id)
+    items = await repository.list_templates(
+        context.clinic_id, exclude_names=settings.wa_service_template_names
+    )
     return TemplatesResponse(list=[TemplateOut.from_orm_template(t) for t in items])
 
 

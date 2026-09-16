@@ -8,7 +8,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAppError
+from app.modules.whatsapp.domain.templates import is_service_template
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -69,6 +71,14 @@ class SendTemplateUseCase:
         template = await self._repository.template(clinic_id, template_id)
         if template is None:
             raise NotFoundError("Шаблон не найден", code="template_not_found")
+        if is_service_template(template.meta_name, settings.wa_service_template_names):
+            # Тестовый hello_world Meta одобрен и utility, но это текст для
+            # проверки канала, а не для пациента.
+            raise ValidationAppError(
+                "Служебный шаблон Meta нужен для проверки канала — пациентам не отправляется",
+                code="template_service",
+                extra={"metaName": template.meta_name},
+            )
         if template.status != "approved":
             raise ValidationAppError(
                 "Шаблон не одобрен Meta — отправлять можно только approved",
