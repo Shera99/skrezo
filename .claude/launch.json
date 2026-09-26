@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "skrezo-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "docker compose up -d postgres redis && uv run alembic upgrade head && uv run uvicorn app.main:asgi_app --reload --port 8000"
+      ],
+      "port": 8000
+    }
+  ]
+}
