@@ -103,16 +103,22 @@ async def start_payment(
 ) -> ClinicPaymentOut:
     """`months` — оплата подписки по тарифу, `amountTiyin` — пополнение баланса
     (не меньше `TOPUP_MIN_TIYIN`). Владелец уходит на страницу оплаты и
-    возвращается на `FREEDOMPAY_SUCCESS_URL`/`FAILURE_URL`. Деньги проводит
-    только серверный колбэк провайдера: оплата подписки тут же списывает цену
-    и открывает период, пополнение остаётся на балансе (и продлевает подписку,
-    если она ждёт денег). Состояние — в `GET /clinic/subscription/payments/{id}`."""
+    возвращается на `{CABINET_URL}/pay?payment=<id>` — и при успехе, и при
+    отказе: страница спрашивает итог по id. `returnMode`: `auto` — сразу, без
+    кнопки (компьютер), `button` или ничего — кнопкой «Вернуться» (телефон).
+
+    Деньги проводит только серверный колбэк провайдера: оплата подписки тут же
+    списывает цену и открывает период, пополнение остаётся на балансе (и
+    продлевает подписку, если она ждёт денег). Оплата на пробном периоде не
+    сжигает оставшиеся дни — оплаченный период начнётся с конца триала.
+    Состояние — в `GET /clinic/subscription/payments/{id}`."""
     clinic_id = _clinic(context)
     payment = await use_case.execute(
         clinic_id,
         actor_id=context.account_id,
         months=body.months,
         topup_tiyin=body.amount_tiyin,
+        return_mode=body.return_mode,
     )
     await audit.record_clinic(
         actor_id=context.account_id,

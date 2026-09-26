@@ -18,9 +18,15 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.main import app
+from app.modules.payments.domain.periods import add_months
 from app.modules.payments.presentation.deps import get_freedompay_client
 from app.shared.db.models.subscription import Subscription
-from app.shared.freedompay import InitPaymentRequest, InitPaymentResult, sign
+from app.shared.freedompay import (
+    FreedomPayRejectedError,
+    InitPaymentRequest,
+    InitPaymentResult,
+    sign,
+)
 from tests.api.conftest import Ctx
 from tests.conftest import API, Resources
 
@@ -34,6 +40,10 @@ class _FakeProvider:
     def __init__(self) -> None:
         self.requests: list[InitPaymentRequest] = []
         self.fail = False
+        #: Провайдер не знает AUTOGET (нынешняя документация: только GET/POST).
+        self.reject_auto = False
+        #: Провайдер явно отказывает на любой запрос (например, неверная сумма).
+        self.reject_all = False
 
     async def init_payment(self, request: InitPaymentRequest) -> InitPaymentResult:
         from app.shared.freedompay import FreedomPayError
@@ -41,6 +51,10 @@ class _FakeProvider:
         self.requests.append(request)
         if self.fail:
             raise FreedomPayError("101: Merchant not found")
+        if self.reject_auto and request.success_url_method == "AUTOGET":
+            raise FreedomPayRejectedError("340", "Invalid pg_success_url_method")
+        if self.reject_all:
+            raise FreedomPayRejectedError("200", "Invalid amount")
         return InitPaymentResult(
             payment_id=f"fp-{len(self.requests)}",
             redirect_url=f"https://pay.test/{request.order_id}",
@@ -53,7 +67,7 @@ def provider(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(settings, "freedompay_secret_key", "SECRET")
     monkeypatch.setattr(settings, "freedompay_merchant_id", "12345")
     monkeypatch.setattr(settings, "public_api_url", "https://api.test/api/v1")
-    monkeypatch.setattr(settings, "freedompay_success_url", "https://app.test/billing/ok")
+    monkeypatch.setattr(settings, "cabinet_url", "https://office.skrezo.com")
     app.dependency_overrides[get_freedompay_client] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_freedompay_client, None)
@@ -105,6 +119,14 @@ async def test_quote_start_and_signed_callback_opens_period(
     _resources: Resources,
 ) -> None:
     await _tariffs(admin_client)
+    async with _resources.factory() as session:
+        trial_end = (
+            await session.execute(
+                select(Subscription.trial_ends_at).where(
+                    Subscription.clinic_id == uuid.UUID(ctx.clinic_id)
+                )
+            )
+        ).scalar_one()
     quote = await client.get(
         f"{API}/clinic/subscription/price", headers=ctx.owner_headers, params={"months": 2}
     )
@@ -128,7 +150,11 @@ async def test_quote_start_and_signed_callback_opens_period(
     sent = provider.requests[0]
     assert sent.amount == "10000.00" and sent.currency == "KGS" and sent.testing_mode is True
     assert sent.result_url == "https://api.test/api/v1/payments/freedompay/result"
-    assert sent.success_url == "https://app.test/billing/ok" and sent.user_phone
+    # Возврат — на страницу оплаты кабинета с id платежа, и при успехе, и при отказе;
+    # returnMode не передан — кнопкой «Вернуться».
+    back = f"https://office.skrezo.com/pay?payment={payment['id']}"
+    assert sent.success_url == back and sent.failure_url == back and sent.user_phone
+    assert sent.success_url_method == "GET" and sent.failure_url_method == "GET"
     assert sent.extra == {"pg_param1": ctx.clinic_id, "pg_param2": "subscription"}
 
     # Колбэк с верной подписью и суммой → оплачено, период на 2 месяца открыт.
@@ -146,7 +172,10 @@ async def test_quote_start_and_signed_callback_opens_period(
             )
         ).scalar_one()
     assert sub.status.value == "active" and sub.current_period_end is not None
-    assert timedelta(days=58) < sub.current_period_end - datetime.now(UTC) < timedelta(days=63)
+    # Оплата на триале не сжигает оставшиеся дни: период — с конца триала (решение 26.09).
+    assert sub.current_period_start == trial_end
+    assert sub.current_period_end == add_months(trial_end, 2)
+    assert sub.current_period_end - datetime.now(UTC) > timedelta(days=80)
     subscription = await client.get(f"{API}/clinic/subscription", headers=ctx.owner_headers)
     assert subscription.json()["status"] == "active"
 
@@ -279,3 +308,90 @@ async def test_provider_not_configured_and_admin_journal_with_refund(
         f"{API}/clinic/subscription/payments", headers=ctx.owner_headers, json={"months": 1}
     )
     assert blocked.status_code == 409 and blocked.json()["error"] == "payments_not_configured"
+
+
+async def test_return_mode_picks_return_method_and_autoget_rejection_falls_back(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    provider: _FakeProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """returnMode: auto → AUTOGET, button → GET; отказ провайдера на AUTOGET не роняет оплату."""
+    await _tariffs(admin_client)
+
+    async def start(**body: Any) -> Any:
+        resp = await client.post(
+            f"{API}/clinic/subscription/payments", headers=ctx.owner_headers, json=body
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()
+
+    auto = await start(months=1, returnMode="auto")
+    assert provider.requests[-1].success_url_method == "AUTOGET"
+    assert provider.requests[-1].failure_url_method == "AUTOGET"
+    assert (
+        provider.requests[-1].success_url == f"https://office.skrezo.com/pay?payment={auto['id']}"
+    )
+    await start(amountTiyin=300000, returnMode="button")
+    assert provider.requests[-1].success_url_method == "GET"
+
+    # Провайдер отверг AUTOGET — тот же заказ повторяется с кнопкой, платёж живой.
+    provider.reject_auto = True
+    before = len(provider.requests)
+    fallback = await start(months=1, returnMode="auto")
+    first, retry = provider.requests[before:]
+    assert first.success_url_method == "AUTOGET" and retry.success_url_method == "GET"
+    assert retry.failure_url_method == "GET" and retry.order_id == first.order_id == fallback["id"]
+    assert fallback["status"] == "pending" and fallback["redirectUrl"]
+
+    # Незнакомый режим — 422 валидации, до провайдера запрос не доходит.
+    bad = await client.post(
+        f"{API}/clinic/subscription/payments",
+        headers=ctx.owner_headers,
+        json={"months": 1, "returnMode": "popup"},
+    )
+    assert bad.status_code == 422
+
+    # Кабинет не настроен — ни адреса возврата, ни метода: провайдер решает сам.
+    monkeypatch.setattr(settings, "cabinet_url", "")
+    await start(months=1, returnMode="auto")
+    bare = provider.requests[-1]
+    assert bare.success_url is None and bare.failure_url is None
+    assert bare.success_url_method is None and bare.failure_url_method is None
+
+
+async def test_init_is_retried_only_for_autoget_rejection(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    provider: _FakeProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Повтор с тем же заказом — только после явного отказа на AUTOGET; выключатель AUTOGET."""
+    await _tariffs(admin_client)
+
+    async def start(**body: Any) -> Any:
+        return await client.post(
+            f"{API}/clinic/subscription/payments", headers=ctx.owner_headers, json=body
+        )
+
+    # Явный отказ при кнопке — не из-за способа возврата: повторять нечего.
+    provider.reject_all = True
+    before = len(provider.requests)
+    rejected = await start(months=1, returnMode="button")
+    assert rejected.status_code == 502 and rejected.json()["error"] == "payment_init_failed"
+    assert len(provider.requests) == before + 1
+
+    # Сеть или непонятный ответ при AUTOGET: платёж у провайдера мог родиться — без повтора.
+    provider.reject_all, provider.fail = False, True
+    before = len(provider.requests)
+    failed = await start(months=1, returnMode="auto")
+    assert failed.status_code == 502 and len(provider.requests) == before + 1
+
+    # FREEDOMPAY_AUTO_RETURN=false — «auto» превращается в кнопку, AUTOGET не уходит вовсе.
+    provider.fail = False
+    monkeypatch.setattr(settings, "freedompay_auto_return", False)
+    ok = await start(months=1, returnMode="auto")
+    assert ok.status_code == 201, ok.text
+    assert provider.requests[-1].success_url_method == "GET"

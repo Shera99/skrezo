@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from urllib.parse import parse_qs
 
 import httpx
@@ -11,6 +12,7 @@ import pytest
 from app.shared.freedompay import (
     FreedomPayError,
     FreedomPayHttpClient,
+    FreedomPayRejectedError,
     InitPaymentRequest,
     sign,
     verify,
@@ -127,3 +129,64 @@ async def test_init_payment_rejects_bad_reply_signature_and_provider_errors() ->
         with pytest.raises(FreedomPayError) as exc:
             await client.init_payment(_request())
         assert fragment in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_return_methods_are_sent_signed_and_rejection_has_its_own_class() -> None:
+    """Методы возврата уходят в форму и в подпись; явный отказ — FreedomPayRejectedError."""
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+        seen.append(form)
+        assert verify("init_payment.php", form, "SECRET")  # подписаны и новые поля
+        reply = {
+            "pg_status": "error",
+            "pg_error_code": "340",
+            "pg_error_description": "Invalid pg_success_url_method",
+        }
+        return httpx.Response(200, text=_xml(reply))
+
+    client = FreedomPayHttpClient(
+        "https://api.freedompay.kg",
+        "12345",
+        "SECRET",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    request = replace(
+        _request(),
+        failure_url="https://office.skrezo.com/pay?payment=order-1",
+        success_url_method="AUTOGET",
+        failure_url_method="AUTOGET",
+    )
+    with pytest.raises(FreedomPayRejectedError) as exc:
+        await client.init_payment(request)
+    assert exc.value.code == "340" and "pg_success_url_method" in str(exc.value)
+    assert seen[0]["pg_success_url_method"] == "AUTOGET"
+    assert seen[0]["pg_failure_url_method"] == "AUTOGET"
+    assert seen[0]["pg_failure_url"] == "https://office.skrezo.com/pay?payment=order-1"
+
+    # Без метода поле не передаётся вовсе — провайдер решает сам.
+    seen.clear()
+    with pytest.raises(FreedomPayRejectedError):
+        await client.init_payment(_request())
+    assert "pg_success_url_method" not in seen[0] and "pg_failure_url_method" not in seen[0]
+
+
+@pytest.mark.asyncio
+async def test_only_explicit_error_status_counts_as_rejection() -> None:
+    """Пустой статус (чужой XML) и pending — не отказ: такой запрос повторять нельзя."""
+    for status in ("", "pending"):
+
+        def reply(request: httpx.Request, status: str = status) -> httpx.Response:
+            return httpx.Response(200, text=_xml({"pg_status": status}))
+
+        client = FreedomPayHttpClient(
+            "https://api.freedompay.kg",
+            "12345",
+            "SECRET",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(reply)),
+        )
+        with pytest.raises(FreedomPayError) as exc:
+            await client.init_payment(_request())
+        assert not isinstance(exc.value, FreedomPayRejectedError)

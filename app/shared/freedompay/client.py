@@ -28,6 +28,20 @@ class FreedomPayError(Exception):
     """Провайдер не принял запрос или ответил не так, как ждали."""
 
 
+class FreedomPayRejectedError(FreedomPayError):
+    """Провайдер ответил и явно отказал (``pg_status=error``).
+
+    Отдельный класс, потому что только такой отказ безопасно повторять: запрос
+    дошёл, транзакция не создана. Сетевую ошибку повторять с тем же номером
+    заказа нельзя — платёж у провайдера мог и родиться.
+    """
+
+    def __init__(self, code: str | None, description: str | None) -> None:
+        self.code = code
+        self.description = description
+        super().__init__(f"{code or 'error'}: {description or 'провайдер отклонил запрос'}")
+
+
 @dataclass(frozen=True, slots=True)
 class InitPaymentRequest:
     order_id: str
@@ -43,6 +57,11 @@ class InitPaymentRequest:
     testing_mode: bool
     lifetime_seconds: int
     extra: dict[str, str]
+    #: Как вернуть плательщика на ``success_url`` / ``failure_url``: ``GET`` —
+    #: кнопкой на странице провайдера, ``AUTOGET`` — сразу. ``None`` — не
+    #: передавать (провайдер решит сам).
+    success_url_method: str | None = None
+    failure_url_method: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +123,10 @@ class FreedomPayHttpClient:
             params["pg_success_url"] = request.success_url
         if request.failure_url:
             params["pg_failure_url"] = request.failure_url
+        if request.success_url_method:
+            params["pg_success_url_method"] = request.success_url_method
+        if request.failure_url_method:
+            params["pg_failure_url_method"] = request.failure_url_method
         if request.user_phone:
             params["pg_user_phone"] = request.user_phone
         if request.user_email:
@@ -119,16 +142,22 @@ class FreedomPayHttpClient:
             )
             raise FreedomPayError(f"HTTP {resp.status_code}")
         data = parse_xml(resp.text)
-        if data.get("pg_status") != "ok":
+        status = data.get("pg_status")
+        if status != "ok":
             logger.warning(
                 "freedompay_init_rejected",
+                status=status,
                 code=data.get("pg_error_code"),
                 description=data.get("pg_error_description"),
             )
-            raise FreedomPayError(
-                f"{data.get('pg_error_code') or 'error'}: "
-                f"{data.get('pg_error_description') or 'провайдер отклонил запрос'}"
-            )
+            if status == "error":
+                # Явный отказ: запрос разобран и отвергнут, транзакции нет.
+                raise FreedomPayRejectedError(
+                    data.get("pg_error_code"), data.get("pg_error_description")
+                )
+            # Пустой статус (чужой XML, прокси) или pending — не отказ: что
+            # случилось у провайдера, неизвестно, повторять такой запрос нельзя.
+            raise FreedomPayError(f"неожиданный ответ провайдера: pg_status={status!r}")
         if not verify(INIT_SCRIPT, data, self._secret):
             logger.error("freedompay_init_bad_signature")
             raise FreedomPayError("подпись ответа не сошлась")

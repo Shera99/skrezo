@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -394,10 +395,26 @@ OPENAPI_TAG_GROUPS = [
 ]
 
 
+def _warn_missing_cabinet_url() -> None:
+    """FreedomPay настроен, а адрес кабинета — нет: оплата пройдёт, но вслепую.
+
+    Тихая поломка хуже громкой: плательщик остаётся на странице провайдера (адрес
+    возврата не передаётся), в сообщениях о подписке нет ссылки на оплату, в SMS
+    с кодом — привязки к домену. Строка в логе на старте — единственный сигнал.
+    """
+    payments_on = bool(settings.freedompay_merchant_id and settings.freedompay_secret_key)
+    if payments_on and not settings.cabinet_url:
+        structlog.get_logger(__name__).warning(
+            "cabinet_url_missing",
+            hint="задайте CABINET_URL: без него FreedomPay не вернёт плательщика в кабинет",
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Жизненный цикл: логи, очередь задач и слушатель реалтайм-шины."""
     configure_logging()
+    _warn_missing_cabinet_url()
     await connect_job_queue()
     # Слушатель шины pg_notify → комнаты Socket.IO ЭТОГО процесса (Ф4).
     # Стартует здесь, потому что socketio.ASGIApp пробрасывает lifespan сюда.

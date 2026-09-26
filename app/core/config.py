@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -227,6 +228,14 @@ class Settings(BaseSettings):
     wa_rate_marketing_tiyin: int = 0
     wa_rate_authentication_tiyin: int = 0
 
+    # ── Веб-кабинет клиники ─────────────────────────────────────────────────
+    #: Адрес кабинета — https://office.skrezo.com (без www и слеша в конце).
+    #: От него строятся ссылки в сообщениях, возврат со страницы оплаты
+    #: (``/pay?payment=<id>``) и домен кода в SMS. Домен привязан к приложению
+    #: (universal links), поэтому ссылки только прямые, без редиректов.
+    #: Пусто — ссылок нет (локальная разработка).
+    cabinet_url: str = ""
+
     # ── Оплата подписки: FreedomPay (Кыргызстан), платёжная страница ────────
     #: Реквизиты мерчанта из кабинета FreedomPay; пусто — онлайн-оплата
     #: недоступна (ручка отвечает 409, ручная отметка оплаты остаётся).
@@ -235,10 +244,14 @@ class Settings(BaseSettings):
     freedompay_secret_key: str = ""
     #: Тестовый режим провайдера (pg_testing_mode): тестовые карты, без денег.
     freedompay_testing_mode: bool = True
-    #: Сколько живёт ссылка на оплату (секунды) и куда вернуть владельца.
+    #: Сколько живёт ссылка на оплату (секунды). Вернуть владельца провайдер
+    #: должен на ``{CABINET_URL}/pay?payment=<id>`` — адрес строится от кабинета.
     freedompay_lifetime_seconds: int = 1800
-    freedompay_success_url: str = ""
-    freedompay_failure_url: str = ""
+    #: Возврат без кнопки (``AUTOGET``) при ``returnMode=auto``. Значение из API
+    #: PayBox, нынешняя документация FreedomPay его не перечисляет: отказ
+    #: провайдера оплату не ломает (повтор с кнопкой), но стоит лишнего запроса.
+    #: Выключить, если провайдер не принимает, — возврат везде кнопкой.
+    freedompay_auto_return: bool = True
     #: Публичный адрес API (с префиксом /api/v1) — для серверного колбэка
     #: провайдера, например https://gateway-v2.kassir.kg/skrz/api/v1.
     public_api_url: str = ""
@@ -278,6 +291,38 @@ class Settings(BaseSettings):
         """Разрешаем задавать список строкой через запятую."""
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("cabinet_url", mode="after")
+    @classmethod
+    def _check_cabinet_url(cls, value: str, info: ValidationInfo) -> str:
+        """Адрес кабинета: схема и хост без пути; в проде — только https и без www.
+
+        Ошибка при старте лучше тихой поломки: адрес без схемы превращал возврат
+        с оплаты в «office.skrezo.com/pay» (провайдер такой отвергнет — все
+        оплаты в 502), а ``http://`` и ``www`` ломают переход в приложение:
+        iOS открывает его только по ссылке прямо на привязанный домен.
+        """
+        value = value.strip().rstrip("/")
+        if not value:
+            return value
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in ("http", "https")
+            or not parts.hostname
+            or parts.path
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError(
+                "CABINET_URL — адрес вида https://office.skrezo.com: со схемой, без пути"
+            )
+        if info.data.get("app_env") == "production" and (
+            parts.scheme != "https" or parts.hostname.startswith("www.")
+        ):
+            raise ValueError(
+                "CABINET_URL в проде — https и без www: иначе iOS откроет браузер вместо приложения"
+            )
         return value
 
     @property

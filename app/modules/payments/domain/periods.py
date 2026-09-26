@@ -5,6 +5,8 @@ from __future__ import annotations
 import calendar
 from datetime import datetime
 
+from app.shared.db.enums import SubscriptionStatus
+
 MIN_MONTHS = 1
 MAX_MONTHS = 12
 CURRENCY = "KGS"
@@ -25,6 +27,27 @@ def next_period(
     """Новый период начинается там, где кончается оплаченный, если он ещё идёт."""
     start = current_end if current_end is not None and current_end > now else now
     return start, add_months(start, months)
+
+
+def paid_through(
+    status: SubscriptionStatus,
+    *,
+    trial_ends_at: datetime | None,
+    current_period_end: datetime | None,
+) -> datetime | None:
+    """До какого момента у клиники уже есть доступ — от него считается новый период.
+
+    Действующий оплаченный период — до его конца, идущий пробный — до конца
+    триала: оплата во время триала не сжигает оставшиеся дни, как у
+    большинства сервисов с пробным периодом (решение владельца от 26.09.2026).
+    Остальные статусы доступа не дают — новый период начнётся с момента оплаты.
+    Прошла ли дата, решает :func:`next_period`.
+    """
+    if status is SubscriptionStatus.ACTIVE:
+        return current_period_end
+    if status is SubscriptionStatus.TRIAL:
+        return trial_ends_at
+    return None
 
 
 def som_amount(amount_tiyin: int) -> str:

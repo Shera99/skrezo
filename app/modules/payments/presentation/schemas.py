@@ -6,8 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from app.modules.payments.domain.checkout import ReturnMode
 from app.shared.api.schemas import CamelModel
 
 
@@ -46,11 +47,34 @@ class RefundRequest(CamelModel):
 
 
 class StartPaymentRequest(CamelModel):
-    """Что оплатить: `months` — подписка по тарифу, `amountTiyin` — пополнение баланса."""
+    """Что оплатить: `months` — подписка по тарифу, `amountTiyin` — пополнение баланса.
+
+    `returnMode` — как вернуть человека в кабинет после оплаты: `auto` — сразу
+    (компьютер), `button` — кнопкой «Вернуться» на странице провайдера
+    (телефон). Не передано — кнопкой.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"months": 3, "returnMode": "auto"},
+                {"amountTiyin": 300000, "returnMode": "button"},
+            ]
+        }
+    )
 
     months: int | None = Field(default=None, ge=1, le=12, examples=[1])
     amount_tiyin: int | None = Field(
         default=None, gt=0, description="Пополнение баланса, тыйыны (не меньше минимума)"
+    )
+    return_mode: ReturnMode | None = Field(
+        default=None,
+        description=(
+            "Возврат на `{CABINET_URL}/pay?payment=<id>` после оплаты: `auto` — сразу, "
+            "без кнопки (компьютер), `button` — кнопкой «Вернуться» (телефон). "
+            "Не передано — кнопкой"
+        ),
+        examples=["auto"],
     )
 
     @model_validator(mode="after")

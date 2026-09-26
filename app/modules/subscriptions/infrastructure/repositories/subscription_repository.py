@@ -24,13 +24,17 @@ class SubscriptionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def by_clinic(self, clinic_id: uuid.UUID) -> Subscription | None:
-        """Подписка клиники (одна активная запись на клинику)."""
-        return (
-            await self._session.execute(
-                select(Subscription).where(Subscription.clinic_id == clinic_id)
-            )
-        ).scalar_one_or_none()
+    async def by_clinic(self, clinic_id: uuid.UUID, *, fresh: bool = False) -> Subscription | None:
+        """Подписка клиники (одна активная запись на клинику).
+
+        ``fresh`` — перечитать из базы, даже если объект уже в сессии: без этого
+        сессия отдаёт закешированный снимок, и решение «продлевать ли и с какой
+        даты» принималось бы по состоянию до чужого коммита.
+        """
+        stmt = select(Subscription).where(Subscription.clinic_id == clinic_id)
+        if fresh:
+            stmt = stmt.execution_options(populate_existing=True)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
 
     async def seats(self, clinic_id: uuid.UUID) -> tuple[int, int | None]:
         """(занято мест, лимит по тарифу). Лимит ``None`` — соло, мест не считаем.

@@ -4,6 +4,7 @@ from app.shared.freedompay.client import (
     FreedomPayClient,
     FreedomPayError,
     FreedomPayHttpClient,
+    FreedomPayRejectedError,
     InitPaymentRequest,
     InitPaymentResult,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "FreedomPayClient",
     "FreedomPayError",
     "FreedomPayHttpClient",
+    "FreedomPayRejectedError",
     "InitPaymentRequest",
     "InitPaymentResult",
     "build_freedompay_client",

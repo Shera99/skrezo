@@ -20,6 +20,7 @@ from app.modules.subscriptions.domain.messages import team_trial_ending_text, tr
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
+from app.shared.cabinet_links import pay_url
 from app.shared.notifications.notifier import Notifier
 
 
@@ -57,7 +58,7 @@ class WarnTrialEndingUseCase:
             if subscription.owner_phone is not None:
                 await self._notifier.notify_phone(
                     subscription.owner_phone,
-                    trial_ending_text(subscription.clinic_name, days_left),
+                    trial_ending_text(subscription.clinic_name, days_left, pay_url=pay_url()),
                     event="trial_ending",
                 )
             await self._notifier.notify_team(

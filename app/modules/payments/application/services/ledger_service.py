@@ -27,7 +27,7 @@ from app.modules.payments.domain.ledger import (
     InsufficientFundsError,
     next_balance,
 )
-from app.modules.payments.domain.periods import next_period
+from app.modules.payments.domain.periods import next_period, paid_through
 from app.modules.subscriptions.application.use_cases.manage_subscription import (
     ManageSubscriptionUseCase,
 )
@@ -50,10 +50,16 @@ class LedgerService:
     # ── Кошелёк ─────────────────────────────────────────────────────────────
 
     async def wallet(self, clinic_id: uuid.UUID, *, lock: bool = False) -> ClinicWallet:
-        """Кошелёк клиники; создаётся при первом обращении. ``lock`` — FOR UPDATE."""
+        """Кошелёк клиники; создаётся при первом обращении. ``lock`` — FOR UPDATE.
+
+        Под блокировкой строка перечитывается из базы (``populate_existing``):
+        сессия с ``expire_on_commit=False`` иначе вернула бы уже загруженный
+        объект со старым остатком, и два списания подряд посчитали бы остаток
+        от одной и той же цифры — второе затёрло бы первое.
+        """
         stmt = select(ClinicWallet).where(ClinicWallet.clinic_id == clinic_id)
         if lock:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         wallet = (await self._session.execute(stmt)).scalar_one_or_none()
         if wallet is None:
             wallet = ClinicWallet(clinic_id=clinic_id, balance_tiyin=0, autopay_enabled=True)
@@ -167,17 +173,66 @@ class LedgerService:
         created_by: uuid.UUID | None = None,
         reason: str,
     ) -> tuple[ClinicLedgerEntry, PriceQuote]:
-        """Списать цену за ``months`` и открыть период от конца текущего.
+        """Списать цену за ``months`` и открыть период от конца текущего доступа.
 
-        Коммитит (через продление подписки). Не хватает — 402
-        ``insufficient_balance`` с недостачей; журнал не трогается.
+        Текущий доступ — оплаченный период или идущий триал: оплата на триале
+        не сжигает оставшиеся дни, период начнётся с конца триала. Коммитит
+        (через продление подписки). Не хватает — 402 ``insufficient_balance``
+        с недостачей; журнал не трогается.
         """
         quote = await SubscriptionPricing(self._session).quote(clinic_id, months)
-        subscription = await SubscriptionRepository(self._session).by_clinic(clinic_id)
+        _, subscription = await self._lock_for_charge(clinic_id)
+        entry = await self._charge_locked(
+            clinic_id,
+            months,
+            quote,
+            subscription,
+            manage=manage,
+            payment_id=payment_id,
+            created_by=created_by,
+            reason=reason,
+        )
+        return entry, quote
+
+    async def _lock_for_charge(
+        self, clinic_id: uuid.UUID
+    ) -> tuple[ClinicWallet, Subscription | None]:
+        """Встать в очередь списаний клиники и прочитать подписку заново.
+
+        Все списания клиники (колбэк оплаты, оплата с баланса, пополнение,
+        ночное продление) проходят через блокировку строки кошелька, и период
+        считается уже под ней, по свежей подписке. Иначе два списания, прочитав
+        подписку одновременно, оплатили бы один и тот же период дважды.
+
+        Порядок везде один — кошелёк, затем подписка: колбэк оплаты держит
+        кошелёк с момента прихода, обратный порядок где-то ещё дал бы
+        взаимную блокировку.
+        """
+        wallet = await self.wallet(clinic_id, lock=True)
+        subscription = await SubscriptionRepository(self._session).by_clinic(clinic_id, fresh=True)
+        return wallet, subscription
+
+    async def _charge_locked(
+        self,
+        clinic_id: uuid.UUID,
+        months: int,
+        quote: PriceQuote,
+        subscription: Subscription | None,
+        *,
+        manage: ManageSubscriptionUseCase,
+        payment_id: uuid.UUID | None,
+        created_by: uuid.UUID | None,
+        reason: str,
+    ) -> ClinicLedgerEntry:
+        """Списание и открытие периода — только под блокировкой кошелька."""
         now = datetime.now(UTC)
         current_end = (
-            subscription.current_period_end
-            if subscription is not None and subscription.status is SubscriptionStatus.ACTIVE
+            paid_through(
+                subscription.status,
+                trial_ends_at=subscription.trial_ends_at,
+                current_period_end=subscription.current_period_end,
+            )
+            if subscription is not None
             else None
         )
         start, end = next_period(now, current_end, months)
@@ -207,7 +262,7 @@ class LedgerService:
                 },
             ) from exc
         await manage.activate(clinic_id, paid_until=end, period_start=start, reason=reason)
-        return entry, quote
+        return entry
 
     async def try_autorenew(
         self, clinic_id: uuid.UUID, *, manage: ManageSubscriptionUseCase, reason: str
@@ -217,18 +272,35 @@ class LedgerService:
         Зовётся после пополнения и ночным заданием. Тишина, а не ошибка, когда
         продлевать нечего: подписка в силе и до конца далеко, автопродление
         выключено, баланса мало.
+
+        Решение принимается под блокировкой кошелька по свежим данным: пока
+        ждали блокировку, колбэк оплаты мог уже открыть период — тогда второе
+        списание было бы за тот же месяц. Коммитит в обоих исходах: продление —
+        через активацию подписки, отказ — чтобы сразу отпустить блокировку.
         """
-        wallet = await self.wallet(clinic_id)
-        if not wallet.autopay_enabled or wallet.balance_tiyin <= 0:
-            return None
-        subscription = await SubscriptionRepository(self._session).by_clinic(clinic_id)
-        if subscription is None or not subscription_due(subscription):
-            return None
+        snapshot = await self.wallet(clinic_id)
+        if not snapshot.autopay_enabled or snapshot.balance_tiyin <= 0:
+            return None  # быстрый отсев без блокировки
         quote = await SubscriptionPricing(self._session).quote(clinic_id, 1)
-        if wallet.balance_tiyin < quote.monthly_tiyin:
+        wallet, subscription = await self._lock_for_charge(clinic_id)
+        if (
+            subscription is None
+            or not wallet.autopay_enabled
+            or wallet.balance_tiyin < quote.monthly_tiyin
+            or not subscription_due(subscription)
+        ):
+            await self._session.commit()
             return None
-        entry, _ = await self.charge_subscription(clinic_id, 1, manage=manage, reason=reason)
-        return entry
+        return await self._charge_locked(
+            clinic_id,
+            1,
+            quote,
+            subscription,
+            manage=manage,
+            payment_id=None,
+            created_by=None,
+            reason=reason,
+        )
 
     @staticmethod
     def credit_kind() -> str:
@@ -236,13 +308,20 @@ class LedgerService:
 
 
 def subscription_due(subscription: Subscription, now: datetime | None = None) -> bool:
-    """Пора ли продлевать: период не открыт, истёк или кончается в ближайшие дни.
+    """Пора ли продлевать: доступ не открыт, истёк или кончается в ближайшие дни.
 
     Единое правило для пополнения и ночного задания: действующая подписка с
-    запасом больше ``AUTOPAY_DAYS_BEFORE`` дней денег с баланса не берёт.
+    запасом больше ``AUTOPAY_DAYS_BEFORE`` дней денег с баланса не берёт. Идущий
+    триал — так же: пополнение на триале остаётся на балансе, а месяц
+    списывается за ``AUTOPAY_DAYS_BEFORE`` дней до конца триала, и период
+    начинается с его конца — оставшиеся дни не сгорают.
     """
     now = now or datetime.now(UTC)
-    if subscription.status is not SubscriptionStatus.ACTIVE:
+    if subscription.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL):
         return True
-    end = subscription.current_period_end
+    end = paid_through(
+        subscription.status,
+        trial_ends_at=subscription.trial_ends_at,
+        current_period_end=subscription.current_period_end,
+    )
     return end is None or end <= now + timedelta(days=settings.autopay_days_before)

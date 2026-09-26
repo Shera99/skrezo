@@ -7,7 +7,9 @@
 
 * **SMS — латиницей.** Кириллица переводит сообщение в UCS-2, где сегмент это
   70 символов вместо 160 в GSM-7: то же сообщение стоит вдвое дороже. Для кода
-  подтверждения читаемость от транслита не страдает.
+  подтверждения читаемость от транслита не страдает. Последняя строка —
+  ``@<домен кабинета> #<код>``: iPhone подставит код только на этом домене и в
+  нашем приложении.
 * **WhatsApp — обычным русским.** Посегментной тарификации нет, а сообщение
   читает человек.
 * **Telegram Gateway** текста не принимает вовсе: он шлёт код своим шаблоном,
@@ -22,11 +24,25 @@ from __future__ import annotations
 from app.modules.identity.domain.models import OtpPurpose
 
 
-def sms_text(code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> str:
-    """Текст SMS (латиница — один сегмент GSM-7 вместо двух в кириллице)."""
+def sms_text(
+    code: str, purpose: OtpPurpose = OtpPurpose.LOGIN, *, bound_domain: str | None = None
+) -> str:
+    """Текст SMS (латиница — один сегмент GSM-7 вместо двух в кириллице).
+
+    ``bound_domain`` — домен кабинета: последней строкой встаёт
+    ``@office.skrezo.com #123456`` (формат Apple для кодов, привязанных к
+    домену). iPhone предложит подставить код только на этом сайте и в
+    приложении, к которому домен привязан, — фишинговая страница его не
+    получит. Символы ``@`` и ``#`` есть в GSM-7, сообщение остаётся одним
+    сегментом.
+    """
     if purpose is OtpPurpose.PASSWORD_RESET:
-        return f"Kod dlya smeny parolya Skrezo: {code}. Nikomu ne soobshchayte etot kod."
-    return f"Kod Skrezo: {code}. Nikomu ne soobshchayte etot kod."
+        text = f"Kod dlya smeny parolya Skrezo: {code}. Nikomu ne soobshchayte etot kod."
+    else:
+        text = f"Kod Skrezo: {code}. Nikomu ne soobshchayte etot kod."
+    if bound_domain:
+        text += f"\n@{bound_domain} #{code}"
+    return text
 
 
 def whatsapp_text(code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> str:

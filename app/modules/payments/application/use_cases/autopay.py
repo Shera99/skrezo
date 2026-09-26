@@ -2,9 +2,13 @@
 
 Ночью: у кого период кончается в ближайшие N дней (или уже кончился) и
 включено автопродление — списать месяц с баланса и продлить. Не хватает —
-один раз на период предупредить владельца, сколько положить. Задел на
-будущее: когда провайдер откроет автосписание с карты, здесь же, перед
-предупреждением, будет попытка списать недостающее с карты по профилю
+один раз на период предупредить владельца, сколько положить (со ссылкой на
+страницу оплаты). Триал с деньгами на балансе продлевается так же, за N дней
+до его конца, и период начинается с конца триала; триал без денег задание не
+трогает — о конце триала предупреждает своё задание.
+
+Задел на будущее: когда провайдер откроет автосписание с карты, здесь же,
+перед предупреждением, будет попытка списать недостающее с карты по профилю
 ``clinic_wallet.recurring_profile_id`` — баланс пополнится, продление пройдёт.
 """
 
@@ -15,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -25,6 +29,7 @@ from app.modules.subscriptions.application.use_cases.manage_subscription import 
     ManageSubscriptionUseCase,
 )
 from app.modules.subscriptions.domain.messages import balance_low_text, team_balance_low_text
+from app.shared.cabinet_links import pay_url
 from app.shared.db.enums import SubscriptionStatus
 from app.shared.db.models.account import Account
 from app.shared.db.models.clinic import Clinic
@@ -36,8 +41,13 @@ from app.shared.notifications.notifier import Notifier
 
 logger = structlog.get_logger(__name__)
 
-#: Статусы, при которых продление уместно: действующая, истёкшая по оплате.
+#: Кого продлевать с баланса: действующую, истёкшую по оплате и триал.
+#: Триал — потому что пополненный на триале баланс
+#: списывается за ``AUTOPAY_DAYS_BEFORE`` дней до конца триала, период
+#: начинается с его конца. Без этого клиника с деньгами на балансе уходила бы
+#: в режим чтения между концом триала и ночным запуском.
 _RENEWABLE = (
+    SubscriptionStatus.TRIAL,
     SubscriptionStatus.ACTIVE,
     SubscriptionStatus.PAST_DUE,
     SubscriptionStatus.TRIAL_EXPIRED,
@@ -72,15 +82,26 @@ class AutopaySubscriptionsUseCase:
                 select(Subscription, ClinicWallet, Clinic)
                 .outerjoin(ClinicWallet, ClinicWallet.clinic_id == Subscription.clinic_id)
                 .join(Clinic, Clinic.id == Subscription.clinic_id)
-                .where(Subscription.status.in_(_RENEWABLE))
+                .where(
+                    Subscription.status.in_(_RENEWABLE),
+                    # Триал — только с деньгами на балансе: без них списывать
+                    # нечего, а о конце триала предупреждает своё задание.
+                    or_(
+                        Subscription.status != SubscriptionStatus.TRIAL,
+                        ClinicWallet.balance_tiyin > 0,
+                    ),
+                )
             )
         ).all()
         for subscription, found, clinic in rows:
+            on_trial = subscription.status is SubscriptionStatus.TRIAL
             # Кошелька ещё нет — клиника ничего не платила: заводим, автопродление
             # по умолчанию включено, баланс 0 → предупреждение.
             wallet = found if found is not None else await self._ledger.wallet(clinic.id)
             if not wallet.autopay_enabled:
                 continue
+            # Отсев по снимку начала прогона; окончательное решение — под
+            # блокировкой кошелька в try_autorenew.
             if not subscription_due(subscription, now):
                 continue
             try:
@@ -89,10 +110,16 @@ class AutopaySubscriptionsUseCase:
                 logger.warning("autopay_skipped", clinic_id=str(clinic.id), error=exc.code)
                 continue
             if wallet.balance_tiyin >= quote.monthly_tiyin:
-                await self._ledger.charge_subscription(
-                    clinic.id, 1, manage=self._manage, reason="autopay_balance"
-                )
-                report.renewed.append(clinic.name)
+                # Пока шёл прогон, колбэк оплаты мог уже открыть период: под
+                # блокировкой это видно, и второго списания за тот же месяц нет.
+                if await self._ledger.try_autorenew(
+                    clinic.id, manage=self._manage, reason="autopay_balance"
+                ):
+                    report.renewed.append(clinic.name)
+                continue
+            if on_trial:
+                # Денег мало, но это ещё триал: о его конце предупреждает
+                # warn_trial_ending — второе сообщение о балансе было бы шумом.
                 continue
             # Будущее: здесь попытка списать недостающее с карты по recurring_profile_id.
             period_end = subscription.current_period_end or now
@@ -117,7 +144,7 @@ class AutopaySubscriptionsUseCase:
         if phone:
             await self._notifier.notify_phone(
                 phone,
-                balance_low_text(clinic.name, shortfall_tiyin, days_left),
+                balance_low_text(clinic.name, shortfall_tiyin, days_left, pay_url=pay_url()),
                 event="balance_low",
             )
         await self._notifier.notify_team(

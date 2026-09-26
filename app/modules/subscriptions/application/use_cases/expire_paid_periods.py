@@ -23,6 +23,7 @@ from app.modules.subscriptions.domain.messages import (
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
+from app.shared.cabinet_links import pay_url
 from app.shared.db.enums import SubscriptionStatus
 from app.shared.notifications.notifier import Notifier
 
@@ -59,7 +60,7 @@ class ExpirePaidPeriodsUseCase:
                     continue
                 await self._notifier.notify_phone(
                     subscription.owner_phone,
-                    paid_period_expired_text(subscription.clinic_name),
+                    paid_period_expired_text(subscription.clinic_name, pay_url=pay_url()),
                     event="paid_period_expired",
                 )
             await self._notifier.notify_team(
