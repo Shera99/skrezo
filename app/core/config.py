@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # ── PostgreSQL / Redis ──────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://skrezo:skrezo@localhost:5432/skrezo"
     redis_url: str = "redis://localhost:6379/0"
+    #: DSN Postgres МИМО пулера. PgBouncer в transaction-режиме не переживает
+    #: ``LISTEN`` (шина realtime, будильник диспетчера) и не нужен миграциям —
+    #: они ходят сюда. Пусто — берётся ``DATABASE_URL`` (без пулера они равны).
+    database_direct_url: str = ""
 
     # ── JWT: единый контур авторизации ──────────────────────────────────────
     # Один секрет на всех (команда Skrezo и сотрудники клиник входят одинаково —
@@ -324,6 +328,16 @@ class Settings(BaseSettings):
                 "CABINET_URL в проде — https и без www: иначе iOS откроет браузер вместо приложения"
             )
         return value
+
+    @property
+    def direct_database_url(self) -> str:
+        """DSN мимо пулера в формате SQLAlchemy: миграции Alembic."""
+        return self.database_direct_url or self.database_url
+
+    @property
+    def listen_dsn(self) -> str:
+        """DSN мимо пулера для ``asyncpg.connect`` (LISTEN): без драйверного префикса."""
+        return self.direct_database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     @property
     def is_production(self) -> bool:

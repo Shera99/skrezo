@@ -1,0 +1,35 @@
+# Skrezo API — один процесс uvicorn на порт %i (инстансы skrezo-api@8001, @8002, …).
+# Отдельные инстансы вместо `--workers N`: nginx (ip_hash) держит клиента Socket.IO
+# на одном процессе, а деплой перезапускает инстансы по одному — без простоя.
+# Между процессами события идут через шину pg_notify (см. app/realtime/listener.py).
+[Unit]
+Description=Skrezo API (uvicorn) on 127.0.0.1:%i
+PartOf=skrezo.target
+After=network-online.target postgresql.service pgbouncer.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skrezo
+Group=skrezo
+WorkingDirectory=/opt/skrezo/app
+# .env читает само приложение (pydantic-settings) из WorkingDirectory. Не EnvironmentFile=:
+# systemd не понимает комментарии после значения («DB_POOL_SIZE=10  # …»).
+# TZ=UTC — cron'ы arq и «03:12 UTC = 09:12 Бишкек» в коде считают по часам процесса.
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC
+ExecStart=/opt/skrezo/app/.venv/bin/uvicorn app.main:asgi_app \
+    --host 127.0.0.1 --port %i \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --no-access-log --timeout-graceful-shutdown 15
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+LimitNOFILE=65536
+# Изоляция: система только на чтение (/usr, /etc, /boot), чужие home и /tmp скрыты.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=skrezo.target

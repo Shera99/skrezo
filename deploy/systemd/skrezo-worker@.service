@@ -1,0 +1,29 @@
+# Skrezo worker — arq: очередь заданий (ответы ассистента, вебхуки WhatsApp, пуши)
+# и cron'ы (подписки, напоминания, сводки). Инстансы skrezo-worker@1, @2: cron'ы
+# ставятся по job_id в общем Redis (выполняет один), диспетчер берёт события SKIP LOCKED.
+[Unit]
+Description=Skrezo worker (arq) #%i
+PartOf=skrezo.target
+After=network-online.target postgresql.service pgbouncer.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skrezo
+Group=skrezo
+WorkingDirectory=/opt/skrezo/app
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC
+ExecStart=/opt/skrezo/app/.venv/bin/arq app.jobs.worker.WorkerSettings
+Restart=always
+RestartSec=5
+# Дать доделать задание ответа ассистента (AI_REPLY_JOB_TIMEOUT) — arq по SIGTERM
+# ждёт текущие задания, новые не берёт.
+TimeoutStopSec=120
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=skrezo.target

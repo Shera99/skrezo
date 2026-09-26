@@ -45,7 +45,8 @@
 
 - Python **3.14** (проект запинен на 3.14 через `.python-version`; образ — `python:3.14-slim`)
 - [uv](https://docs.astral.sh/uv/) — менеджер зависимостей
-- Docker + Docker Compose (для Postgres/Redis и полного стека)
+- Docker + Docker Compose (для Postgres/Redis и полного стека) — либо нативная установка на
+  сервере под systemd: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## Запуск
 
@@ -103,6 +104,18 @@ make migrate       # применить миграции (создаст таб�
 make run           # uvicorn с автоперезагрузкой
 ```
 
+### На сервере без Docker (systemd)
+
+Прод поднимается нативно на Ubuntu 24.04: PostgreSQL 16 + PgBouncer, Redis, nginx с TLS,
+два инстанса uvicorn и два arq-воркера под systemd (автозапуск после перезагрузки).
+Пошаговая инструкция — [docs/DEPLOY.md](docs/DEPLOY.md), готовые конфиги — каталог
+[`deploy/`](deploy/): юниты systemd, nginx, PgBouncer, PostgreSQL, Redis, скрипты
+деплоя без простоя и ночного бэкапа.
+
+> Через PgBouncer в transaction-режиме не работает `LISTEN`, поэтому слушатели
+> `pg_notify` (сокет, диспетчер событий) и миграции Alembic ходят по
+> `DATABASE_DIRECT_URL` — прямому порту Postgres.
+
 ## Переменные окружения
 
 | Переменная | Назначение | По умолчанию |
@@ -113,6 +126,7 @@ make run           # uvicorn с автоперезагрузкой
 | `ROOT_PATH` | префикс за обратным прокси (например `/skrz`) | — (пусто) |
 | `CORS_ORIGINS` | разрешённые домены (через запятую) | — |
 | `DATABASE_URL` | DSN PostgreSQL (asyncpg) | `postgresql+asyncpg://skrezo:skrezo@localhost:5434/skrezo` |
+| `DATABASE_DIRECT_URL` | DSN мимо пулера — `LISTEN/NOTIFY` и миграции (прод с PgBouncer) | — (= `DATABASE_URL`) |
 | `REDIS_URL` | DSN Redis | `redis://localhost:6380/0` |
 | `JWT_SECRET` | секрет единого контура токенов | — |
 | `ACCESS_TOKEN_TTL_SECONDS` | срок жизни access-токена | `900` |

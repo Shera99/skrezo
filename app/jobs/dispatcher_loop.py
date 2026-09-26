@@ -35,8 +35,8 @@ POLL_INTERVAL_SECONDS = 30.0
 
 
 def _plain_dsn() -> str:
-    """DSN для asyncpg без драйверного префикса SQLAlchemy."""
-    return settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    """DSN прямого соединения (``DATABASE_DIRECT_URL``, иначе ``DATABASE_URL``) для asyncpg."""
+    return settings.listen_dsn
 
 
 async def _listen_notify(wakeup: asyncio.Event) -> None:
@@ -49,9 +49,7 @@ async def _listen_notify(wakeup: asyncio.Event) -> None:
         try:
             conn = await asyncpg.connect(_plain_dsn())
             try:
-                await conn.add_listener(
-                    NOTIFY_CHANNEL, lambda *_args: wakeup.set()
-                )
+                await conn.add_listener(NOTIFY_CHANNEL, lambda *_args: wakeup.set())
                 logger.info("event_listener_connected")
                 # Соединение живёт молча; проверяем его раз в минуту пингом.
                 while True:

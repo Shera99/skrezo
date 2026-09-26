@@ -7,7 +7,8 @@
 а потерю покрывает 30-секундный фолбэк клиента.
 
 ``LISTEN`` требует прямого соединения: пулер в transaction-режиме его не
-переживает (ловушка №3) — поэтому asyncpg, мимо SQLAlchemy-пула.
+переживает (ловушка №3) — поэтому asyncpg, мимо SQLAlchemy-пула, и по
+``DATABASE_DIRECT_URL`` (порт самого Postgres), когда API ходит через PgBouncer.
 """
 
 from __future__ import annotations
@@ -28,7 +29,8 @@ logger = structlog.get_logger(__name__)
 
 
 def _plain_dsn() -> str:
-    return settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    """DSN прямого соединения: ``DATABASE_DIRECT_URL``, иначе ``DATABASE_URL``."""
+    return settings.listen_dsn
 
 
 def _forward(sio: socketio.AsyncServer, raw: str) -> None:
@@ -42,9 +44,7 @@ def _forward(sio: socketio.AsyncServer, raw: str) -> None:
         logger.warning("realtime_bad_signal", error=str(exc))
         return
     # Задачей, а не await: колбэк asyncpg синхронный, а emit — корутина.
-    asyncio.get_running_loop().create_task(
-        sio.emit(type_, payload, room=room_of(clinic_id))
-    )
+    asyncio.get_running_loop().create_task(sio.emit(type_, payload, room=room_of(clinic_id)))
 
 
 async def run_realtime_listener(sio: socketio.AsyncServer) -> None:
@@ -54,9 +54,7 @@ async def run_realtime_listener(sio: socketio.AsyncServer) -> None:
             conn = await asyncpg.connect(_plain_dsn())
             try:
 
-                def _on_notify(
-                    _conn: Any, _pid: Any, _channel: Any, payload: str
-                ) -> None:
+                def _on_notify(_conn: Any, _pid: Any, _channel: Any, payload: str) -> None:
                     _forward(sio, payload)
 
                 await conn.add_listener(REALTIME_CHANNEL, _on_notify)

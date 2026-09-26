@@ -1,0 +1,9 @@
+# Группа сервисов Skrezo. Инстансы подключаются командой
+#   systemctl enable skrezo-api@8001 skrezo-api@8002 skrezo-worker@1 skrezo-worker@2
+# (попадают в skrezo.target.wants). `systemctl restart skrezo.target` перезапускает
+# все разом (PartOf= в юнитах); для деплоя без простоя — deploy/bin/deploy.sh.
+[Unit]
+Description=Skrezo platform (API + workers)
+
+[Install]
+WantedBy=multi-user.target

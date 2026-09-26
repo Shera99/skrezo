@@ -1,0 +1,9 @@
+# Ночной бэкап (запускает skrezo-backup.timer): дамп Postgres + копия storage/.
+[Unit]
+Description=Skrezo nightly backup (pg_dump + storage)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/skrezo/app/deploy/bin/backup.sh
+Nice=10
+IOSchedulingClass=idle

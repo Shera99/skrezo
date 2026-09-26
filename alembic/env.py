@@ -19,8 +19,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# URL берём из настроек приложения (единый источник истины).
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# URL берём из настроек приложения (единый источник истины) — прямой, мимо
+# пулера: DDL и advisory-семантика миграций через PgBouncer не нужны.
+config.set_main_option("sqlalchemy.url", settings.direct_database_url)
 
 target_metadata = Base.metadata
 
@@ -50,7 +51,7 @@ async def run_migrations_online() -> None:
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=settings.direct_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
