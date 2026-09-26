@@ -19,6 +19,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.errors import ConflictError
 from app.modules.payments.application.services.ledger_service import LedgerService
 from app.modules.payments.domain.ledger import KIND_CREDIT, PURPOSE_SUBSCRIPTION, SOURCE_PROVIDER
 from app.modules.payments.domain.periods import amount_matches
@@ -128,14 +129,28 @@ class HandleFreedomPayResultUseCase:
             wallet.recurring_profile_id = payment.recurring_profile_id
         if payment.purpose == PURPOSE_SUBSCRIPTION:
             # Списание за подписку + открытие периода (коммитит продление).
-            entry, _ = await self._ledger.charge_subscription(
-                payment.clinic_id,
-                payment.months,
-                manage=self._manage,
-                payment_id=payment.id,
-                created_by=payment.created_by,
-                reason="freedompay",
-            )
+            try:
+                entry, _ = await self._ledger.charge_subscription(
+                    payment.clinic_id,
+                    payment.months,
+                    manage=self._manage,
+                    payment_id=payment.id,
+                    created_by=payment.created_by,
+                    reason="freedompay",
+                )
+            except ConflictError as exc:
+                # Клинику заблокировали (или она ушла), пока была на странице
+                # оплаты: деньги пришли — они остаются на балансе, период не
+                # открывается, блок снимает только Skrezo. Провайдеру — ok:
+                # отказ заставил бы его вернуть уже списанные деньги клиента.
+                await self._session.commit()
+                logger.warning(
+                    "freedompay_paid_while_closed",
+                    order_id=str(payment.id),
+                    clinic_id=str(payment.clinic_id),
+                    code=exc.code,
+                )
+                return ResultReply("ok", "Оплата учтена на балансе")
             payment.period_start, payment.period_end = entry.period_start, entry.period_end
             await self._session.commit()
         else:

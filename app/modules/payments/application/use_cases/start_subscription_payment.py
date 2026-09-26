@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ConflictError, UpstreamError, ValidationAppError
+from app.modules.payments.application.services.ledger_service import ensure_renewable
 from app.modules.payments.application.services.pricing import PriceQuote, SubscriptionPricing
 from app.modules.payments.domain.checkout import (
     METHOD_AUTO,
@@ -27,6 +28,9 @@ from app.modules.payments.domain.ledger import PURPOSE_SUBSCRIPTION, PURPOSE_TOP
 from app.modules.payments.domain.periods import CURRENCY, som_amount
 from app.modules.payments.infrastructure.repositories.platform_payment_repository import (
     PlatformPaymentRepository,
+)
+from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
+    SubscriptionRepository,
 )
 from app.shared.cabinet_links import pay_url
 from app.shared.db.models.account import Account
@@ -94,6 +98,10 @@ class StartSubscriptionPaymentUseCase:
         if clinic is None:
             raise ConflictError("Клиника не найдена", code="clinic_not_found")
         if months is not None:
+            # Ручной блок и уход клиента оплатой не снимаются — 409 до создания
+            # платежа, чтобы клиника не заплатила за то, чего не получит.
+            # Пополнение баланса можно: деньги лягут на баланс, блок останется.
+            ensure_renewable(await SubscriptionRepository(self._session).by_clinic(clinic_id))
             quote = await self._pricing.quote(clinic_id, months)
             amount, purpose = quote.total_tiyin, PURPOSE_SUBSCRIPTION
             description = f"Skrezo: подписка «{clinic.name}», {months} мес."

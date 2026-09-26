@@ -659,3 +659,125 @@ async def test_locked_wallet_read_sees_commit_of_another_session(
         locked = await ledger.wallet(clinic_id, lock=True)
         assert locked is snapshot and locked.balance_tiyin == 300000
         await night.rollback()
+
+
+# ── Ручной блок и уход клиента деньгами не снимаются ────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (SubscriptionStatus.BLOCKED, "subscription_blocked"),
+        (SubscriptionStatus.CANCELLED, "subscription_cancelled"),
+    ],
+)
+async def test_money_does_not_reopen_subscription_closed_by_skrezo(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+    status: SubscriptionStatus,
+    code: str,
+) -> None:
+    await _tariffs(admin_client)
+    warned: list[tuple[str, str]] = []
+    redis = await _patch_billing(monkeypatch, _resources, warned)
+    async with _resources.factory() as session:
+        await session.execute(
+            update(Subscription)
+            .where(Subscription.clinic_id == uuid.UUID(ctx.clinic_id))
+            .values(status=status)
+        )
+        await session.commit()
+
+    # Перевод на счёт при включённом автопродлении — деньги на балансе, статус тот же.
+    topup = await admin_client.post(
+        f"{API}/admin/clients/{ctx.clinic_id}/ledger/entries",
+        json={"kind": "credit", "amountTiyin": 2 * MONTHLY, "comment": "Перевод"},
+    )
+    assert topup.status_code == 201, topup.text
+    assert (await _db_subscription(_resources, ctx.clinic_id)).status is status
+
+    # Оплата с баланса — 409 с понятным кодом, журнал не меняется.
+    charged = await client.post(
+        f"{API}/clinic/subscription/pay-from-balance", headers=ctx.owner_headers, json={"months": 1}
+    )
+    assert charged.status_code == 409 and charged.json()["error"] == code
+    # Ночное задание тоже не трогает.
+    assert "продлено: 0" in await billing_tasks.autopay_subscriptions({"redis": redis})
+    ledger = await _ledger(client, ctx)
+    assert ledger["balanceTiyin"] == 2 * MONTHLY and ledger["totalCount"] == 1
+    assert (await _db_subscription(_resources, ctx.clinic_id)).status is status
+
+
+async def test_blocked_clinic_can_top_up_but_not_buy_and_late_callback_keeps_money(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    provider: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    await _tariffs(admin_client)
+    # Платёж начат, пока подписка открыта, — владелец ушёл на страницу оплаты.
+    pending = await _pay(client, ctx, months=1)
+    blocked = await admin_client.post(
+        f"{API}/admin/clients/{ctx.clinic_id}/subscription/block",
+        json={"reason": "нарушение условий"},
+    )
+    assert blocked.status_code == 200, blocked.text
+
+    # Новая оплата подписки — 409 ещё до провайдера; пополнение — можно.
+    before = len(provider.requests)
+    refused = await client.post(
+        f"{API}/clinic/subscription/payments", headers=ctx.owner_headers, json={"months": 1}
+    )
+    assert refused.status_code == 409 and refused.json()["error"] == "subscription_blocked"
+    assert len(provider.requests) == before
+    topup = await _pay(client, ctx, amountTiyin=300000)
+
+    # Колбэк за платёж, начатый до блока: деньги пришли — на баланс, период не открыт.
+    late = await client.post(
+        f"{API}/payments/freedompay/result",
+        data=_callback(pending["id"], "fp-1", "5000.00"),
+    )
+    assert "<pg_status>ok</pg_status>" in late.text
+    await client.post(
+        f"{API}/payments/freedompay/result", data=_callback(topup["id"], "fp-2", "3000.00")
+    )
+    sub = await _db_subscription(_resources, ctx.clinic_id)
+    assert sub.status is SubscriptionStatus.BLOCKED and sub.current_period_end is None
+    ledger = await _ledger(client, ctx)
+    assert ledger["balanceTiyin"] == MONTHLY + 300000
+    assert {e["source"] for e in ledger["list"]} == {"freedompay_payment"}
+    await _assert_ledger_consistent(_resources, ctx.clinic_id, MONTHLY + 300000)
+
+
+async def test_expired_period_short_of_money_is_warned_once_not_every_night(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Просрочка без денег: «не хватает на балансе» — один раз, а не каждую ночь."""
+    await _tariffs(admin_client)
+    warned: list[tuple[str, str]] = []
+    redis = await _patch_billing(monkeypatch, _resources, warned)
+    ended = datetime.now(UTC) - timedelta(days=1)
+    async with _resources.factory() as session:
+        await session.execute(
+            update(Subscription)
+            .where(Subscription.clinic_id == uuid.UUID(ctx.clinic_id))
+            .values(
+                status=SubscriptionStatus.PAST_DUE,
+                current_period_start=ended - timedelta(days=30),
+                current_period_end=ended,
+            )
+        )
+        await session.commit()
+    await _ledger(client, ctx)  # кошелёк заводится при первом обращении
+
+    nights = [await billing_tasks.autopay_subscriptions({"redis": redis}) for _ in range(3)]
+    assert ["предупреждено: 1" in n for n in nights] == [True, False, False]
+    assert len(warned) == 2  # владельцу и в чат команды — один раз

@@ -50,6 +50,14 @@ def paid_through(
     return None
 
 
+#: Статусы, которые открывает только Skrezo: ручной блок и уход клиента.
+#: Деньги их не снимают — ни пополнение с автопродлением, ни оплата подписки:
+#: блок ставят не из-за оплаты, и заплатив, клиника не должна снимать его сама.
+CLOSED_BY_SKREZO: frozenset[SubscriptionStatus] = frozenset(
+    {SubscriptionStatus.BLOCKED, SubscriptionStatus.CANCELLED}
+)
+
+
 def som_amount(amount_tiyin: int) -> str:
     """Сумма провайдеру — сомы с двумя знаками: 300000 тыйын → «3000.00»."""
     return f"{amount_tiyin / 100:.2f}"

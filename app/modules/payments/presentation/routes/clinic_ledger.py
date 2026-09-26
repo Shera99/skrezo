@@ -42,7 +42,21 @@ _PAY_ERRORS: dict[int | str, dict[str, Any]] = {
             }
         },
     },
-    409: {"description": "Тариф не настроен"},
+    409: {
+        "description": (
+            "Тариф не настроен или подписку открывает только Skrezo: ручной блок "
+            "(`subscription_blocked`) и уход клиента (`subscription_cancelled`) деньгами "
+            "с баланса не снимаются"
+        ),
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "subscription_blocked",
+                    "message": "Подписка заблокирована Skrezo — оплата её не откроет, напишите нам",
+                }
+            }
+        },
+    },
 }
 
 

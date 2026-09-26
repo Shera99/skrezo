@@ -33,12 +33,31 @@ router = APIRouter()
 
 _START_ERRORS: dict[int | str, dict[str, Any]] = {
     409: {
-        "description": "Онлайн-оплата не подключена или тариф не настроен",
+        "description": (
+            "Онлайн-оплата не подключена, тариф не настроен или подписку открывает только "
+            "Skrezo: ручной блок (`subscription_blocked`) и уход клиента "
+            "(`subscription_cancelled`) оплатой подписки не снимаются. Пополнение баланса "
+            "при этом доступно — деньги лягут на баланс"
+        ),
         "content": {
             "application/json": {
-                "example": {
-                    "error": "payments_not_configured",
-                    "message": "Онлайн-оплата пока не подключена — напишите в Skrezo",
+                "examples": {
+                    "payments_not_configured": {
+                        "summary": "Онлайн-оплата не подключена",
+                        "value": {
+                            "error": "payments_not_configured",
+                            "message": "Онлайн-оплата пока не подключена — напишите в Skrezo",
+                        },
+                    },
+                    "subscription_blocked": {
+                        "summary": "Подписка заблокирована Skrezo",
+                        "value": {
+                            "error": "subscription_blocked",
+                            "message": (
+                                "Подписка заблокирована Skrezo — оплата её не откроет, напишите нам"
+                            ),
+                        },
+                    },
                 }
             }
         },

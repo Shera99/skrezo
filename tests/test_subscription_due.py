@@ -56,3 +56,11 @@ def test_new_period_starts_where_access_ends() -> None:
         current_period_end=None,
     )
     assert expired is None and next_period(NOW, expired, 1)[0] == NOW
+
+
+def test_statuses_opened_only_by_skrezo_are_never_due(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ручной блок и уход клиента деньгами не снимаются: продлевать нечего."""
+    monkeypatch.setattr(settings, "autopay_days_before", 3)
+    week = timedelta(days=7)
+    for status in (SubscriptionStatus.BLOCKED, SubscriptionStatus.CANCELLED):
+        assert not subscription_due(_sub(status, trial_in=-week, period_in=-week), NOW)

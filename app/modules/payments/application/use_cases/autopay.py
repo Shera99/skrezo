@@ -122,7 +122,11 @@ class AutopaySubscriptionsUseCase:
                 # warn_trial_ending — второе сообщение о балансе было бы шумом.
                 continue
             # Будущее: здесь попытка списать недостающее с карты по recurring_profile_id.
-            period_end = subscription.current_period_end or now
+            # Отметка «предупредили» — по концу последнего доступа: у действующей
+            # подписки это конец периода, у истёкшей — дата, когда доступ
+            # кончился. Раньше здесь стояло «сейчас», и просроченной клинике
+            # «не хватает на балансе» уходило каждую ночь.
+            period_end = subscription.current_period_end or subscription.trial_ends_at
             if (
                 wallet.autopay_warned_until is not None
                 and wallet.autopay_warned_until >= period_end

@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import PaymentRequiredError
+from app.core.errors import ConflictError, PaymentRequiredError
 from app.modules.payments.application.services.pricing import PriceQuote, SubscriptionPricing
 from app.modules.payments.domain.ledger import (
     KIND_CREDIT,
@@ -27,7 +27,7 @@ from app.modules.payments.domain.ledger import (
     InsufficientFundsError,
     next_balance,
 )
-from app.modules.payments.domain.periods import next_period, paid_through
+from app.modules.payments.domain.periods import CLOSED_BY_SKREZO, next_period, paid_through
 from app.modules.subscriptions.application.use_cases.manage_subscription import (
     ManageSubscriptionUseCase,
 )
@@ -225,6 +225,7 @@ class LedgerService:
         reason: str,
     ) -> ClinicLedgerEntry:
         """Списание и открытие периода — только под блокировкой кошелька."""
+        ensure_renewable(subscription)
         now = datetime.now(UTC)
         current_end = (
             paid_through(
@@ -314,9 +315,12 @@ def subscription_due(subscription: Subscription, now: datetime | None = None) ->
     запасом больше ``AUTOPAY_DAYS_BEFORE`` дней денег с баланса не берёт. Идущий
     триал — так же: пополнение на триале остаётся на балансе, а месяц
     списывается за ``AUTOPAY_DAYS_BEFORE`` дней до конца триала, и период
-    начинается с его конца — оставшиеся дни не сгорают.
+    начинается с его конца — оставшиеся дни не сгорают. Ручной блок Skrezo и
+    уход клиента не продлеваются никогда: их открывает только Skrezo.
     """
     now = now or datetime.now(UTC)
+    if subscription.status in CLOSED_BY_SKREZO:
+        return False
     if subscription.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL):
         return True
     end = paid_through(
@@ -325,3 +329,22 @@ def subscription_due(subscription: Subscription, now: datetime | None = None) ->
         current_period_end=subscription.current_period_end,
     )
     return end is None or end <= now + timedelta(days=settings.autopay_days_before)
+
+
+def ensure_renewable(subscription: Subscription | None) -> None:
+    """409, если подписку открывает только Skrezo (ручной блок, уход клиента).
+
+    Проверяется и до создания платежа, и под блокировкой кошелька перед
+    списанием: клинику могли заблокировать, пока она была на странице оплаты.
+    """
+    if subscription is None or subscription.status not in CLOSED_BY_SKREZO:
+        return
+    if subscription.status is SubscriptionStatus.BLOCKED:
+        raise ConflictError(
+            "Подписка заблокирована Skrezo — оплата её не откроет, напишите нам",
+            code="subscription_blocked",
+        )
+    raise ConflictError(
+        "Подписка закрыта — чтобы вернуться, напишите в Skrezo",
+        code="subscription_cancelled",
+    )
