@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Request
 from redis.asyncio import Redis
 
@@ -19,15 +21,53 @@ from app.shared.domain.value_objects import normalize_phone
 
 router = APIRouter()
 
+_ERRORS: dict[int | str, dict[str, Any]] = {
+    422: {
+        "description": "Номер не распознан как телефон; попытка лимита не расходуется",
+        "content": {
+            "application/json": {
+                "example": {"error": "invalid_phone", "message": "Некорректный номер телефона"}
+            }
+        },
+    },
+    429: {
+        "description": "Исчерпан лимит выпуска кода на пару IP + телефон; "
+        "``retryAfter`` — секунд до сброса",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "too_many_requests",
+                    "message": "Слишком много попыток, попробуйте позже",
+                    "retryAfter": 240,
+                }
+            }
+        },
+    },
+    502: {
+        "description": "Код не удалось доставить ни одним каналом",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "otp_delivery_failed",
+                    "message": "Не удалось отправить код, попробуйте ещё раз",
+                }
+            }
+        },
+    },
+}
+
 
 async def _otp_rate_limit(
     request: Request, body: OtpRequestRequest, redis: Redis = Depends(get_redis)
 ) -> None:
-    """Лимит на выпуск кода — по паре IP + нормализованный телефон (SMS дорогие)."""
-    try:
-        phone = normalize_phone(body.phone)
-    except Exception:
-        phone = body.phone
+    """Лимит на выпуск кода — по паре IP + нормализованный телефон (SMS дорогие).
+
+    Номер проверяется ДО счётчика: на некорректный номер код не выпускается и
+    SMS не уходит — беречь нечего, сразу 422 ``invalid_phone``. Если считать и
+    такие попытки, пять опечаток подряд запирают человека на всё окно лимита
+    (429), хотя ни одного кода он так и не получил.
+    """
+    phone = normalize_phone(body.phone)
     await enforce_rate_limit(
         redis,
         f"rl:otp:{client_ip(request)}:{phone}",
@@ -41,6 +81,7 @@ async def _otp_rate_limit(
     response_model=OtpRequestResponse,
     summary="Запросить OTP-код",
     response_description="Код выпущен (ответ одинаков вне зависимости от наличия аккаунта)",
+    responses=_ERRORS,
 )
 async def request_otp(
     body: OtpRequestRequest,

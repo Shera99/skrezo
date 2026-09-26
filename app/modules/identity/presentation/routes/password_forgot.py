@@ -23,6 +23,27 @@ from app.shared.domain.value_objects import normalize_phone
 router = APIRouter()
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
+    422: {
+        "description": "Номер не распознан как телефон; попытка лимита не расходуется",
+        "content": {
+            "application/json": {
+                "example": {"error": "invalid_phone", "message": "Некорректный номер телефона"}
+            }
+        },
+    },
+    429: {
+        "description": "Исчерпан лимит выпуска кода на пару IP + телефон; "
+        "``retryAfter`` — секунд до сброса",
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "too_many_requests",
+                    "message": "Слишком много попыток, попробуйте позже",
+                    "retryAfter": 240,
+                }
+            }
+        },
+    },
     502: {
         "description": "Код не удалось доставить ни одним каналом",
         "content": {
@@ -43,12 +64,11 @@ async def _forgot_rate_limit(
     """Лимит на выпуск кода — по паре IP + нормализованный телефон (SMS дорогие).
 
     Счётчик свой, не общий с ``/auth/otp/request``: иначе запрос кода на
-    восстановление тратил бы попытки входа, и наоборот.
+    восстановление тратил бы попытки входа, и наоборот. Некорректный номер,
+    как и там, отсекается 422 ``invalid_phone`` до счётчика: SMS на него не
+    уходит, а опечатки не должны запирать на всё окно лимита.
     """
-    try:
-        phone = normalize_phone(body.phone)
-    except Exception:
-        phone = body.phone
+    phone = normalize_phone(body.phone)
     await enforce_rate_limit(
         redis,
         f"rl:otp-forgot:{client_ip(request)}:{phone}",

@@ -415,11 +415,35 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Номер не распознан как телефон; попытка лимита не расходуется",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "example": {
+                  "error": "invalid_phone",
+                  "message": "Некорректный номер телефона"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Исчерпан лимит выпуска кода на пару IP + телефон; ``retryAfter`` — секунд до сброса",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "too_many_requests",
+                  "message": "Слишком много попыток, попробуйте позже",
+                  "retryAfter": 240
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Код не удалось доставить ни одним каналом",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "otp_delivery_failed",
+                  "message": "Не удалось отправить код, попробуйте ещё раз"
                 }
               }
             }
@@ -654,6 +678,29 @@
               }
             }
           },
+          "422": {
+            "description": "Номер не распознан как телефон; попытка лимита не расходуется",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "invalid_phone",
+                  "message": "Некорректный номер телефона"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Исчерпан лимит выпуска кода на пару IP + телефон; ``retryAfter`` — секунд до сброса",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "too_many_requests",
+                  "message": "Слишком много попыток, попробуйте позже",
+                  "retryAfter": 240
+                }
+              }
+            }
+          },
           "502": {
             "description": "Код не удалось доставить ни одним каналом",
             "content": {
@@ -661,16 +708,6 @@
                 "example": {
                   "error": "otp_delivery_failed",
                   "message": "Не удалось отправить код, попробуйте ещё раз"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
