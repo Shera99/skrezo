@@ -40,6 +40,10 @@ class AppointmentRow:
     duration_min: int
     status: AppointmentStatus
     price_total_tiyin: int
+    #: Членство врача — фронт сопоставляет врача по id, а не по имени.
+    doctor_membership_id: uuid.UUID | None = None
+    #: Телефон пациента — без отдельного запроса карточки.
+    patient_phone: str = ""
 
 
 @dataclass(frozen=True, slots=True)

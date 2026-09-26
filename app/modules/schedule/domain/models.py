@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from typing import Literal
 
 from app.shared.db.enums import AppointmentStatus, AppointmentType
 
@@ -43,6 +44,10 @@ class WorkingHours:
     is_working: bool
 
 
+#: Источник часов врача в день недели: свой график или часы клиники.
+HoursSource = Literal["doctor", "clinic"]
+
+
 @dataclass(frozen=True, slots=True)
 class DoctorHours:
     """Индивидуальный график врача в конкретный день недели."""
@@ -51,6 +56,9 @@ class DoctorHours:
     starts_at: time
     ends_at: time
     is_working: bool
+    #: Откуда часы: ``doctor`` — свой график врача на этот день, ``clinic`` —
+    #: день не настроен, и врач работает по часам клиники.
+    source: HoursSource = "doctor"
 
 
 @dataclass(frozen=True, slots=True)

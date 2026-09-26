@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,26 @@ from app.modules.staff.application.services.roles import resolve_assignable_role
 from app.modules.staff.domain.models import StaffMember
 from app.modules.staff.infrastructure.repositories.staff_repository import StaffRepository
 from app.shared.domain.value_objects import normalize_phone
+
+
+class Unset:
+    """Маркер «поле не передали»: у специальности это не то же самое, что ``null``.
+
+    ``null`` — снять специальность, отсутствие поля — не трогать её.
+    """
+
+    _instance: Unset | None = None
+
+    def __new__(cls) -> Unset:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+UNSET = Unset()
 
 
 class UpdateStaffUseCase:
@@ -36,9 +57,18 @@ class UpdateStaffUseCase:
         *,
         full_name: str | None = None,
         phone_raw: str | None = None,
-        specialization_id: uuid.UUID | None = None,
+        specialization_id: uuid.UUID | None | Unset = UNSET,
         role_id: uuid.UUID | None = None,
     ) -> StaffMember:
+        """Правка сотрудника.
+
+        ``specialization_id``: не передан (``UNSET``) — не трогать; ``None`` —
+        снять специальность (врач стал, например, администратором); id — сменить.
+        Снять специальность у врача с будущими записями нельзя: календарь строит
+        колонки только из сотрудников со специальностью, и записи пропали бы из
+        расписания, а пациенты пришли бы — 409 со списком записей (решение
+        владельца от 26.09.2026).
+        """
         membership = await self._staff.get_membership(clinic_id, membership_id)
         if membership is None:
             raise NotFoundError("Сотрудник не найден", code="staff_not_found")
@@ -56,7 +86,7 @@ class UpdateStaffUseCase:
                     "У владельца через этот флоу меняется только специализация",
                     code="cannot_edit_owner",
                 )
-            if specialization_id is None:
+            if specialization_id is UNSET:
                 raise ForbiddenError(
                     "Владельца нельзя редактировать здесь", code="cannot_edit_owner"
                 )
@@ -73,7 +103,11 @@ class UpdateStaffUseCase:
             if existing is not None and existing.id != account.id:
                 raise ConflictError("Этот номер уже используется", code="phone_already_used")
             account.phone = phone
-        if specialization_id is not None:
+        if specialization_id is None:
+            if membership.specialization_id is not None:
+                await self._ensure_no_future_appointments(clinic_id, membership_id)
+            membership.specialization_id = None
+        elif not isinstance(specialization_id, Unset):
             if not await self._staff.specialization_exists(specialization_id):
                 raise ValidationAppError(
                     "Специализация не найдена", code="specialization_not_found"
@@ -90,3 +124,29 @@ class UpdateStaffUseCase:
             await self._memberships.invalidate(membership.account_id, clinic_id)
         members = await self._staff.list_members(clinic_id)
         return next(m for m in members if m.membership_id == membership_id)
+
+    async def _ensure_no_future_appointments(
+        self, clinic_id: uuid.UUID, membership_id: uuid.UUID
+    ) -> None:
+        """409 со списком будущих записей врача, если они есть."""
+        total, upcoming = await self._staff.future_appointments(
+            clinic_id, membership_id, datetime.now(UTC)
+        )
+        if not total:
+            return
+        raise ConflictError(
+            f"У врача {total} будущих записей — перенесите их на другого врача, "
+            "потом снимите специальность",
+            code="doctor_has_future_appointments",
+            extra={
+                "count": total,
+                "appointments": [
+                    {
+                        "id": str(a.id),
+                        "scheduledAt": a.scheduled_at.isoformat(),
+                        "patientName": a.patient_name,
+                    }
+                    for a in upcoming
+                ],
+            },
+        )

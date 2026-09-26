@@ -26,6 +26,7 @@ from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
+from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
@@ -224,6 +225,12 @@ class AppointmentRepository:
         appointment.price_total_tiyin = payable
         await self._session.flush()
 
+    async def clinic_timezone(self, clinic_id: uuid.UUID) -> str | None:
+        """Таймзона клиники — в ней читаются даты фильтров списка."""
+        return (
+            await self._session.execute(select(Clinic.timezone).where(Clinic.id == clinic_id))
+        ).scalar_one_or_none()
+
     async def list_page(
         self,
         clinic_id: uuid.UUID,
@@ -231,10 +238,11 @@ class AppointmentRepository:
         patient_id: uuid.UUID | None,
         status: AppointmentStatus | None,
         from_dt: datetime | None,
-        to_dt: datetime | None,
+        before: datetime | None,
         page: int,
         page_size: int,
     ) -> tuple[list[AppointmentRow], int]:
+        """Страница приёмов; ``from_dt`` включительно, ``before`` — исключая."""
         stmt = (
             select(
                 Appointment.id,
@@ -246,6 +254,8 @@ class AppointmentRepository:
                 Appointment.duration_min,
                 Appointment.status,
                 Appointment.price_total_tiyin,
+                Appointment.doctor_membership_id,
+                Patient.phone,
             )
             .join(Patient, Patient.id == Appointment.patient_id)
             .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
@@ -258,8 +268,8 @@ class AppointmentRepository:
             stmt = stmt.where(Appointment.status == status)
         if from_dt is not None:
             stmt = stmt.where(Appointment.scheduled_at >= from_dt)
-        if to_dt is not None:
-            stmt = stmt.where(Appointment.scheduled_at <= to_dt)
+        if before is not None:
+            stmt = stmt.where(Appointment.scheduled_at < before)
 
         total = (
             await self._session.execute(
@@ -286,6 +296,8 @@ class AppointmentRepository:
                 duration_min=r[6],
                 status=r[7],
                 price_total_tiyin=r[8],
+                doctor_membership_id=r[9],
+                patient_phone=r[10],
             )
             for r in rows
         ]

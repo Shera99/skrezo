@@ -35,6 +35,15 @@ class AppointmentListItem(CamelModel):
     id: uuid.UUID
     patient_id: uuid.UUID
     patient_name: str
+    patient_phone: str = Field(
+        description="Телефон пациента (E.164) — без отдельного запроса карточки",
+        examples=["+996700123456"],
+    )
+    doctor_membership_id: uuid.UUID | None = Field(
+        default=None,
+        description="Членство врача в клинике — по нему сопоставлять врача, а не по имени",
+        examples=["9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"],
+    )
     doctor_name: str | None = None
     appointment_type: AppointmentType
     scheduled_at: datetime | None = Field(
@@ -50,6 +59,8 @@ class AppointmentListItem(CamelModel):
             id=r.id,
             patient_id=r.patient_id,
             patient_name=r.patient_name,
+            patient_phone=r.patient_phone,
+            doctor_membership_id=r.doctor_membership_id,
             doctor_name=r.doctor_name,
             appointment_type=r.appointment_type,
             scheduled_at=r.scheduled_at,

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.patients.domain.models import (
@@ -19,10 +20,12 @@ from app.modules.patients.domain.models import (
     ToothHistoryEntry,
     ToothStatePatch,
 )
+from app.shared.db.enums import AppointmentStatus, PaymentKind
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
+from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
@@ -114,6 +117,7 @@ class PatientRepository:
             .scalars()
             .all()
         )
+        stats = await self._visit_and_debt(clinic_id, [p.id for p in rows])
         items = [
             PatientListRow(
                 id=p.id,
@@ -122,10 +126,53 @@ class PatientRepository:
                 last_name=p.last_name,
                 birth_date=p.birth_date,
                 gender=p.gender,
+                last_visit_at=stats.get(p.id, (None, 0))[0],
+                debt_tiyin=stats.get(p.id, (None, 0))[1],
             )
             for p in rows
         ]
         return items, total
+
+    async def _visit_and_debt(
+        self, clinic_id: uuid.UUID, patient_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[datetime | None, int]]:
+        """Последний завершённый визит и долг каждого пациента страницы в этой клинике.
+
+        Долг — по правилам кассы: остаток завершённого приёма = цена − платежи +
+        возвраты, суммируются только положительные остатки. Одним запросом на
+        страницу, а не по запросу на пациента.
+        """
+        if not patient_ids:
+            return {}
+        paid_sq = (
+            select(
+                CashPayment.appointment_id.label("appointment_id"),
+                func.sum(
+                    case(
+                        (CashPayment.kind == PaymentKind.PAYMENT, CashPayment.amount_tiyin),
+                        else_=-CashPayment.amount_tiyin,
+                    )
+                ).label("paid"),
+            )
+            .where(CashPayment.clinic_id == clinic_id)
+            .group_by(CashPayment.appointment_id)
+            .subquery()
+        )
+        completed = Appointment.status == AppointmentStatus.COMPLETED
+        outstanding = Appointment.price_total_tiyin - func.coalesce(paid_sq.c.paid, 0)
+        rows = await self._session.execute(
+            select(
+                Appointment.patient_id,
+                func.max(case((completed, Appointment.scheduled_at))),
+                func.coalesce(
+                    func.sum(case((and_(completed, outstanding > 0), outstanding), else_=0)), 0
+                ),
+            )
+            .outerjoin(paid_sq, paid_sq.c.appointment_id == Appointment.id)
+            .where(Appointment.clinic_id == clinic_id, Appointment.patient_id.in_(patient_ids))
+            .group_by(Appointment.patient_id)
+        )
+        return {row[0]: (row[1], int(row[2])) for row in rows}
 
     async def odontogram(self, patient_id: uuid.UUID) -> Sequence[PatientTooth]:
         return (

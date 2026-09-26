@@ -2065,3 +2065,23 @@ async def test_force_moves_appointment_outside_hours(
         json={"scheduledAt": at(SUNDAY, "10:00"), "force": True},
     )
     assert forced.status_code == 200, forced.text
+
+
+async def test_doctor_hours_tell_own_schedule_from_clinic_hours(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """У каждого дня видно, свой это график врача или часы клиники."""
+    url = f"{API}/clinic/schedule/doctors/{clinic_a.doctor_id}/hours"
+    fresh = (await client.get(url, headers=clinic_a.headers)).json()
+    assert fresh["custom"] is False
+    assert {d["source"] for d in fresh["days"]} == {"clinic"}
+
+    saved = await client.put(
+        url, headers=clinic_a.headers, json=doctor_hours_payload(starts="09:00:00", ends="13:00:00")
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["custom"] is True
+    assert {d["source"] for d in saved.json()["days"]} == {"doctor"}
+    again = (await client.get(url, headers=clinic_a.headers)).json()
+    assert again["custom"] is True and len(again["days"]) == 7
+    assert all(d["source"] == "doctor" and d["startsAt"] == "09:00:00" for d in again["days"])

@@ -1727,6 +1727,7 @@
           "clients"
         ],
         "summary": "Счётчики статусов клиентов",
+        "description": "Число клиентов в каждом статусе — для счётчиков фильтра списка клиентов.\n\nСтатусы те же, что принимает `GET /admin/clients?status=`, включая\n`trialExpired` (в фильтре — `trial_expired`).",
         "operationId": "status_counts_api_v1_admin_clients_status_counts_get",
         "responses": {
           "200": {
@@ -2742,7 +2743,7 @@
           "staff"
         ],
         "summary": "Добавить работника",
-        "description": "Завести работника клиники.\n\nПароль не выдаётся: работник входит по коду подтверждения на свой номер, а\nсообщение о добавлении уходит ему автоматически.",
+        "description": "Завести работника клиники.\n\nСпециальность необязательна: без неё сотрудник не принимает пациентов\n(администратор, ресепшен). Место в тарифе занимает любой активный\nсотрудник, кроме владельца, — со специальностью и без; мест нет — 409\n`seats_limit_reached`.\n\nПароль не выдаётся: работник входит по коду подтверждения на свой номер, а\nсообщение о добавлении уходит ему автоматически.",
         "operationId": "add_staff_api_v1_clinic_staff_post",
         "requestBody": {
           "content": {
@@ -2811,6 +2812,7 @@
           "staff"
         ],
         "summary": "Правка работника (в т.ч. телефона)",
+        "description": "Правка работника: ФИО, телефон, специальность, роль — только переданные поля.\n\n`specializationId: null` снимает специальность: сотрудник перестаёт\nпринимать пациентов (например, врач стал администратором). У врача с\nбудущими записями — 409 `doctor_has_future_appointments` со списком записей:\nсначала их переносят на другого врача. У владельца здесь меняется только\nспециальность.",
         "operationId": "update_staff_api_v1_clinic_staff__membership_id__put",
         "security": [
           {
@@ -2857,17 +2859,26 @@
             "description": "Сотрудник не найден"
           },
           "409": {
-            "description": "Телефон занят"
-          },
-          "422": {
-            "description": "Validation Error",
+            "description": "Телефон занят (`phone_already_used`) или у врача есть будущие записи, а специальность снимают (`doctor_has_future_appointments`): календарь показывает только сотрудников со специальностью, и записи пропали бы из расписания",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "example": {
+                  "error": "doctor_has_future_appointments",
+                  "message": "У врача 2 будущих записей — перенесите их на другого врача, потом снимите специальность",
+                  "count": 2,
+                  "appointments": [
+                    {
+                      "id": "0d1e2f3a-4b5c-4d6e-8f7a-9b0c1d2e3f4a",
+                      "scheduledAt": "2026-10-01T10:00:00+00:00",
+                      "patientName": "Асанова Айгүл"
+                    }
+                  ]
                 }
               }
             }
+          },
+          "422": {
+            "description": "`null` в ФИО, телефоне или роли — эти поля обязательны"
           }
         }
       },
@@ -2911,6 +2922,80 @@
           },
           "404": {
             "description": "Сотрудник не найден"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinic/staff/{membership_id}/restore": {
+      "post": {
+        "tags": [
+          "staff"
+        ],
+        "summary": "Вернуть исключённого сотрудника",
+        "description": "Включить обратно членство, закрытое `DELETE /clinic/staff/{id}`.\n\nУдаление — деактивация, а завести того же человека заново нельзя: номер\nзанят его аккаунтом (409 `phone_already_used`). Восстановление возвращает то\nже членство с прежней ролью и специальностью, история приёмов на месте.\nСотрудник занимает место в тарифе — нет свободного, 409 `seats_limit_reached`.\nУже активный сотрудник возвращается как есть.",
+        "operationId": "restore_staff_api_v1_clinic_staff__membership_id__restore_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "membership_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Membership Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Сотрудник снова в клинике — с прежней ролью и специальностью",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMemberOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Нет права staff.manage"
+          },
+          "404": {
+            "description": "Сотрудник не найден в этой клинике",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "staff_not_found",
+                  "message": "Сотрудник не найден"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Свободных мест в тарифе нет",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "seats_limit_reached",
+                  "message": "Достигнут лимит мест по тарифу"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -3225,7 +3310,7 @@
           "schedule"
         ],
         "summary": "График врача",
-        "description": "Индивидуальный график врача по дням недели.\n\nВсегда возвращаются все 7 дней: дни без собственной настройки отдаются по\nчасам клиники — врач работает вместе с ней.\n\nС правом ``schedule.view_all`` доступен график любого врача клиники, с правом\n``schedule.view_own`` — только собственный (чужой ``membershipId`` → 403).",
+        "description": "Индивидуальный график врача по дням недели.\n\nВсегда возвращаются все 7 дней: дни без собственной настройки отдаются по\nчасам клиники — врач работает вместе с ней. У каждого дня `source` говорит,\nчей он (`doctor` — свой график, `clinic` — часы клиники), а `custom` — есть\nли у врача свой график хотя бы на один день: гадать сравнением с часами\nклиники не нужно.\n\nС правом ``schedule.view_all`` доступен график любого врача клиники, с правом\n``schedule.view_own`` — только собственный (чужой ``membershipId`` → 403).",
         "operationId": "get_doctor_hours_api_v1_clinic_schedule_doctors__membership_id__hours_get",
         "security": [
           {
@@ -3677,6 +3762,7 @@
           "patients"
         ],
         "summary": "Пациенты клиники (у кого есть приём)",
+        "description": "Пациенты, у которых есть приём в этой клинике, — свежие карточки сверху.\n\nУ каждого — `lastVisitAt` (последний завершённый приём) и `debtTiyin` (долг по\nправилам кассы) именно в этой клинике: пациент глобальный, а визиты и деньги у\nкаждой клиники свои. Долг виден всем с правом `patients.view` — врачу тоже\nважно знать, что его пациент должен.",
         "operationId": "list_patients_api_v1_clinic_patients_get",
         "security": [
           {
@@ -3712,11 +3798,25 @@
               "default": 1,
               "title": "Page"
             }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Размер страницы, 1–100",
+              "default": 25,
+              "title": "Pagesize"
+            },
+            "description": "Размер страницы, 1–100"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Страница пациентов с последним визитом и долгом в этой клинике",
             "content": {
               "application/json": {
                 "schema": {
@@ -4505,6 +4605,7 @@
           "appointments"
         ],
         "summary": "Приёмы клиники (фильтры + пагинация)",
+        "description": "Приёмы клиники с фильтрами по пациенту, статусу и периоду.\n\n`to=2026-09-30` включает весь 30-й день в поясе клиники: дата без времени —\nэто день целиком, а не полночь, после которой последний день выпадал. У\nстроки есть `doctorMembershipId` и `patientPhone` — врача сопоставляют по id,\nа телефон не нужно дотягивать отдельным запросом.",
         "operationId": "list_appointments_api_v1_clinic_appointments_get",
         "security": [
           {
@@ -4552,15 +4653,19 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "format": "date-time"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "С какого момента: дата `YYYY-MM-DD` — с начала дня в поясе клиники, или дата-время ISO (без пояса — пояс клиники)",
+              "examples": [
+                "2026-09-01"
+              ],
               "title": "From"
-            }
+            },
+            "description": "С какого момента: дата `YYYY-MM-DD` — с начала дня в поясе клиники, или дата-время ISO (без пояса — пояс клиники)"
           },
           {
             "name": "to",
@@ -4569,15 +4674,19 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "format": "date-time"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "По какой момент включительно: дата `YYYY-MM-DD` — день целиком в поясе клиники, или дата-время ISO (без пояса — пояс клиники)",
+              "examples": [
+                "2026-09-30"
+              ],
               "title": "To"
-            }
+            },
+            "description": "По какой момент включительно: дата `YYYY-MM-DD` — день целиком в поясе клиники, или дата-время ISO (без пояса — пояс клиники)"
           },
           {
             "name": "page",
@@ -4593,7 +4702,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Страница приёмов, свежие сверху; черновики без даты — в конце",
             "content": {
               "application/json": {
                 "schema": {
@@ -4603,11 +4712,12 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Граница периода — ни дата `YYYY-MM-DD`, ни дата-время ISO",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "example": {
+                  "error": "invalid_period",
+                  "message": "Не разобрать границу периода «30.09.2026»: нужна дата YYYY-MM-DD или дата-время ISO"
                 }
               }
             }
@@ -7991,6 +8101,44 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/clinic/subscription/packages": {
+      "get": {
+        "tags": [
+          "subscription"
+        ],
+        "summary": "Тариф клиники: пакеты и текущая цена",
+        "description": "Из чего складывается цена подписки клиники — для экрана «Подписка».\n\nРаньше пакеты отдавала только админка (`/admin/tariffs`). Здесь — действующая\nверсия тарифа для типа этой клиники, только на чтение: у клиники — пакеты с\nотметкой текущего и доплата за место сверх последнего, у соло — фиксированная\nцена. Число мест и цена — по тому же правилу, что и оплата.",
+        "operationId": "subscription_packages_api_v1_clinic_subscription_packages_get",
+        "responses": {
+          "200": {
+            "description": "Пакеты по возрастанию мест, доплата за место и текущий пакет",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TariffPackagesOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Тариф для типа клиники ещё не заведён",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "tariff_not_configured",
+                  "message": "Тариф ещё не настроен — напишите в Skrezo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/clinic/ledger": {
@@ -12370,7 +12518,7 @@
             "type": "string",
             "minLength": 2,
             "title": "Fullname",
-            "description": "ФИО врача"
+            "description": "ФИО сотрудника"
           },
           "phone": {
             "type": "string",
@@ -12378,10 +12526,17 @@
             "description": "Телефон (= логин)"
           },
           "specializationId": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Specializationid",
-            "description": "Специализация (обязательна)"
+            "description": "Специальность врача (`GET /specializations`). Не передана — сотрудник без приёма пациентов (администратор, ресепшен): в календаре у него нет колонки. Место в тарифе занимает любой активный сотрудник, кроме владельца"
           },
           "roleId": {
             "anyOf": [
@@ -12400,8 +12555,7 @@
         "type": "object",
         "required": [
           "fullName",
-          "phone",
-          "specializationId"
+          "phone"
         ],
         "title": "AddStaffRequest"
       },
@@ -13165,6 +13319,30 @@
             "type": "string",
             "title": "Patientname"
           },
+          "patientPhone": {
+            "type": "string",
+            "title": "Patientphone",
+            "description": "Телефон пациента (E.164) — без отдельного запроса карточки",
+            "examples": [
+              "+996700123456"
+            ]
+          },
+          "doctorMembershipId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doctormembershipid",
+            "description": "Членство врача в клинике — по нему сопоставлять врача, а не по имени",
+            "examples": [
+              "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"
+            ]
+          },
           "doctorName": {
             "anyOf": [
               {
@@ -13217,6 +13395,7 @@
           "id",
           "patientId",
           "patientName",
+          "patientPhone",
           "appointmentType",
           "durationMin",
           "status",
@@ -14126,6 +14305,49 @@
             "type": "string",
             "title": "Notes",
             "default": ""
+          },
+          "whatsapp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClientWhatsApp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Текущая привязка WhatsApp (`PUT /admin/clients/{id}/whatsapp`); `null` — номер не подключён"
+          },
+          "aiMode": {
+            "$ref": "#/components/schemas/AiMode",
+            "description": "Режим ассистента (`PUT /admin/clients/{id}/ai-mode`): off — выключен, shadow — «Наблюдаю», assisted — «Проверяю», auto — «Доверяю»",
+            "examples": [
+              "shadow"
+            ]
+          },
+          "aiModeReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aimodereason",
+            "description": "Почему режим такой: кто и зачем сменил (например, мониторинг опустил)"
+          },
+          "aiModeChangedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aimodechangedat",
+            "description": "Когда режим меняли в последний раз"
           }
         },
         "type": "object",
@@ -14138,7 +14360,8 @@
           "seatsUsed",
           "createdAt",
           "language",
-          "staff"
+          "staff",
+          "aiMode"
         ],
         "title": "ClientDetailResponse"
       },
@@ -14424,6 +14647,59 @@
           "expiresIn"
         ],
         "title": "ClientTokensOut"
+      },
+      "ClientWhatsApp": {
+        "properties": {
+          "phoneNumberId": {
+            "type": "string",
+            "title": "Phonenumberid",
+            "description": "phone_number_id номера в Meta — по нему вебхук находит клинику",
+            "examples": [
+              "1324175910774071"
+            ]
+          },
+          "displayPhone": {
+            "type": "string",
+            "title": "Displayphone",
+            "description": "Номер, как его видят пациенты",
+            "examples": [
+              "+996700999000"
+            ]
+          },
+          "wabaId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wabaid",
+            "description": "WhatsApp Business Account — нужен для сверки шаблонов",
+            "examples": [
+              "1101036182272785"
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/WhatsAppMode",
+            "description": "api_only — отдельный номер; coexistence — рабочий номер клиники + приложение"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "description": "false — привязка выключена, входящие не принимаются"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phoneNumberId",
+          "displayPhone",
+          "mode",
+          "active"
+        ],
+        "title": "ClientWhatsApp",
+        "description": "Привязка номера WhatsApp Cloud API к клинике — то, что стоит сейчас."
       },
       "ClientsResponse": {
         "properties": {
@@ -16792,6 +17068,62 @@
         "title": "DoctorHoursClearedResponse",
         "description": "Индивидуальный график снят — врач работает по часам клиники."
       },
+      "DoctorHoursDay": {
+        "properties": {
+          "weekday": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Weekday",
+            "description": "0=понедельник … 6=воскресенье",
+            "examples": [
+              0
+            ]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "time",
+            "title": "Startsat",
+            "examples": [
+              "09:00:00"
+            ]
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "time",
+            "title": "Endsat",
+            "examples": [
+              "15:00:00"
+            ]
+          },
+          "isWorking": {
+            "type": "boolean",
+            "title": "Isworking",
+            "default": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "doctor",
+              "clinic"
+            ],
+            "title": "Source",
+            "description": "doctor — у врача свой график на этот день; clinic — день не настроен, врач работает по часам клиники (и они подставлены в `startsAt`/`endsAt`)",
+            "examples": [
+              "clinic"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "weekday",
+          "startsAt",
+          "endsAt",
+          "source"
+        ],
+        "title": "DoctorHoursDay",
+        "description": "День графика врача в ответе — с источником часов."
+      },
       "DoctorHoursItem": {
         "properties": {
           "weekday": {
@@ -16837,9 +17169,17 @@
       },
       "DoctorHoursResponse": {
         "properties": {
+          "custom": {
+            "type": "boolean",
+            "title": "Custom",
+            "description": "true — хотя бы один день настроен своим графиком врача; false — врач целиком работает по часам клиники",
+            "examples": [
+              true
+            ]
+          },
           "days": {
             "items": {
-              "$ref": "#/components/schemas/DoctorHoursItem"
+              "$ref": "#/components/schemas/DoctorHoursDay"
             },
             "type": "array",
             "title": "Days"
@@ -16847,10 +17187,30 @@
         },
         "type": "object",
         "required": [
+          "custom",
           "days"
         ],
         "title": "DoctorHoursResponse",
-        "description": "График врача — всегда ровно 7 дней."
+        "description": "График врача — всегда ровно 7 дней, у каждого видно, чей он.",
+        "example": {
+          "custom": true,
+          "days": [
+            {
+              "endsAt": "15:00:00",
+              "isWorking": true,
+              "source": "doctor",
+              "startsAt": "09:00:00",
+              "weekday": 0
+            },
+            {
+              "endsAt": "18:00:00",
+              "isWorking": true,
+              "source": "clinic",
+              "startsAt": "09:00:00",
+              "weekday": 1
+            }
+          ]
+        }
       },
       "DoctorRemovedResponse": {
         "properties": {
@@ -19551,6 +19911,31 @@
               }
             ],
             "title": "Gender"
+          },
+          "lastVisitAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastvisitat",
+            "description": "Последний завершённый приём в этой клинике; `null` — завершённых ещё не было. По нему «Напоминания» находят, кого пора звать на повторный осмотр",
+            "examples": [
+              "2026-03-14T10:00:00+06:00"
+            ]
+          },
+          "debtTiyin": {
+            "type": "integer",
+            "title": "Debttiyin",
+            "description": "Долг пациента в этой клинике, тыйыны: сумма остатков завершённых приёмов (цена − платежи + возвраты), как в `GET /clinic/cash/debts`. Виден всем, у кого есть доступ к пациентам",
+            "default": 0,
+            "examples": [
+              150000
+            ]
           }
         },
         "type": "object",
@@ -19559,7 +19944,18 @@
           "phone",
           "firstName"
         ],
-        "title": "PatientListItem"
+        "title": "PatientListItem",
+        "description": "Пациент в списке клиники — с последним визитом и долгом в этой клинике.",
+        "example": {
+          "birthDate": "1990-04-12",
+          "debtTiyin": 150000,
+          "firstName": "Айгүл",
+          "gender": "female",
+          "id": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60",
+          "lastName": "Асанова",
+          "lastVisitAt": "2026-03-14T10:00:00+06:00",
+          "phone": "+996700123456"
+        }
       },
       "PatientLookupResponse": {
         "properties": {
@@ -22278,7 +22674,17 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "title": "Id"
+            "title": "Id",
+            "description": "Членство в клинике (membershipId)"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Accountid",
+            "description": "Аккаунт человека — для `POST /admin/accounts/{id}/block`: блокировка идёт по аккаунту (сразу во всех клиниках), а `id` здесь — членство в этой клинике",
+            "examples": [
+              "5d2e8f1a-3b4c-4d5e-8f6a-7b8c9d0e1f2a"
+            ]
           },
           "fullName": {
             "type": "string",
@@ -22322,6 +22728,7 @@
         "type": "object",
         "required": [
           "id",
+          "accountId",
           "fullName",
           "phone",
           "role",
@@ -22524,6 +22931,13 @@
           "trial": {
             "type": "integer",
             "title": "Trial",
+            "description": "Триал идёт",
+            "default": 0
+          },
+          "trialExpired": {
+            "type": "integer",
+            "title": "Trialexpired",
+            "description": "Триал кончился, оплаты не было — клиника в режиме чтения",
             "default": 0
           },
           "awaitingCard": {
@@ -22554,7 +22968,16 @@
         },
         "type": "object",
         "title": "StatusCountsResponse",
-        "description": "Число клиентов в каждом статусе подписки (для дропдауна фильтра)."
+        "description": "Число клиентов в каждом статусе подписки (для дропдауна фильтра).",
+        "example": {
+          "active": 41,
+          "awaitingCard": 0,
+          "blocked": 1,
+          "cancelled": 5,
+          "pastDue": 2,
+          "trial": 12,
+          "trialExpired": 3
+        }
       },
       "SubmitApplicationRequest": {
         "properties": {
@@ -22678,6 +23101,151 @@
           "summary"
         ],
         "title": "TariffHistoryItem"
+      },
+      "TariffPackageOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Практика"
+            ]
+          },
+          "upTo": {
+            "type": "integer",
+            "title": "Upto",
+            "description": "Покрывает клинику до этого числа мест включительно",
+            "examples": [
+              6
+            ]
+          },
+          "priceTiyin": {
+            "type": "integer",
+            "title": "Pricetiyin",
+            "description": "Цена пакета в месяц, тыйыны",
+            "examples": [
+              500000
+            ]
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current",
+            "description": "Клиника сейчас в этом пакете (по числу мест)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "upTo",
+          "priceTiyin",
+          "current"
+        ],
+        "title": "TariffPackageOut",
+        "description": "Пакет тарифа клиники: до скольких мест и за сколько в месяц."
+      },
+      "TariffPackagesOut": {
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ClinicType",
+            "description": "clinic — пакеты по местам; solo — фиксированная цена"
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/TariffPackageOut"
+            },
+            "type": "array",
+            "title": "Packages",
+            "description": "По возрастанию мест; у соло — пусто"
+          },
+          "overPriceTiyin": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overpricetiyin",
+            "description": "Доплата за каждое место сверх последнего пакета («Сеть»); у соло — null",
+            "examples": [
+              80000
+            ]
+          },
+          "seats": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seats",
+            "description": "Мест, по которым считается цена; у соло — null",
+            "examples": [
+              5
+            ]
+          },
+          "monthlyTiyin": {
+            "type": "integer",
+            "title": "Monthlytiyin",
+            "description": "Цена в месяц для клиники сейчас",
+            "examples": [
+              500000
+            ]
+          },
+          "currentPackage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentpackage",
+            "description": "Название текущего пакета; null — соло или мест больше последнего пакета",
+            "examples": [
+              "Практика"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "KGS"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "packages",
+          "monthlyTiyin"
+        ],
+        "title": "TariffPackagesOut",
+        "description": "Тариф клиники: пакеты, доплата за место и текущая цена.\n\nЦена считается тем же правилом, что и `GET /clinic/subscription/price`: мест —\nлимит по тарифу либо занятые, если занято больше. У соло пакетов нет — цена\nфиксированная (`monthlyTiyin`).",
+        "example": {
+          "currency": "KGS",
+          "currentPackage": "Практика",
+          "monthlyTiyin": 500000,
+          "overPriceTiyin": 80000,
+          "packages": [
+            {
+              "current": false,
+              "name": "Старт",
+              "priceTiyin": 300000,
+              "upTo": 3
+            },
+            {
+              "current": true,
+              "name": "Практика",
+              "priceTiyin": 500000,
+              "upTo": 6
+            }
+          ],
+          "seats": 5,
+          "type": "clinic"
+        }
       },
       "TariffsBundle": {
         "properties": {
@@ -24353,7 +24921,8 @@
                 "type": "null"
               }
             ],
-            "title": "Specializationid"
+            "title": "Specializationid",
+            "description": "Сменить специальность; `null` — снять. У врача с будущими записями снять нельзя: 409 `doctor_has_future_appointments` со списком записей — перенесите их на другого врача"
           },
           "roleId": {
             "anyOf": [
@@ -24370,7 +24939,8 @@
           }
         },
         "type": "object",
-        "title": "UpdateStaffRequest"
+        "title": "UpdateStaffRequest",
+        "description": "Правка сотрудника: передаются только меняемые поля.\n\n`specializationId: null` — снять специальность (врач стал администратором):\nэто не то же самое, что не передать поле. ФИО, телефон и роль `null` не\nпринимают — 422."
       },
       "UpdateTrialFeaturesRequest": {
         "properties": {

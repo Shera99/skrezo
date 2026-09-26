@@ -25,6 +25,7 @@ from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.role import Role
 from app.shared.db.models.specialization import Specialization
@@ -276,6 +277,11 @@ class ClientRepository:
             patients_count=patients_count,
             visits_count=visits_count,
             revenue_tiyin=await self._clinic_revenue(clinic_id),
+            whatsapp=(
+                await self._session.execute(
+                    select(ClinicWhatsApp).where(ClinicWhatsApp.clinic_id == clinic_id)
+                )
+            ).scalar_one_or_none(),
         )
 
     async def _clinic_activity(self, clinic_id: uuid.UUID) -> tuple[int, int]:

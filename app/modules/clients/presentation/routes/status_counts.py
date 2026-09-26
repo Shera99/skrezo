@@ -25,9 +25,15 @@ async def status_counts(
     _actor: uuid.UUID = Depends(get_authenticated_user_id),
     use_case: StatusCountsUseCase = Depends(get_status_counts_use_case),
 ) -> StatusCountsResponse:
+    """Число клиентов в каждом статусе — для счётчиков фильтра списка клиентов.
+
+    Статусы те же, что принимает `GET /admin/clients?status=`, включая
+    `trialExpired` (в фильтре — `trial_expired`).
+    """
     counts = await use_case.execute()
     return StatusCountsResponse(
         trial=counts[SubscriptionStatus.TRIAL],
+        trial_expired=counts[SubscriptionStatus.TRIAL_EXPIRED],
         awaiting_card=counts[SubscriptionStatus.AWAITING_CARD],
         active=counts[SubscriptionStatus.ACTIVE],
         past_due=counts[SubscriptionStatus.PAST_DUE],

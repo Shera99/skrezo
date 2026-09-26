@@ -8,8 +8,10 @@ from typing import Any
 
 from pydantic import ConfigDict, Field, model_validator
 
+from app.modules.payments.application.services.pricing import TariffCard
 from app.modules.payments.domain.checkout import ReturnMode
 from app.shared.api.schemas import CamelModel
+from app.shared.db.enums import ClinicType
 
 
 class PaymentSummary(CamelModel):
@@ -150,6 +152,80 @@ class PriceQuoteOut(CamelModel):
     seats: int | None = Field(default=None, description="Мест по тарифу (клиника); null — соло")
     currency: str = Field(default="KGS")
     available: bool = Field(description="Онлайн-оплата подключена (реквизиты провайдера заданы)")
+
+
+class TariffPackageOut(CamelModel):
+    """Пакет тарифа клиники: до скольких мест и за сколько в месяц."""
+
+    name: str = Field(examples=["Практика"])
+    up_to: int = Field(
+        description="Покрывает клинику до этого числа мест включительно", examples=[6]
+    )
+    price_tiyin: int = Field(description="Цена пакета в месяц, тыйыны", examples=[500000])
+    current: bool = Field(description="Клиника сейчас в этом пакете (по числу мест)")
+
+
+class TariffPackagesOut(CamelModel):
+    """Тариф клиники: пакеты, доплата за место и текущая цена.
+
+    Цена считается тем же правилом, что и `GET /clinic/subscription/price`: мест —
+    лимит по тарифу либо занятые, если занято больше. У соло пакетов нет — цена
+    фиксированная (`monthlyTiyin`).
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "type": "clinic",
+                "packages": [
+                    {"name": "Старт", "upTo": 3, "priceTiyin": 300000, "current": False},
+                    {"name": "Практика", "upTo": 6, "priceTiyin": 500000, "current": True},
+                ],
+                "overPriceTiyin": 80000,
+                "seats": 5,
+                "monthlyTiyin": 500000,
+                "currentPackage": "Практика",
+                "currency": "KGS",
+            }
+        }
+    )
+
+    type: ClinicType = Field(description="clinic — пакеты по местам; solo — фиксированная цена")
+    packages: list[TariffPackageOut] = Field(description="По возрастанию мест; у соло — пусто")
+    over_price_tiyin: int | None = Field(
+        default=None,
+        description="Доплата за каждое место сверх последнего пакета («Сеть»); у соло — null",
+        examples=[80000],
+    )
+    seats: int | None = Field(
+        default=None, description="Мест, по которым считается цена; у соло — null", examples=[5]
+    )
+    monthly_tiyin: int = Field(description="Цена в месяц для клиники сейчас", examples=[500000])
+    current_package: str | None = Field(
+        default=None,
+        description="Название текущего пакета; null — соло или мест больше последнего пакета",
+        examples=["Практика"],
+    )
+    currency: str = Field(default="KGS")
+
+    @classmethod
+    def from_card(cls, card: TariffCard) -> TariffPackagesOut:
+        return cls(
+            type=card.clinic_type,
+            packages=[
+                TariffPackageOut(
+                    name=p.name,
+                    up_to=p.up_to,
+                    price_tiyin=p.price,
+                    current=p.name == card.current_package,
+                )
+                for p in card.packages
+            ],
+            over_price_tiyin=card.over_price_tiyin,
+            seats=card.seats,
+            monthly_tiyin=card.monthly_tiyin,
+            current_package=card.current_package,
+        )
 
 
 class ClinicPaymentOut(CamelModel):

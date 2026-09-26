@@ -19,6 +19,11 @@ class PatientListRow:
     last_name: str | None
     birth_date: date | None
     gender: str | None
+    #: Последний завершённый приём в этой клинике — по нему «Напоминания» зовут
+    #: на повторный осмотр.
+    last_visit_at: datetime | None = None
+    #: Долг пациента в этой клинике: сумма остатков завершённых приёмов.
+    debt_tiyin: int = 0
 
 
 @dataclass(slots=True)

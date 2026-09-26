@@ -274,8 +274,8 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/clients` | Список: фильтры `type/status/query/cities[]/tariffs[]`, `page` (25/стр), `totalCount` |
 | `POST` | `/admin/clients` | Создать аккаунт (триал 30 дней; владелец входит по коду). `specializationId` — владелец сам принимает пациентов |
 | `GET` | `/admin/clients/phone-check?phone=` | Свободен номер или занят (`ownerName`) |
-| `GET` | `/admin/clients/status-counts` | Число клиентов по статусам подписки |
-| `GET` | `/admin/clients/{id}` | Карточка (сотрудники, подписка, платежи, заметки) |
+| `GET` | `/admin/clients/status-counts` | Число клиентов по статусам подписки, включая `trialExpired` (у фильтра — `trial_expired`) |
+| `GET` | `/admin/clients/{id}` | Карточка: сотрудники (с `accountId` — его принимает блокировка аккаунта), подписка, платежи, заметки, текущая привязка WhatsApp (`whatsapp`: `phoneNumberId`, `displayPhone`, `wabaId`, `mode`, `active`; `null` — не подключён) и режим ассистента (`aiMode`, `aiModeReason`, `aiModeChangedAt`) |
 | `GET` | `/admin/clients/{id}/staff` | Сотрудники клиники: владелец + врачи, каждый с `active`; фильтр `?active=` |
 | `PATCH` | `/admin/clients/{id}` | Правка карточки (клиника + владелец) |
 | `POST` | `/admin/clients/{id}/admin-phone` | Смена номера админа (напрямую, без OTP) |
@@ -336,6 +336,7 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/dashboard/trends?months=6` | Ряды по месяцам: MRR (0), активные (solo/clinic), заявки→клиенты, срез solo/clinic |
 | `POST` | `/admin/clients/{id}/subscription/activate` | Отметить оплату: доступ до даты (`paidUntil`) |
 | `GET` | `/clinic/subscription/price?months=` | Цена подписки по тарифу за N месяцев (`billing.view`); `available` — подключена ли онлайн-оплата |
+| `GET` | `/clinic/subscription/packages` | Тариф клиники только на чтение (`billing.view`): пакеты с отметкой текущего по числу мест, доплата за место сверх последнего, текущая цена; у соло — фиксированная цена; тариф не заведён — 409 `tariff_not_configured` |
 | `POST` | `/clinic/subscription/payments` | Начать оплату через FreedomPay: `{months}` — подписка, `{amountTiyin}` — пополнение баланса; платёж `pending` + `redirectUrl` (`billing.manage`); 409 `payments_not_configured` / `tariff_not_configured`, 422 `topup_too_small`, 502 `payment_init_failed` |
 | `GET` | `/clinic/subscription/payments` | Платежи клиники за подписку |
 | `GET` | `/clinic/subscription/payments/{id}` | Состояние платежа — опрашивать после возврата со страницы оплаты |
@@ -355,8 +356,9 @@ make run           # uvicorn с автоперезагрузкой
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` · `POST` | `/clinic/staff` | Список / добавить сотрудника, опционально сразу с ролью (`roleId`) (`staff.view` / `staff.manage`) |
-| `PUT` · `DELETE` | `/clinic/staff/{id}` | Правка (ФИО, телефон, специализация, **роль**) / удаление (`staff.manage`). У владельца меняется только специализация |
+| `GET` · `POST` | `/clinic/staff` | Список (исключённые — с `active: false`) / добавить сотрудника, опционально сразу с ролью (`roleId`); специальность необязательна — без неё сотрудник не принимает пациентов (администратор). Место занимает любой активный, кроме владельца; мест нет — 409 `seats_limit_reached` (`staff.view` / `staff.manage`) |
+| `PUT` · `DELETE` | `/clinic/staff/{id}` | Правка (ФИО, телефон, специализация, **роль**) / удаление (`staff.manage`). У владельца меняется только специализация. `specializationId: null` снимает специальность; у врача с будущими записями — 409 `doctor_has_future_appointments` со списком записей (календарь показывает только сотрудников со специальностью) |
+| `POST` | `/clinic/staff/{id}/restore` | Вернуть исключённого тем же членством — с прежней ролью и специальностью, если есть свободное место (иначе 409 `seats_limit_reached`); повторно завести его нельзя — номер занят (`staff.manage`) |
 
 > **Удаление сотрудника закрывает доступ сразу.** Скоуп клиники лежит в токене,
 > а refresh живёт 30 дней — поэтому роль берётся не из claim'а, а из живого
@@ -378,7 +380,7 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/clinic/schedule/day?date=&doctorId=` | Лента дня: сетка, обед, колонки врачей (с их отсутствиями `timeOff[]`), карточки приёмов (`schedule.view_all` — все врачи; `schedule.view_own` — только своя колонка) |
 | `GET` | `/clinic/schedule/slots?date=&doctorId=&serviceId=&teethCount=` | Свободные слоты с учётом часов, обеда, графика, отсутствий и занятости. `doctorId` — слоты врача; только `serviceId` — слоты всех, кто её делает, врач в каждом слоте (`view_all` — любой врач; `view_own` — сводится к своему членству). `teethCount` (1–32, по умолчанию 1) умножает длительность услуги: она задана на один зуб, и слот под три зуба втрое длиннее |
 | `GET` · `PUT` | `/clinic/schedule/working-hours` | Часы работы клиники, все 7 дней разом (`settings.view` / `settings.edit`) |
-| `GET` · `PUT` · `DELETE` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом; `DELETE` снимает его — врач возвращается на часы клиники (`schedule.view_all`/`manage_all` — любой врач; `view_own`/`manage_own` — только своё) |
+| `GET` · `PUT` · `DELETE` | `/clinic/schedule/doctors/{id}/hours` | График врача, все 7 дней разом; у каждого дня `source` — `doctor` (свой график) или `clinic` (часы клиники), `custom` — есть ли свой график хоть на один день; `DELETE` снимает его — врач возвращается на часы клиники (`schedule.view_all`/`manage_all` — любой врач; `view_own`/`manage_own` — только своё) |
 | `GET` · `POST` | `/clinic/schedule/doctors/{id}/time-off` | Отсутствия врача (отпуск/больничный): список и создание (`view_all`/`view_own`, `manage_all`/`manage_own`) |
 | `DELETE` | `/clinic/schedule/doctors/{id}/time-off/{timeOffId}` | Снять отсутствие врача (`manage_all` — любой; `manage_own` — своё) |
 
@@ -461,14 +463,14 @@ make run           # uvicorn с автоперезагрузкой
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/patients` | Пациенты этой клиники (у кого есть приём), поиск/пагинация (`patients.view`) |
+| `GET` | `/clinic/patients` | Пациенты этой клиники (у кого есть приём), поиск/пагинация, `pageSize` 1–100 (`patients.view`). У каждого — `lastVisitAt` (последний завершённый приём) и `debtTiyin` (долг по правилам кассы) в этой клинике; долг виден всем с доступом к пациентам |
 | `GET` | `/clinic/patients/lookup?phone=` | Глобальный поиск по телефону для привязки (`patients.edit`) |
 | `POST` | `/clinic/patients` | Создать глобального пациента (409 с `patientId`, если телефон занят) |
 | `GET` · `PATCH` | `/clinic/patients/{id}` | Карточка + одонтограмма + заметка (`note`) / правка (нужна связь с клиникой) |
 | `PUT` | `/clinic/patients/{id}/teeth` | Создать/обновить одонтограмму (карта зубов, FDI) |
 | `GET` | `/clinic/patients/{id}/teeth/{fdi}` | Сквозная история зуба (`patients.view_medical`) |
 | `GET` · `POST` · `PATCH` | `/clinic/services[/{id}]` | Прайс клиники: список/создать/правка, включая `toothOutcome` и `doctorIds` — кто услугу выполняет (`price.view`/`price.edit`) |
-| `GET` · `POST` | `/clinic/appointments` | Приёмы клиники (фильтр `status`) / создать со списком позиций (`items`), `serviceId`+`durationMin`; `status=draft` — черновик без даты, `force` — вне графика (`patients.view_medical`/`appointments.create`) |
+| `GET` · `POST` | `/clinic/appointments` | Приёмы клиники (фильтры `status`, `patientId`, `from`/`to`: дата `YYYY-MM-DD` — день целиком в поясе клиники, дата-время без пояса — пояс клиники, мусор — 422 `invalid_period`; в строке `doctorMembershipId` и `patientPhone`) / создать со списком позиций (`items`), `serviceId`+`durationMin`; `status=draft` — черновик без даты, `force` — вне графика (`patients.view_medical`/`appointments.create`) |
 | `GET` · `PATCH` | `/clinic/appointments/{id}` | Детали / обновить статус, перенести (`force`), пометить бесплатным (`noCharge`) (`patients.view_medical`/`appointments.edit`) |
 | `PUT` | `/clinic/appointments/{id}/items` | Заменить позиции чека целиком и пересчитать итог (`appointments.edit`) |
 | `PUT` | `/clinic/appointments/{id}/discount` | Скидка на приём процентом в пределах потолка роли (`cash.discount`) |

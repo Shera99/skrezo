@@ -61,6 +61,17 @@ def compute_clinic_price(packages: list[PackageDef], over_price: int, seats: int
     return last.price + over_price * (seats - last.up_to)
 
 
+def package_for(packages: list[PackageDef], seats: int) -> PackageDef | None:
+    """Пакет, который покрывает ``seats`` мест; ``None`` — мест больше последнего пакета.
+
+    Сверх последнего пакета действует «Сеть»: его цена плюс доплата за место.
+    """
+    for pkg in sorted(packages, key=lambda p: p.up_to):
+        if seats <= pkg.up_to:
+            return pkg
+    return None
+
+
 def package_summary(packages: list[PackageDef], over_price: int) -> str:
     """Краткое описание версии клиники: «до 3: 3 000 · … · 11+: 800/место»."""
     ordered = sorted(packages, key=lambda p: p.up_to)

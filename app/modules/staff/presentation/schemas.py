@@ -8,7 +8,7 @@ from datetime import datetime
 from pydantic import Field
 
 from app.modules.staff.domain.models import StaffMember
-from app.shared.api.schemas import CamelModel
+from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 
 
 class StaffMemberOut(CamelModel):
@@ -48,9 +48,16 @@ class StaffMemberOut(CamelModel):
 
 
 class AddStaffRequest(CamelModel):
-    full_name: str = Field(min_length=2, description="ФИО врача")
+    full_name: str = Field(min_length=2, description="ФИО сотрудника")
     phone: str = Field(description="Телефон (= логин)")
-    specialization_id: uuid.UUID = Field(description="Специализация (обязательна)")
+    specialization_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Специальность врача (`GET /specializations`). Не передана — сотрудник без приёма "
+            "пациентов (администратор, ресепшен): в календаре у него нет колонки. Место в "
+            "тарифе занимает любой активный сотрудник, кроме владельца"
+        ),
+    )
     role_id: uuid.UUID | None = Field(
         default=None,
         description=(
@@ -60,10 +67,26 @@ class AddStaffRequest(CamelModel):
     )
 
 
-class UpdateStaffRequest(CamelModel):
+class UpdateStaffRequest(NotNullFieldsModel):
+    """Правка сотрудника: передаются только меняемые поля.
+
+    `specializationId: null` — снять специальность (врач стал администратором):
+    это не то же самое, что не передать поле. ФИО, телефон и роль `null` не
+    принимают — 422.
+    """
+
+    NOT_NULL_FIELDS = ("fullName", "phone", "roleId")
+
     full_name: str | None = Field(default=None, min_length=2)
     phone: str | None = None
-    specialization_id: uuid.UUID | None = None
+    specialization_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Сменить специальность; `null` — снять. У врача с будущими записями снять нельзя: "
+            "409 `doctor_has_future_appointments` со списком записей — перенесите их на другого "
+            "врача"
+        ),
+    )
     role_id: uuid.UUID | None = Field(
         default=None,
         description="Сменить роль сотрудника (роли клиники; владелец не назначается)",

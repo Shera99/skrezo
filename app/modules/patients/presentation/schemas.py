@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from app.modules.patients.domain.models import (
     PatientCard,
@@ -20,12 +20,46 @@ from app.shared.db.models.patient_tooth import PatientTooth
 
 
 class PatientListItem(CamelModel):
+    """Пациент в списке клиники — с последним визитом и долгом в этой клинике."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60",
+                "phone": "+996700123456",
+                "firstName": "Айгүл",
+                "lastName": "Асанова",
+                "birthDate": "1990-04-12",
+                "gender": "female",
+                "lastVisitAt": "2026-03-14T10:00:00+06:00",
+                "debtTiyin": 150000,
+            }
+        }
+    )
+
     id: uuid.UUID
     phone: str
     first_name: str
     last_name: str | None = None
     birth_date: date | None = None
     gender: str | None = None
+    last_visit_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Последний завершённый приём в этой клинике; `null` — завершённых ещё не было. "
+            "По нему «Напоминания» находят, кого пора звать на повторный осмотр"
+        ),
+        examples=["2026-03-14T10:00:00+06:00"],
+    )
+    debt_tiyin: int = Field(
+        default=0,
+        description=(
+            "Долг пациента в этой клинике, тыйыны: сумма остатков завершённых приёмов "
+            "(цена − платежи + возвраты), как в `GET /clinic/cash/debts`. Виден всем, у кого "
+            "есть доступ к пациентам"
+        ),
+        examples=[150000],
+    )
 
     @classmethod
     def from_row(cls, r: PatientListRow) -> PatientListItem:
@@ -36,6 +70,8 @@ class PatientListItem(CamelModel):
             last_name=r.last_name,
             birth_date=r.birth_date,
             gender=r.gender,
+            last_visit_at=r.last_visit_at,
+            debt_tiyin=r.debt_tiyin,
         )
 
 

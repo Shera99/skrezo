@@ -8,6 +8,7 @@ from datetime import datetime
 
 from app.shared.db.enums import ClinicType, SubscriptionStatus
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.subscription import Subscription
 
 
@@ -60,3 +61,5 @@ class ClientDetail:
     patients_count: int = 0
     visits_count: int = 0
     revenue_tiyin: int = 0
+    #: Привязка номера WhatsApp Cloud API; ``None`` — номер не подключён.
+    whatsapp: ClinicWhatsApp | None = None

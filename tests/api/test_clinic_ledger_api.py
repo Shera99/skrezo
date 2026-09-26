@@ -781,3 +781,25 @@ async def test_expired_period_short_of_money_is_warned_once_not_every_night(
     nights = [await billing_tasks.autopay_subscriptions({"redis": redis}) for _ in range(3)]
     assert ["предупреждено: 1" in n for n in nights] == [True, False, False]
     assert len(warned) == 2  # владельцу и в чат команды — один раз
+
+
+async def test_clinic_sees_its_tariff_packages(
+    admin_client: AsyncClient, client: AsyncClient, ctx: Ctx
+) -> None:
+    """Кабинет видит пакеты своего тарифа и текущий по числу мест — без админки."""
+    missing = await client.get(f"{API}/clinic/subscription/packages", headers=ctx.owner_headers)
+    assert missing.status_code == 409 and missing.json()["error"] == "tariff_not_configured"
+
+    await _tariffs(admin_client)
+    resp = await client.get(f"{API}/clinic/subscription/packages", headers=ctx.owner_headers)
+    assert resp.status_code == 200, resp.text
+    card = resp.json()
+    assert card["type"] == "clinic" and card["seats"] == 5
+    assert [(p["name"], p["upTo"], p["priceTiyin"], p["current"]) for p in card["packages"]] == [
+        ("Старт", 3, 300000, False),
+        ("Практика", 6, 500000, True),
+    ]
+    assert card["overPriceTiyin"] == 80000 and card["currentPackage"] == "Практика"
+    # Та же цена, что и у оплаты.
+    price = await client.get(f"{API}/clinic/subscription/price", headers=ctx.owner_headers)
+    assert card["monthlyTiyin"] == price.json()["monthlyTiyin"] == MONTHLY

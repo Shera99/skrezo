@@ -12,7 +12,7 @@ from app.modules.payments.domain.periods import MAX_MONTHS, MIN_MONTHS
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from app.modules.tariffs.domain.pricing import PackageDef, compute_clinic_price
+from app.modules.tariffs.domain.pricing import PackageDef, compute_clinic_price, package_for
 from app.modules.tariffs.infrastructure.repositories.tariff_repository import TariffRepository
 from app.shared.db.enums import ClinicType
 from app.shared.db.models.clinic import Clinic
@@ -31,6 +31,22 @@ class PriceQuote:
         return self.monthly_tiyin * self.months
 
 
+@dataclass(frozen=True, slots=True)
+class TariffCard:
+    """Тариф клиники для кабинета: из чего складывается её цена."""
+
+    clinic_type: ClinicType
+    #: Пакеты по возрастанию мест; у соло — пусто (цена фиксированная).
+    packages: list[PackageDef]
+    #: Доплата за место сверх последнего пакета («Сеть»); у соло — ``None``.
+    over_price_tiyin: int | None
+    #: Мест, по которым считается цена; у соло — ``None``.
+    seats: int | None
+    monthly_tiyin: int
+    #: Пакет, в который попадает клиника; ``None`` — соло или мест больше пакетов.
+    current_package: str | None
+
+
 class SubscriptionPricing:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -44,6 +60,16 @@ class SubscriptionPricing:
                 f"Оплатить можно от {MIN_MONTHS} до {MAX_MONTHS} месяцев",
                 code="months_out_of_range",
             )
+        card = await self.card(clinic_id)
+        return PriceQuote(monthly_tiyin=card.monthly_tiyin, months=months, seats=card.seats)
+
+    async def card(self, clinic_id: uuid.UUID) -> TariffCard:
+        """Тариф клиники целиком: пакеты, доплата за место и текущая цена.
+
+        Считается тем же правилом, что и цена оплаты: мест — лимит по тарифу
+        либо занятые, если занято больше. 409 ``tariff_not_configured`` —
+        тариф для типа клиники ещё не заведён.
+        """
         clinic = await self._session.get(Clinic, clinic_id)
         if clinic is None:
             raise NotFoundError("Клиника не найдена", code="clinic_not_found")
@@ -56,17 +82,31 @@ class SubscriptionPricing:
         if clinic.type is ClinicType.SOLO:
             if not version.price_tiyin:
                 raise not_configured
-            return PriceQuote(monthly_tiyin=int(version.price_tiyin), months=months, seats=None)
-        packages = [
-            PackageDef(name=p.name, up_to=p.up_to, price=p.price_tiyin)
-            for p in await self._tariffs.list_packages(version.id)
-        ]
+            return TariffCard(
+                clinic_type=clinic.type,
+                packages=[],
+                over_price_tiyin=None,
+                seats=None,
+                monthly_tiyin=int(version.price_tiyin),
+                current_package=None,
+            )
+        packages = sorted(
+            (
+                PackageDef(name=p.name, up_to=p.up_to, price=p.price_tiyin)
+                for p in await self._tariffs.list_packages(version.id)
+            ),
+            key=lambda p: p.up_to,
+        )
         if not packages or not version.over_price_tiyin:
             raise not_configured
         used, limit = await self._subscriptions.seats(clinic_id)
         seats = max(limit or 0, used, 1)
-        return PriceQuote(
-            monthly_tiyin=compute_clinic_price(packages, int(version.over_price_tiyin), seats),
-            months=months,
+        current = package_for(packages, seats)
+        return TariffCard(
+            clinic_type=clinic.type,
+            packages=packages,
+            over_price_tiyin=int(version.over_price_tiyin),
             seats=seats,
+            monthly_tiyin=compute_clinic_price(packages, int(version.over_price_tiyin), seats),
+            current_package=current.name if current else None,
         )

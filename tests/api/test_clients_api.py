@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from httpx import AsyncClient
+import uuid
 
-from tests.conftest import API, otp_login, own_membership_id, working_slot
+from httpx import AsyncClient
+from sqlalchemy import update
+
+from app.shared.db.enums import SubscriptionStatus
+from app.shared.db.models.subscription import Subscription
+from tests.conftest import API, Resources, otp_login, own_membership_id, working_slot
 
 
 async def _first_city_id(admin_client: AsyncClient) -> str:
@@ -232,3 +237,76 @@ async def test_client_without_activity_reports_zeros(admin_client: AsyncClient) 
     row = next(r for r in listed.json()["list"] if r["id"] == created.json()["id"])
     assert row["patientsCount"] == 0
     assert row["revenueTiyin"] == 0
+
+
+async def test_status_counts_include_expired_trials(
+    admin_client: AsyncClient, _resources: Resources
+) -> None:
+    """У истёкшего триала свой счётчик — как и свой фильтр списка."""
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={"type": "solo", "adminFullName": "Истёкший", "adminPhone": "0700600091"},
+    )
+    assert created.status_code == 201, created.text
+    async with _resources.factory() as session:
+        await session.execute(
+            update(Subscription)
+            .where(Subscription.clinic_id == uuid.UUID(created.json()["id"]))
+            .values(status=SubscriptionStatus.TRIAL_EXPIRED)
+        )
+        await session.commit()
+
+    counts = (await admin_client.get(f"{API}/admin/clients/status-counts")).json()
+    assert counts["trialExpired"] == 1 and counts["trial"] == 0
+    filtered = await admin_client.get(f"{API}/admin/clients?status=trial_expired")
+    assert filtered.json()["totalCount"] == counts["trialExpired"]
+
+
+async def test_client_card_shows_whatsapp_ai_mode_and_staff_accounts(
+    admin_client: AsyncClient, client: AsyncClient
+) -> None:
+    """Карточка клиента: привязка WhatsApp, режим ассистента, accountId сотрудников."""
+    city = await _first_city_id(admin_client)
+    created = await admin_client.post(
+        f"{API}/admin/clients",
+        json={
+            "type": "clinic",
+            "adminFullName": "Карточка Владелец",
+            "adminPhone": "0700600092",
+            "name": "Карточка",
+            "cityId": city,
+            "businessPhone": "0700600000",
+            "seats": 5,
+        },
+    )
+    assert created.status_code == 201, created.text
+    cid = created.json()["id"]
+
+    card = (await admin_client.get(f"{API}/admin/clients/{cid}")).json()
+    assert card["whatsapp"] is None and card["aiMode"] == "off"
+
+    bound = await admin_client.put(
+        f"{API}/admin/clients/{cid}/whatsapp",
+        json={"phoneNumberId": "7000999001", "displayPhone": "+996700999001", "wabaId": "waba-9"},
+    )
+    assert bound.status_code == 200, bound.text
+    mode = await admin_client.put(f"{API}/admin/clients/{cid}/ai-mode", json={"mode": "shadow"})
+    assert mode.status_code == 200, mode.text
+
+    card = (await admin_client.get(f"{API}/admin/clients/{cid}")).json()
+    assert card["whatsapp"] == {
+        "phoneNumberId": "7000999001",
+        "displayPhone": "+996700999001",
+        "wabaId": "waba-9",
+        "mode": card["whatsapp"]["mode"],
+        "active": True,
+    }
+    assert card["whatsapp"]["mode"] in ("api_only", "coexistence")
+    assert card["aiMode"] == "shadow" and card["aiModeChangedAt"] is not None
+
+    # accountId сотрудника — тот, что принимает блокировка аккаунта.
+    owner = next(s for s in card["staff"] if s["role"] == "admin")
+    me = await client.get(f"{API}/auth/me", headers=await otp_login(client, "0700600092"))
+    assert owner["accountId"] == me.json()["account"]["id"]
+    blocked = await admin_client.post(f"{API}/admin/accounts/{owner['accountId']}/block")
+    assert blocked.status_code in (200, 204), blocked.text

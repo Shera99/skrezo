@@ -1,8 +1,10 @@
 """Use-case: добавить сотрудника (владелец/менеджер).
 
-По умолчанию — роль «работник» клиники + специализация; можно сразу выдать
+По умолчанию — роль «работник» клиники; специализация необязательна (без неё —
+сотрудник без приёма пациентов, например администратор); можно сразу выдать
 другую роль клиники (``role_id``), например «менеджер». Проверки: клиника не
-соло, специализация существует, лимит мест, дедуп телефона.
+соло, специализация существует (если передана), лимит мест (все активные,
+кроме владельца), дедуп телефона.
 
 Аккаунт создаётся **без пароля**: сотрудник входит по коду на свой номер.
 Передавать ему нечего — уведомление лишь сообщает, что доступ открыт.
@@ -48,19 +50,27 @@ class AddStaffUseCase:
         *,
         full_name: str,
         phone_raw: str,
-        specialization_id: uuid.UUID,
+        specialization_id: uuid.UUID | None,
         role_id: uuid.UUID | None = None,
     ) -> AddStaffResult:
+        """Завести сотрудника.
+
+        ``specialization_id`` — специальность врача; без неё сотрудник не
+        принимает пациентов (администратор, ресепшен). Место в тарифе занимает
+        любой активный сотрудник, кроме владельца, — со специальностью и без.
+        """
         clinic = await self._staff.get_clinic(clinic_id)
         if clinic is None:
             raise NotFoundError("Клиника не найдена", code="clinic_not_found")
         if clinic.type is ClinicType.SOLO:
             raise BadRequestError("Соло-аккаунт не поддерживает сотрудников", code="solo_no_staff")
-        if not await self._staff.specialization_exists(specialization_id):
+        if specialization_id is not None and not await self._staff.specialization_exists(
+            specialization_id
+        ):
             raise ValidationAppError("Специализация не найдена", code="specialization_not_found")
         if (
             clinic.seats_limit is not None
-            and await self._staff.count_practitioners(clinic_id) >= clinic.seats_limit
+            and await self._staff.count_seats_used(clinic_id) >= clinic.seats_limit
         ):
             raise ConflictError("Достигнут лимит мест по тарифу", code="seats_limit_reached")
 

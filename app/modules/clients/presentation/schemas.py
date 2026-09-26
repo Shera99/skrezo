@@ -15,12 +15,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from app.modules.clients.domain.models import ClientDetail, ClientListRow, StaffRow
 from app.modules.clients.infrastructure.repositories.client_repository import tariff_name_for
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
-from app.shared.db.enums import ClinicType, Lang, SubscriptionStatus
+from app.shared.db.enums import AiMode, ClinicType, Lang, SubscriptionStatus, WhatsAppMode
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 
 _TRIAL_DAYS = 30
 
@@ -100,7 +101,24 @@ class ClientsResponse(CamelModel):
 class StatusCountsResponse(CamelModel):
     """Число клиентов в каждом статусе подписки (для дропдауна фильтра)."""
 
-    trial: int = 0
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "trial": 12,
+                "trialExpired": 3,
+                "awaitingCard": 0,
+                "active": 41,
+                "pastDue": 2,
+                "blocked": 1,
+                "cancelled": 5,
+            }
+        }
+    )
+
+    trial: int = Field(default=0, description="Триал идёт")
+    trial_expired: int = Field(
+        default=0, description="Триал кончился, оплаты не было — клиника в режиме чтения"
+    )
     awaiting_card: int = 0
     active: int = 0
     past_due: int = 0
@@ -120,7 +138,14 @@ class StaffMember(CamelModel):
     уволенный врач выглядел бы в админке точно так же, как работающий.
     """
 
-    id: uuid.UUID
+    id: uuid.UUID = Field(description="Членство в клинике (membershipId)")
+    account_id: uuid.UUID = Field(
+        description=(
+            "Аккаунт человека — для `POST /admin/accounts/{id}/block`: блокировка идёт по "
+            "аккаунту (сразу во всех клиниках), а `id` здесь — членство в этой клинике"
+        ),
+        examples=["5d2e8f1a-3b4c-4d5e-8f6a-7b8c9d0e1f2a"],
+    )
     full_name: str
     phone: str
     role: str = Field(description="admin (владелец) | doctor (врач)")
@@ -146,6 +171,7 @@ class StaffMember(CamelModel):
     def from_row(cls, staff: StaffRow) -> StaffMember:
         return cls(
             id=staff.membership_id,
+            account_id=staff.account_id,
             full_name=staff.full_name,
             phone=staff.phone,
             role="admin" if staff.is_owner else "doctor",
@@ -173,6 +199,37 @@ class ClientActivity(CamelModel):
     )
 
 
+class ClientWhatsApp(CamelModel):
+    """Привязка номера WhatsApp Cloud API к клинике — то, что стоит сейчас."""
+
+    phone_number_id: str = Field(
+        description="phone_number_id номера в Meta — по нему вебхук находит клинику",
+        examples=["1324175910774071"],
+    )
+    display_phone: str = Field(
+        description="Номер, как его видят пациенты", examples=["+996700999000"]
+    )
+    waba_id: str | None = Field(
+        default=None,
+        description="WhatsApp Business Account — нужен для сверки шаблонов",
+        examples=["1101036182272785"],
+    )
+    mode: WhatsAppMode = Field(
+        description="api_only — отдельный номер; coexistence — рабочий номер клиники + приложение"
+    )
+    active: bool = Field(description="false — привязка выключена, входящие не принимаются")
+
+    @classmethod
+    def from_binding(cls, binding: ClinicWhatsApp) -> ClientWhatsApp:
+        return cls(
+            phone_number_id=binding.phone_number_id,
+            display_phone=binding.display_phone,
+            waba_id=binding.waba_id,
+            mode=binding.mode,
+            active=binding.active,
+        )
+
+
 class ClientDetailResponse(ClientListItem):
     address: str | None = None
     business_phone: str | None = None
@@ -183,6 +240,27 @@ class ClientDetailResponse(ClientListItem):
     staff: list[StaffMember]
     payments: list[ClientPayment] = Field(default_factory=list)
     notes: str = ""
+    whatsapp: ClientWhatsApp | None = Field(
+        default=None,
+        description=(
+            "Текущая привязка WhatsApp (`PUT /admin/clients/{id}/whatsapp`); `null` — номер "
+            "не подключён"
+        ),
+    )
+    ai_mode: AiMode = Field(
+        description=(
+            "Режим ассистента (`PUT /admin/clients/{id}/ai-mode`): off — выключен, shadow — "
+            "«Наблюдаю», assisted — «Проверяю», auto — «Доверяю»"
+        ),
+        examples=["shadow"],
+    )
+    ai_mode_reason: str | None = Field(
+        default=None,
+        description="Почему режим такой: кто и зачем сменил (например, мониторинг опустил)",
+    )
+    ai_mode_changed_at: datetime | None = Field(
+        default=None, description="Когда режим меняли в последний раз"
+    )
 
     @classmethod
     def from_detail(cls, detail: ClientDetail) -> ClientDetailResponse:
@@ -221,6 +299,10 @@ class ClientDetailResponse(ClientListItem):
             staff=[StaffMember.from_row(s) for s in detail.staff],
             payments=[],  # журнал платежей клиента → Skrezo: биллинг отложен
             notes=clinic.support_notes or "",
+            whatsapp=ClientWhatsApp.from_binding(detail.whatsapp) if detail.whatsapp else None,
+            ai_mode=clinic.ai_mode,
+            ai_mode_reason=clinic.ai_mode_reason,
+            ai_mode_changed_at=clinic.ai_mode_changed_at,
         )
 
 

@@ -35,6 +35,7 @@ class GetDoctorHoursUseCase:
                     starts_at=fallback.opens_at,
                     ends_at=fallback.closes_at,
                     is_working=fallback.is_working,
+                    source="clinic",
                 )
             )
         return result

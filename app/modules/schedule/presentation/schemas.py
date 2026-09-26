@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, time
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from app.modules.schedule.domain.models import (
     AppointmentBlock,
@@ -18,6 +18,7 @@ from app.modules.schedule.domain.models import (
     DoctorColumn,
     DoctorHours,
     DoctorSlot,
+    HoursSource,
     TimeOffList,
     TimeOffRecord,
     TimeSpan,
@@ -250,10 +251,70 @@ class DoctorHoursItem(CamelModel):
         )
 
 
-class DoctorHoursResponse(CamelModel):
-    """График врача — всегда ровно 7 дней."""
+class DoctorHoursDay(DoctorHoursItem):
+    """День графика врача в ответе — с источником часов."""
 
-    days: list[DoctorHoursItem]
+    source: HoursSource = Field(
+        description=(
+            "doctor — у врача свой график на этот день; clinic — день не настроен, "
+            "врач работает по часам клиники (и они подставлены в `startsAt`/`endsAt`)"
+        ),
+        examples=["clinic"],
+    )
+
+    @classmethod
+    def from_hours(cls, h: DoctorHours) -> DoctorHoursDay:
+        return cls(
+            weekday=h.weekday,
+            starts_at=h.starts_at,
+            ends_at=h.ends_at,
+            is_working=h.is_working,
+            source=h.source,
+        )
+
+
+class DoctorHoursResponse(CamelModel):
+    """График врача — всегда ровно 7 дней, у каждого видно, чей он."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "custom": True,
+                "days": [
+                    {
+                        "weekday": 0,
+                        "startsAt": "09:00:00",
+                        "endsAt": "15:00:00",
+                        "isWorking": True,
+                        "source": "doctor",
+                    },
+                    {
+                        "weekday": 1,
+                        "startsAt": "09:00:00",
+                        "endsAt": "18:00:00",
+                        "isWorking": True,
+                        "source": "clinic",
+                    },
+                ],
+            }
+        }
+    )
+
+    custom: bool = Field(
+        description=(
+            "true — хотя бы один день настроен своим графиком врача; false — врач целиком "
+            "работает по часам клиники"
+        ),
+        examples=[True],
+    )
+    days: list[DoctorHoursDay]
+
+    @classmethod
+    def from_days(cls, days: list[DoctorHours]) -> DoctorHoursResponse:
+        return cls(
+            custom=any(d.source == "doctor" for d in days),
+            days=[DoctorHoursDay.from_hours(d) for d in days],
+        )
 
 
 class SetDoctorHoursRequest(CamelModel):

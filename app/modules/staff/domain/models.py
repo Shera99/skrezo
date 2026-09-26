@@ -20,3 +20,12 @@ class StaffMember:
     active: bool
     blocked_at: datetime | None
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class FutureAppointment:
+    """Будущая запись врача — почему у него нельзя снять специальность."""
+
+    id: uuid.UUID
+    scheduled_at: datetime
+    patient_name: str

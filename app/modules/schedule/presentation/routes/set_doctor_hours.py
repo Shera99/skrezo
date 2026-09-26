@@ -17,7 +17,6 @@ from app.modules.schedule.presentation.access import (
 )
 from app.modules.schedule.presentation.deps import get_set_doctor_hours_use_case
 from app.modules.schedule.presentation.schemas import (
-    DoctorHoursItem,
     DoctorHoursResponse,
     SetDoctorHoursRequest,
 )
@@ -95,4 +94,4 @@ async def set_doctor_hours(
         entity_id=membership_id,
         payload=None,
     )
-    return DoctorHoursResponse(days=[DoctorHoursItem.from_hours(d) for d in saved])
+    return DoctorHoursResponse.from_days(saved)

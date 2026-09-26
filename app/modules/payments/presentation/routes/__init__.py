@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from app.modules.payments.presentation.routes import (
     admin_ledger,
     clinic_ledger,
+    clinic_packages,
     clinic_payments,
     freedompay_result,
     list_payments,
@@ -22,6 +23,7 @@ router = APIRouter()
 router.include_router(list_payments.router, tags=["payments"])
 router.include_router(refund_payment.router, tags=["payments"])
 router.include_router(clinic_payments.router, tags=["subscription"])
+router.include_router(clinic_packages.router, tags=["subscription"])
 router.include_router(clinic_ledger.router, tags=["subscription"])
 router.include_router(admin_ledger.router, tags=["subscription-admin"])
 router.include_router(freedompay_result.router, tags=["payments-webhook"])

@@ -14,7 +14,7 @@ from app.modules.schedule.presentation.access import (
     resolve_scope_doctor,
 )
 from app.modules.schedule.presentation.deps import get_get_doctor_hours_use_case
-from app.modules.schedule.presentation.schemas import DoctorHoursItem, DoctorHoursResponse
+from app.modules.schedule.presentation.schemas import DoctorHoursResponse
 
 router = APIRouter()
 
@@ -59,11 +59,14 @@ async def get_doctor_hours(
     """Индивидуальный график врача по дням недели.
 
     Всегда возвращаются все 7 дней: дни без собственной настройки отдаются по
-    часам клиники — врач работает вместе с ней.
+    часам клиники — врач работает вместе с ней. У каждого дня `source` говорит,
+    чей он (`doctor` — свой график, `clinic` — часы клиники), а `custom` — есть
+    ли у врача свой график хотя бы на один день: гадать сравнением с часами
+    клиники не нужно.
 
     С правом ``schedule.view_all`` доступен график любого врача клиники, с правом
     ``schedule.view_own`` — только собственный (чужой ``membershipId`` → 403).
     """
     membership_id = resolve_scope_doctor(scope, membership_id) or membership_id
     days = await use_case.execute(scope.clinic_id, membership_id)
-    return DoctorHoursResponse(days=[DoctorHoursItem.from_hours(d) for d in days])
+    return DoctorHoursResponse.from_days(days)
