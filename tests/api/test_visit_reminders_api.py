@@ -77,7 +77,19 @@ class _FakeWa:
         return None
 
 
+#: Горизонт напоминаний в тестах: больше самого далёкого слота из _tomorrow()
+#: (суббота 06:00 по Бишкеку → понедельник 10:00 = 52 часа).
+_HORIZON_HOURS = 72
+
+
 def _tomorrow(hour: int = 10) -> str:
+    """Ближайший рабочий день после сегодняшнего (воскресенье — выходной), ``hour`` по Бишкеку.
+
+    До такого слота бывает и больше суток: из субботы это понедельник (до 52
+    часов), а с 06:00 до 10:00 по Бишкеку «завтра в 10:00» — дальше 24 часов в
+    любой день. Поэтому горизонт напоминаний в этих тестах шире суток
+    (:data:`_HORIZON_HOURS`), иначе они зависели бы от дня и часа запуска.
+    """
     day = datetime.now(UTC).date() + timedelta(days=1)
     if day.weekday() == 6:
         day += timedelta(days=1)
@@ -140,6 +152,9 @@ async def _run(monkeypatch: pytest.MonkeyPatch, res: Resources, fake: _FakeWa) -
     monkeypatch.setattr(
         "app.modules.jobs.application.services.job_recorder.session_factory", res.factory
     )
+    # Слот из _tomorrow() всегда попадает в горизонт, в какой бы день и час ни
+    # шёл прогон: проверяется поток напоминания, а не длина горизонта.
+    monkeypatch.setattr(settings, "visit_reminder_hours_before", _HORIZON_HOURS)
     return await visit_tasks.send_visit_reminders({})
 
 
@@ -270,8 +285,9 @@ async def test_unanswered_reminder_escalates_to_admin(
     fake = _FakeWa()
     assert "напоминаний: 1" in await _run(monkeypatch, _resources, fake)
 
-    # Контрольный срок «за 48 часов» — завтрашний визит уже без ответа.
-    monkeypatch.setattr(settings, "visit_unconfirmed_hours_before", 48)
+    # Контрольный срок сдвинут дальше самого далёкого слота из _tomorrow() — визит
+    # уже «без ответа» при любом дне запуска (48 часов не хватало по субботам).
+    monkeypatch.setattr(settings, "visit_unconfirmed_hours_before", _HORIZON_HOURS)
     summary = await _run(monkeypatch, _resources, fake)
     assert "без ответа: 1" in summary
     reminder = await _reminder(_resources, appointment_id)
