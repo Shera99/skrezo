@@ -51,7 +51,10 @@ Redis 127.0.0.1:6379  — очередь arq, OTP, лимиты, кэш преф
 - Прод-`.env` и каталог `secrets/` (ключи APNs/FCM) со старого сервера.
 - Доступ к старому серверу для переноса базы и `storage/` (раздел 8).
 
-Все команды — от **root** (`sudo -i`), если не сказано иное.
+Все команды — от **root**: войдя под своим пользователем с sudo, один раз выполните
+`sudo -i` и дальше работайте в этой сессии. Иначе `apt`, `cp` в `/etc`, `systemctl` и
+установщик uv упадут с «Permission denied»; конвейер `curl … | sh` с одним `sudo`
+перед `curl` не спасает — права нужны второй половине.
 
 ## 1. Система
 
@@ -104,7 +107,8 @@ uv ставится в `/usr/local/bin`; Python 3.14 (в Ubuntu 24.04 его н�
 `.python-version`, зависимости — в `uv.lock`:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
+curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
+uv --version
 sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && uv python install 3.14 && uv sync --frozen --no-dev'
 /opt/skrezo/app/.venv/bin/python --version      # Python 3.14.x
 
