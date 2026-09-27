@@ -31,9 +31,14 @@ class GetRevenueSeriesUseCase:
         date_from: date | None,
         date_to: date | None,
         group_by: RevenueGroupBy,
-        own_membership_id: uuid.UUID | None,
+        doctor_membership_id: uuid.UUID | None,
     ) -> RevenueSeries:
-        """Выручка по дням/месяцам (по дате платежа, в таймзоне клиники)."""
+        """Выручка по дням/месяцам (по дате платежа, в таймзоне клиники).
+
+        ``doctor_membership_id`` сужает ряд до платежей по приёмам одного врача:
+        и как RBAC-сужение ``reports.view_own``, и как явный фильтр «по врачу»
+        для карточки врача — граница между ними проходит в presentation-слое.
+        """
         bounds, timezone, _ = await clinic_report_context(
             self._reports, clinic_id, period, date_from, date_to
         )
@@ -41,7 +46,7 @@ class GetRevenueSeriesUseCase:
             clinic_id,
             bounds.start,
             bounds.end,
-            own_membership_id,
+            doctor_membership_id,
             group_by=group_by.value,
             timezone=timezone,
         )

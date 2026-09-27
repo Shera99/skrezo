@@ -649,9 +649,9 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` · `POST` | `/clinic/cash/payments` | Журнал (view_all → вся клиника, view_own → свои) / провести платёж (`cash.operate`); переплата → 422 |
+| `GET` · `POST` | `/clinic/cash/payments` | Журнал (view_all → вся клиника, view_own → свои; `doctorMembershipId` — касса одного врача, у операции есть `doctorMembershipId`/`doctorName` приёма) / провести платёж (`cash.operate`); переплата → 422 |
 | `POST` | `/clinic/cash/payments/{id}/refund` | Возврат по платежу: частичный (`amountTiyin`) или остаток; сверх остатка → 422, по исчерпанному → 409 (`cash.operate`) |
-| `GET` | `/clinic/cash/summary?from=&to=` | Приход/возврат/нетто по способам оплаты (`cash.view_all`/`view_own`) |
+| `GET` | `/clinic/cash/summary?from=&to=&doctorMembershipId=` | Приход/возврат/нетто по способам оплаты, с `doctorMembershipId` — только по приёмам одного врача (`cash.view_all`/`view_own`) |
 | `GET` | `/clinic/cash/debts?patientId=` | Завершённые приёмы с ненулевым остатком (`cash.view_all`/`view_own`) |
 
 > **Возврат частичный и многократный.** «Из трёх услуг переделали одну» —
@@ -762,15 +762,17 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/reports/summary` | Всё для экрана: выручка (+ по способам), приёмы по статусам, пациенты новые/повторные, начислено, **скидки**, долг, средний чек |
-| `GET` | `/clinic/reports/revenue?groupBy=day\|month` | Динамика выручки |
-| `GET` | `/clinic/reports/doctors` | По врачам: приёмы, завершено/отменено, начислено, оплачено, долг, средний чек |
-| `GET` | `/clinic/reports/services` | Топ услуг: сколько раз оказана (с учётом количества) и выручка |
+| `GET` | `/clinic/reports/summary` | Всё для экрана: выручка (+ по способам, **число возвратов** `refundsCount`), приёмы по статусам (**причины отмен** `cancelReasons` по справочнику), пациенты новые/повторные, начислено, **скидки**, долг, средний чек |
+| `GET` | `/clinic/reports/revenue?groupBy=day\|month&doctorMembershipId=` | Динамика выручки; с `doctorMembershipId` — ряд одного врача |
+| `GET` | `/clinic/reports/doctors` | По врачам: приёмы, завершено/отменено/**неявки**, начислено, оплачено, долг, средний чек, **загрузка** — `bookedMinutes` (минуты приёмов без отменённых и неявок), `workingMinutes` (по графику: часы клиники ∩ график врача − обед − отсутствия), `workloadPercent`; при `period=all` знаменателя нет → `null` |
+| `GET` | `/clinic/reports/services?doctorMembershipId=` | Топ услуг: сколько раз оказана (с учётом количества) и выручка; с `doctorMembershipId` — услуги одного врача |
 
 > `reports.view_all` (владелец/менеджер) — вся клиника; `reports.view_own` (врач) —
 > **все** разрезы сужаются до приёмов, где он лечащий врач (в отчёте по врачам
 > остаётся одна строка). Это «своё» отличается от кассы, где «своё» = кто провёл
-> платёж: отчёт врача — про его работу, а не про приём денег.
+> платёж: отчёт врача — про его работу, а не про приём денег. Для карточки врача
+> `/revenue` и `/services` принимают `doctorMembershipId`; с `view_own` указать можно
+> только себя, чужой врач → 403 `not_own_report`.
 
 **Отчёты по клиникам (Skrezo).** Платформенный контур, только `is_platform_admin`,
 без ограничений по врачу.
@@ -778,7 +780,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | Метод | Путь | Описание |
 |---|---|---|
 | `GET` | `/admin/reports/clinics` | Свод по всем клиникам (выручка, долг, приёмы, врачи, пациенты) — экран выбора клиники |
-| `GET` | `/admin/reports/clinics/{id}/summary·revenue·doctors·services` | Тот же набор отчётов по выбранной клинике |
+| `GET` | `/admin/reports/clinics/{id}/summary·revenue·doctors·services` | Тот же набор отчётов по выбранной клинике; `revenue` и `services` принимают `doctorMembershipId` — ряд и услуги одного её врача |
 
 **События и уведомления (Ф3): одно событие → один инбокс → доставки.**
 Доменные изменения (запись/перенос/отмена приёма, платёж) пишутся в

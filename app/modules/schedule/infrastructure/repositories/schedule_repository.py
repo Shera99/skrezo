@@ -149,6 +149,34 @@ class ScheduleRepository:
             for r in rows
         }
 
+    async def doctor_hours_many(
+        self, clinic_id: uuid.UUID, membership_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[int, DoctorHours]]:
+        """Индивидуальные графики перечисленных врачей на всю неделю — одним запросом.
+
+        Для расчёта рабочих минут за период: врачей в отчёте много, и дёргать
+        ``doctor_hours`` по каждому — N+1.
+        """
+        if not membership_ids:
+            return {}
+        rows = (
+            await self._session.execute(
+                select(DoctorSchedule).where(
+                    DoctorSchedule.clinic_id == clinic_id,
+                    DoctorSchedule.membership_id.in_(membership_ids),
+                )
+            )
+        ).scalars()
+        result: dict[uuid.UUID, dict[int, DoctorHours]] = {}
+        for r in rows:
+            result.setdefault(r.membership_id, {})[r.weekday] = DoctorHours(
+                weekday=r.weekday,
+                starts_at=r.starts_at,
+                ends_at=r.ends_at,
+                is_working=r.is_working,
+            )
+        return result
+
     async def clear_doctor_hours(self, clinic_id: uuid.UUID, membership_id: uuid.UUID) -> int:
         """Убрать индивидуальный график; вернуть число снятых дней.
 

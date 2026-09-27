@@ -32,6 +32,10 @@ class PaymentRecord:
     refunds_payment_id: uuid.UUID | None = None
     #: Сколько по этому платежу уже возвращено (возвратов может быть несколько).
     refunded_tiyin: int = 0
+    #: Врач приёма, который оплачивает операция: по нему касса режется «по врачу».
+    #: У операции своего врача нет — он у приёма; у приёма без врача — ``None``.
+    doctor_membership_id: uuid.UUID | None = None
+    doctor_name: str | None = None
 
     @property
     def refundable_tiyin(self) -> int:

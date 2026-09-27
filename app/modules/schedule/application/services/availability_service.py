@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -103,6 +104,54 @@ class AvailabilityService:
         # в UTC — нормализуем, чтобы слоты отдавались в таймзоне клиники.
         return subtract([context.window], [to_tz(span, tz) for span in blocked])
 
+    async def working_minutes(
+        self,
+        clinic_id: uuid.UUID,
+        membership_ids: Sequence[uuid.UUID],
+        date_from: date,
+        date_to: date,
+        tz: ZoneInfo,
+    ) -> dict[uuid.UUID, int]:
+        """Рабочие минуты каждого врача за период ``[date_from, date_to]`` включительно.
+
+        Та же арифметика, что у свободных слотов: окно дня = часы клиники ∩
+        график врача, минус обед и отсутствия. Считается по календарю графика, а
+        не по приёмам — это знаменатель загрузки врача в отчётах. Данные
+        поднимаются заранее (часы клиники, графики всех врачей, отсутствия за
+        период), дальше чистая арифметика: квартал на десяток врачей — три
+        запроса, без единого в цикле.
+        """
+        result = dict.fromkeys(membership_ids, 0)
+        if not membership_ids or date_to < date_from:
+            return result
+        configured = await self._schedule.working_hours(clinic_id)
+        individual_hours = await self._schedule.doctor_hours_many(clinic_id, membership_ids)
+        period = TimeSpan(day_bounds(date_from, tz).start, day_bounds(date_to, tz).end)
+        time_off = await self._schedule.time_off(clinic_id, membership_ids, period)
+
+        day = date_from
+        while day <= date_to:
+            weekday = day.weekday()
+            hours = configured.get(weekday) or default_working_hours(weekday)
+            clinic_window = clinic_span(hours, day, tz)
+            if clinic_window is not None:
+                lunch = break_span(hours, day, tz)
+                for membership_id in membership_ids:
+                    window: TimeSpan | None = clinic_window
+                    individual = individual_hours.get(membership_id, {}).get(weekday)
+                    if individual is not None:
+                        span = doctor_span(individual, day, tz)
+                        window = intersect(clinic_window, span) if span is not None else None
+                    if window is None:
+                        continue
+                    blocked: list[TimeSpan] = [lunch] if lunch is not None else []
+                    blocked.extend(time_off.get(membership_id, []))
+                    result[membership_id] += sum(
+                        _minutes(span) for span in subtract([window], blocked)
+                    )
+            day += timedelta(days=1)
+        return result
+
     async def ensure_bookable(
         self,
         clinic_id: uuid.UUID,
@@ -184,3 +233,8 @@ def build_availability_service(session: AsyncSession) -> AvailabilityService:
 def span_of(start: datetime, duration_min: int) -> TimeSpan:
     """Собрать интервал приёма из времени начала и длительности в минутах."""
     return TimeSpan(start, start + timedelta(minutes=duration_min))
+
+
+def _minutes(span: TimeSpan) -> int:
+    """Длина интервала в целых минутах."""
+    return int((span.end - span.start).total_seconds() // 60)

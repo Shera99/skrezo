@@ -33,7 +33,9 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 @router.get(
     "/admin/reports/clinics/{clinic_id}/doctors",
     response_model=DoctorsReportResponse,
-    response_description="Строка на врача: приёмы, начислено, оплачено, долг, средний чек",
+    response_description=(
+        "Строка на врача: приёмы, неявки, начислено, оплачено, долг, средний чек, загрузка"
+    ),
     summary="Отчёт по врачам выбранной клиники",
     responses=_ERRORS,
 )

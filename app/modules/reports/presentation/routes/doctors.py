@@ -19,7 +19,9 @@ router = APIRouter()
 @router.get(
     "/clinic/reports/doctors",
     response_model=DoctorsReportResponse,
-    response_description="Строка на врача: приёмы, начислено, оплачено, долг, средний чек",
+    response_description=(
+        "Строка на врача: приёмы, неявки, начислено, оплачено, долг, средний чек, загрузка"
+    ),
     summary="Отчёт по врачам",
 )
 async def doctors_report(
@@ -28,6 +30,13 @@ async def doctors_report(
     use_case: GetDoctorsReportUseCase = Depends(get_doctors_report_use_case),
 ) -> DoctorsReportResponse:
     """Показатели врачей за период, по убыванию начисленного.
+
+    Загрузка (``workloadPercent``) — доля рабочего времени периода, занятая
+    приёмами: минуты приёмов без отменённых и неявок к рабочим минутам по
+    графику (часы клиники ∩ график врача − обед − отсутствия). Для
+    ``period=all`` знаменателя нет — ``workingMinutes`` и ``workloadPercent``
+    равны ``null``. Ряд по дням и услуги одного врача — ``/revenue`` и
+    ``/services`` с ``doctorMembershipId``.
 
     С правом ``reports.view_all`` — все врачи клиники; с ``reports.view_own`` в
     выдаче останется одна строка — сам вызывающий.

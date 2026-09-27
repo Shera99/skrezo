@@ -14,6 +14,7 @@ from pydantic import Field
 
 from app.modules.reports.domain.models import (
     AppointmentsBlock,
+    CancelReasonsBlock,
     ClinicReportRow,
     ClinicsReport,
     DayDashboard,
@@ -53,9 +54,10 @@ class MethodRevenueOut(CamelModel):
 class RevenueBlockOut(CamelModel):
     """Деньги за период (по дате платежа)."""
 
-    income_tiyin: int = Field(description="Приход, сомы")
-    refund_tiyin: int = Field(description="Возвраты, сомы")
-    net_tiyin: int = Field(description="Нетто = приход − возвраты")
+    income_tiyin: int = Field(description="Приход, тыйыны")
+    refund_tiyin: int = Field(description="Возвраты, тыйыны")
+    net_tiyin: int = Field(description="Нетто = приход − возвраты, тыйыны")
+    refunds_count: int = Field(description="Число операций возврата за период", examples=[2])
     by_method: list[MethodRevenueOut]
 
     @classmethod
@@ -64,7 +66,30 @@ class RevenueBlockOut(CamelModel):
             income_tiyin=r.income_tiyin,
             refund_tiyin=r.refund_tiyin,
             net_tiyin=r.net_tiyin,
+            refunds_count=r.refunds_count,
             by_method=[MethodRevenueOut.from_domain(m) for m in r.by_method],
+        )
+
+
+class CancelReasonsOut(CamelModel):
+    """Отмены периода по причинам из справочника ``CancelReason``."""
+
+    patient_request: int = Field(description="Пациент попросил отменить")
+    patient_illness: int = Field(description="Пациент заболел")
+    clinic_reschedule: int = Field(description="Клиника перенесла")
+    doctor_unavailable: int = Field(description="Врач недоступен")
+    duplicate: int = Field(description="Дубль записи")
+    other: int = Field(description="Другое (с комментарием)")
+
+    @classmethod
+    def from_domain(cls, c: CancelReasonsBlock) -> CancelReasonsOut:
+        return cls(
+            patient_request=c.patient_request,
+            patient_illness=c.patient_illness,
+            clinic_reschedule=c.clinic_reschedule,
+            doctor_unavailable=c.doctor_unavailable,
+            duplicate=c.duplicate,
+            other=c.other,
         )
 
 
@@ -79,6 +104,9 @@ class AppointmentsBlockOut(CamelModel):
     completed: int
     cancelled: int
     no_show: int
+    cancel_reasons: CancelReasonsOut = Field(
+        description="Отмены по причинам справочника; отмены без причины в разбивку не входят"
+    )
 
     @classmethod
     def from_domain(cls, a: AppointmentsBlock) -> AppointmentsBlockOut:
@@ -91,6 +119,7 @@ class AppointmentsBlockOut(CamelModel):
             completed=a.completed,
             cancelled=a.cancelled,
             no_show=a.no_show,
+            cancel_reasons=CancelReasonsOut.from_domain(a.cancel_reasons),
         )
 
 
@@ -183,10 +212,31 @@ class DoctorReportItem(CamelModel):
     appointments: int
     completed: int
     cancelled: int
-    charged_tiyin: int = Field(description="Начислено по завершённым, сомы")
-    paid_tiyin: int = Field(description="Оплачено нетто по его приёмам, сомы")
-    debt_tiyin: int = Field(description="Начислено − оплачено, сомы")
+    no_show: int = Field(description="Неявки")
+    charged_tiyin: int = Field(description="Начислено по завершённым, тыйыны")
+    paid_tiyin: int = Field(description="Оплачено нетто по его приёмам, тыйыны")
+    debt_tiyin: int = Field(description="Начислено − оплачено, тыйыны")
     average_check_tiyin: int
+    booked_minutes: int = Field(
+        description="Минуты приёмов периода без отменённых, неявок и черновиков",
+        examples=[1350],
+    )
+    working_minutes: int | None = Field(
+        default=None,
+        description=(
+            "Рабочие минуты по графику за период: часы клиники ∩ график врача − обед − "
+            "отсутствия; null — у периода нет начала (period=all)"
+        ),
+        examples=[2400],
+    )
+    workload_percent: int | None = Field(
+        default=None,
+        description=(
+            "Загрузка = bookedMinutes / workingMinutes × 100, округлено; null — рабочих "
+            "минут нет. Больше 100 — приёмы шли вне графика"
+        ),
+        examples=[56],
+    )
 
     @classmethod
     def from_domain(cls, d: DoctorReportRow) -> DoctorReportItem:
@@ -197,10 +247,14 @@ class DoctorReportItem(CamelModel):
             appointments=d.appointments,
             completed=d.completed,
             cancelled=d.cancelled,
+            no_show=d.no_show,
             charged_tiyin=d.charged_tiyin,
             paid_tiyin=d.paid_tiyin,
             debt_tiyin=d.debt_tiyin,
             average_check_tiyin=d.average_check_tiyin,
+            booked_minutes=d.booked_minutes,
+            working_minutes=d.working_minutes,
+            workload_percent=d.workload_percent,
         )
 
 

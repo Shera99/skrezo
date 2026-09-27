@@ -67,6 +67,10 @@ class PaymentItem(CamelModel):
     kind: PaymentKind = Field(description="payment — платёж, refund — возврат")
     recorded_by_membership_id: uuid.UUID | None = Field(default=None, description="Кассир")
     recorded_by_name: str | None = Field(default=None, examples=["Иванов Иван"])
+    doctor_membership_id: uuid.UUID | None = Field(
+        default=None, description="Врач приёма, который оплачивает операция (id членства)"
+    )
+    doctor_name: str | None = Field(default=None, examples=["Сидорова Анна"])
     comment: str | None = None
     created_at: datetime = Field(examples=["2026-07-20T14:30:00+06:00"])
     refunds_payment_id: uuid.UUID | None = Field(
@@ -93,6 +97,8 @@ class PaymentItem(CamelModel):
             kind=r.kind,
             recorded_by_membership_id=r.recorded_by_membership_id,
             recorded_by_name=r.recorded_by_name,
+            doctor_membership_id=r.doctor_membership_id,
+            doctor_name=r.doctor_name,
             comment=r.comment,
             created_at=r.created_at,
             refunds_payment_id=r.refunds_payment_id,

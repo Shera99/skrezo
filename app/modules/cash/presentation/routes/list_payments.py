@@ -26,6 +26,11 @@ async def list_payments(
     date_from: date | None = Query(default=None, alias="from", description="С даты (tz клиники)"),
     date_to: date | None = Query(default=None, alias="to", description="По дату включительно"),
     patient_id: uuid.UUID | None = Query(default=None, alias="patientId"),
+    doctor_membership_id: uuid.UUID | None = Query(
+        default=None,
+        alias="doctorMembershipId",
+        description="Только операции по приёмам этого врача (id членства)",
+    ),
     method: PaymentMethod | None = Query(default=None, description="Фильтр по способу оплаты"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
@@ -36,6 +41,9 @@ async def list_payments(
 
     С правом ``cash.view_all`` виден журнал всей клиники, с правом
     ``cash.view_own`` — только операции, проведённые вызывающим (``recorded_by``).
+    ``doctorMembershipId`` режет журнал по врачу приёма — касса врача считается
+    на сервере, а не сборкой всей ленты на клиенте; у каждой операции есть
+    ``doctorMembershipId`` и ``doctorName`` её приёма.
     """
     result = await use_case.execute(
         scope.clinic_id,
@@ -43,6 +51,7 @@ async def list_payments(
         date_to=date_to,
         patient_id=patient_id,
         method=method,
+        doctor_membership_id=doctor_membership_id,
         own_membership_id=scope.own_membership_id,
         page=page,
         page_size=page_size,

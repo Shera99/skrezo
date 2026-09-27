@@ -21,6 +21,7 @@ from sqlalchemy.orm import aliased
 
 from app.modules.reports.domain.models import (
     AppointmentsBlock,
+    CancelReasonsBlock,
     ClinicReportRow,
     DoctorReportRow,
     MethodRevenue,
@@ -28,7 +29,7 @@ from app.modules.reports.domain.models import (
     RevenuePoint,
     ServiceReportRow,
 )
-from app.shared.db.enums import AppointmentStatus, Lang, PaymentKind
+from app.shared.db.enums import AppointmentStatus, CancelReason, Lang, PaymentKind
 from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
@@ -44,6 +45,17 @@ from app.shared.db.models.specialization_translation import SpecializationTransl
 _NO_SERVICE = "Без услуги"
 
 
+# Статусы, при которых приём занимает время врача, — числитель загрузки.
+# Отменённые и неявки слот не «загружают», у черновиков нет даты.
+_BOOKED_STATUSES = (
+    AppointmentStatus.SCHEDULED,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.IN_PROGRESS,
+    AppointmentStatus.COMPLETED,
+)
+
+
 def _income() -> ColumnElement[int]:
     return func.coalesce(
         func.sum(
@@ -56,6 +68,14 @@ def _income() -> ColumnElement[int]:
 def _refund() -> ColumnElement[int]:
     return func.coalesce(
         func.sum(case((CashPayment.kind == PaymentKind.REFUND, CashPayment.amount_tiyin), else_=0)),
+        0,
+    )
+
+
+def _refunds_count() -> ColumnElement[int]:
+    """Число операций возврата — сколько раз возвращали, а не на сколько."""
+    return func.coalesce(
+        func.sum(case((CashPayment.kind == PaymentKind.REFUND, 1), else_=0)),
         0,
     )
 
@@ -136,10 +156,10 @@ class ReportsRepository:
         end: datetime,
         own_membership_id: uuid.UUID | None,
     ) -> RevenueBlock:
-        """Приход/возврат/нетто за период, всего и по способам оплаты."""
+        """Приход/возврат/нетто за период, всего и по способам оплаты, и число возвратов."""
         stmt = (
             self._payments_query(clinic_id, start, end, own_membership_id)
-            .with_only_columns(CashPayment.method, _income(), _refund())
+            .with_only_columns(CashPayment.method, _income(), _refund(), _refunds_count())
             .group_by(CashPayment.method)
         )
         rows = (await self._session.execute(stmt)).all()
@@ -155,7 +175,11 @@ class ReportsRepository:
         income = sum(m.income_tiyin for m in by_method)
         refund = sum(m.refund_tiyin for m in by_method)
         return RevenueBlock(
-            income_tiyin=income, refund_tiyin=refund, net_tiyin=income - refund, by_method=by_method
+            income_tiyin=income,
+            refund_tiyin=refund,
+            net_tiyin=income - refund,
+            refunds_count=sum(int(r[3]) for r in rows),
+            by_method=by_method,
         )
 
     async def revenue_series(
@@ -197,24 +221,41 @@ class ReportsRepository:
         end: datetime,
         own_membership_id: uuid.UUID | None,
     ) -> AppointmentsBlock:
-        """Число приёмов периода в разрезе статусов."""
+        """Число приёмов периода по статусам, отмены — ещё и по причинам.
+
+        Один запрос с группировкой по статусу и причине: причина заполнена
+        только у отменённых, у остальных она ``NULL`` и группу не дробит.
+        """
         rows = (
             await self._session.execute(
-                select(Appointment.status, func.count())
+                select(Appointment.status, Appointment.cancel_reason, func.count())
                 .where(*self._appointment_filters(clinic_id, start, end, own_membership_id))
-                .group_by(Appointment.status)
+                .group_by(Appointment.status, Appointment.cancel_reason)
             )
         ).all()
-        counts = {r[0]: int(r[1]) for r in rows}
+        by_status: dict[AppointmentStatus, int] = {}
+        by_reason: dict[CancelReason, int] = {}
+        for status, reason, count in rows:
+            by_status[status] = by_status.get(status, 0) + int(count)
+            if status == AppointmentStatus.CANCELLED and reason is not None:
+                by_reason[reason] = by_reason.get(reason, 0) + int(count)
         return AppointmentsBlock(
-            total=sum(counts.values()),
-            scheduled=counts.get(AppointmentStatus.SCHEDULED, 0),
-            confirmed=counts.get(AppointmentStatus.CONFIRMED, 0),
-            arrived=counts.get(AppointmentStatus.ARRIVED, 0),
-            in_progress=counts.get(AppointmentStatus.IN_PROGRESS, 0),
-            completed=counts.get(AppointmentStatus.COMPLETED, 0),
-            cancelled=counts.get(AppointmentStatus.CANCELLED, 0),
-            no_show=counts.get(AppointmentStatus.NO_SHOW, 0),
+            total=sum(by_status.values()),
+            scheduled=by_status.get(AppointmentStatus.SCHEDULED, 0),
+            confirmed=by_status.get(AppointmentStatus.CONFIRMED, 0),
+            arrived=by_status.get(AppointmentStatus.ARRIVED, 0),
+            in_progress=by_status.get(AppointmentStatus.IN_PROGRESS, 0),
+            completed=by_status.get(AppointmentStatus.COMPLETED, 0),
+            cancelled=by_status.get(AppointmentStatus.CANCELLED, 0),
+            no_show=by_status.get(AppointmentStatus.NO_SHOW, 0),
+            cancel_reasons=CancelReasonsBlock(
+                patient_request=by_reason.get(CancelReason.PATIENT_REQUEST, 0),
+                patient_illness=by_reason.get(CancelReason.PATIENT_ILLNESS, 0),
+                clinic_reschedule=by_reason.get(CancelReason.CLINIC_RESCHEDULE, 0),
+                doctor_unavailable=by_reason.get(CancelReason.DOCTOR_UNAVAILABLE, 0),
+                duplicate=by_reason.get(CancelReason.DUPLICATE, 0),
+                other=by_reason.get(CancelReason.OTHER, 0),
+            ),
         )
 
     async def charged_and_paid(
@@ -308,7 +349,12 @@ class ReportsRepository:
         *,
         lang: Lang,
     ) -> list[DoctorReportRow]:
-        """Показатели по каждому врачу за период (приёмы, деньги, долг)."""
+        """Показатели по каждому врачу за период: приёмы, неявки, деньги, долг.
+
+        Здесь же считаются минуты приёмов — числитель загрузки. Рабочие минуты
+        по графику знает расписание, поэтому строка уходит с
+        ``working_minutes=None``: их дописывает прикладной слой.
+        """
         paid_sq = (
             select(
                 Appointment.doctor_membership_id.label("membership_id"),
@@ -325,6 +371,8 @@ class ReportsRepository:
         )
         completed = case((Appointment.status == AppointmentStatus.COMPLETED, 1), else_=0)
         cancelled = case((Appointment.status == AppointmentStatus.CANCELLED, 1), else_=0)
+        no_show = case((Appointment.status == AppointmentStatus.NO_SHOW, 1), else_=0)
+        booked = case((Appointment.status.in_(_BOOKED_STATUSES), Appointment.duration_min), else_=0)
         charged = case(
             (Appointment.status == AppointmentStatus.COMPLETED, Appointment.price_total_tiyin),
             else_=0,
@@ -342,6 +390,8 @@ class ReportsRepository:
                     func.coalesce(func.sum(cancelled), 0),
                     func.coalesce(func.sum(charged), 0),
                     func.coalesce(paid_sq.c.paid, 0),
+                    func.coalesce(func.sum(no_show), 0),
+                    func.coalesce(func.sum(booked), 0),
                 )
                 .select_from(Appointment)
                 .join(Membership, Membership.id == Appointment.doctor_membership_id)
@@ -374,10 +424,14 @@ class ReportsRepository:
                     appointments=int(r[3]),
                     completed=completed_count,
                     cancelled=int(r[5]),
+                    no_show=int(r[8]),
                     charged_tiyin=charged_total,
                     paid_tiyin=paid_total,
                     debt_tiyin=charged_total - paid_total,
                     average_check_tiyin=charged_total // completed_count if completed_count else 0,
+                    booked_minutes=int(r[9]),
+                    working_minutes=None,
+                    workload_percent=None,
                 )
             )
         return result

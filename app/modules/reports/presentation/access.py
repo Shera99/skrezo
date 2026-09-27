@@ -83,3 +83,19 @@ async def require_reports_read(
     return ReportsScope(
         context=context, unrestricted=unrestricted, own_membership_id=own_membership_id
     )
+
+
+def resolve_scope_doctor(scope: ReportsScope, requested: uuid.UUID | None) -> uuid.UUID | None:
+    """Свести запрошенного врача к тому, чьи показатели вызывающему можно смотреть.
+
+    * ``unrestricted`` (``view_all``) — как запрошено; ``None`` — вся клиника;
+    * ``view_own`` — только собственное членство: чужой ``doctorMembershipId`` →
+      403, пустой — подставляется своё. Иначе врач, отфильтровав «по врачу»,
+      обошёл бы сужение до своих приёмов.
+    """
+    if scope.unrestricted:
+        return requested
+    own = scope.own_membership_id
+    if requested is not None and requested != own:
+        raise ForbiddenError("Доступны только свои показатели", code="not_own_report")
+    return own

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.modules.platform_auth.presentation.deps import get_authenticated_user_id
 from app.modules.reports.application.use_cases.get_services import GetServicesReportUseCase
@@ -39,16 +39,22 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 )
 async def admin_clinic_services(
     clinic_id: uuid.UUID,
+    doctor_membership_id: uuid.UUID | None = Query(
+        default=None,
+        alias="doctorMembershipId",
+        description="Только позиции приёмов этого врача (id членства)",
+    ),
     period: PeriodQuery = Depends(period_query),
     _: uuid.UUID = Depends(get_authenticated_user_id),
     use_case: GetServicesReportUseCase = Depends(get_services_report_use_case),
 ) -> ServicesReportResponse:
-    """Услуги выбранной клиники за период по убыванию выручки."""
+    """Услуги выбранной клиники за период по убыванию выручки, при
+    ``doctorMembershipId`` — одного её врача."""
     result = await use_case.execute(
         clinic_id,
         period=period.period,
         date_from=period.date_from,
         date_to=period.date_to,
-        own_membership_id=None,
+        doctor_membership_id=doctor_membership_id,
     )
     return ServicesReportResponse.from_report(result)

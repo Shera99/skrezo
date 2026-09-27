@@ -553,6 +553,61 @@ async def test_worker_view_own_sees_only_own_payments(
     assert worker_summary.json()["totalIncomeTiyin"] == 2000
 
 
+
+async def test_journal_and_summary_filter_by_doctor(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Касса по врачу: журнал и сводка режутся по врачу приёма, у операции виден врач."""
+    other_doctor, _ = await _add_worker(client, clinic_a, "Врач Второй")
+    appt_default = await _appointment(client, clinic_a)
+    appt_other = await _appointment(client, clinic_a, doctor=other_doctor)
+
+    pay_default = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt_default, 1000)
+    )
+    assert pay_default.status_code == 201, pay_default.text
+    pay_other = await client.post(
+        f"{API}/clinic/cash/payments", headers=clinic_a.headers, json=_pay(appt_other, 2000)
+    )
+    assert pay_other.status_code == 201, pay_other.text
+
+    journal = await client.get(
+        f"{API}/clinic/cash/payments",
+        headers=clinic_a.headers,
+        params={"doctorMembershipId": other_doctor},
+    )
+    assert journal.status_code == 200, journal.text
+    rows = journal.json()["list"]
+    assert [r["id"] for r in rows] == [pay_other.json()["id"]]
+    assert journal.json()["totalCount"] == 1
+    assert rows[0]["doctorMembershipId"] == other_doctor
+    assert rows[0]["doctorName"] == "Врач Второй"
+
+    # Без фильтра — обе операции, и у каждой свой врач приёма.
+    everything = await client.get(f"{API}/clinic/cash/payments", headers=clinic_a.headers)
+    by_id = {r["id"]: r for r in everything.json()["list"]}
+    assert by_id[pay_default.json()["id"]]["doctorMembershipId"] == clinic_a.doctor_id
+
+    summary = await client.get(
+        f"{API}/clinic/cash/summary",
+        headers=clinic_a.headers,
+        params={"doctorMembershipId": other_doctor},
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["totalIncomeTiyin"] == 2000
+    total = await client.get(f"{API}/clinic/cash/summary", headers=clinic_a.headers)
+    assert total.json()["totalIncomeTiyin"] == 3000
+
+    # Неизвестный (или чужой) врач — пусто, а не чужие деньги.
+    unknown = await client.get(
+        f"{API}/clinic/cash/payments",
+        headers=clinic_a.headers,
+        params={"doctorMembershipId": str(uuid.uuid4())},
+    )
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["totalCount"] == 0
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [

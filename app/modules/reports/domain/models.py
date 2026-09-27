@@ -32,7 +32,25 @@ class RevenueBlock:
     income_tiyin: int
     refund_tiyin: int
     net_tiyin: int
+    #: Число операций возврата — сколько раз возвращали, а не сколько вернули.
+    refunds_count: int
     by_method: list[MethodRevenue]
+
+
+@dataclass(frozen=True, slots=True)
+class CancelReasonsBlock:
+    """Отмены периода по справочнику причин (``CancelReason``).
+
+    Отмены без причины (записи до появления справочника) в разбивку не входят,
+    поэтому сумма полей может быть меньше ``cancelled``.
+    """
+
+    patient_request: int
+    patient_illness: int
+    clinic_reschedule: int
+    doctor_unavailable: int
+    duplicate: int
+    other: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +65,8 @@ class AppointmentsBlock:
     completed: int
     cancelled: int
     no_show: int
+    #: Разбивка отмен по причинам — чтобы владелец видел, отчего срываются приёмы.
+    cancel_reasons: CancelReasonsBlock
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,10 +123,19 @@ class DoctorReportRow:
     appointments: int
     completed: int
     cancelled: int
+    no_show: int  # неявки
     charged_tiyin: int  # начислено по завершённым
     paid_tiyin: int  # оплачено нетто по его приёмам
     debt_tiyin: int  # начислено − оплачено
     average_check_tiyin: int
+    #: Минуты приёмов периода без отменённых, неявок и черновиков — числитель загрузки.
+    booked_minutes: int
+    #: Рабочие минуты по графику за период: часы клиники ∩ график врача − обед −
+    #: отсутствия. ``None`` — у периода нет начала («за всё время»), считать нечем.
+    working_minutes: int | None
+    #: Загрузка = booked / working × 100 с округлением; ``None`` — рабочих минут нет.
+    #: Может превышать 100, если приёмы шли вне графика.
+    workload_percent: int | None
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,7 +6,10 @@
   (``reports.view_all``) — всю клинику;
 * изоляция клиник — отчёты клиники A не содержат данных клиники B;
 * платформенный контур закрыт от сотрудников клиник (нужен ``is_platform_admin``);
-* корректность агрегатов: выручка, долг, средний чек, новые/повторные пациенты.
+* корректность агрегатов: выручка, долг, средний чек, новые/повторные пациенты;
+* показатели для карточки врача: неявки, загрузка по графику, ряд и услуги по
+  ``doctorMembershipId`` (врач с ``view_own`` чужого не получает), а в сводке —
+  число возвратов и причины отмен.
 """
 
 from __future__ import annotations
@@ -109,12 +112,17 @@ async def _add_doctor(
     return str(resp.json()["membershipId"]), worker
 
 
-async def _appointment(client: AsyncClient, ctx: ClinicCtx, doctor: str) -> str:
-    """Приём на 3000 сомов в рабочем слоте сегодняшнего дня (попадает во все пресеты)."""
+async def _appointment(
+    client: AsyncClient, ctx: ClinicCtx, doctor: str, *, scheduled_at: str | None = None
+) -> str:
+    """Приём на 3000 сомов в рабочем слоте сегодняшнего дня (попадает во все пресеты).
+
+    ``scheduled_at`` задаёт слот явно — когда тесту важно конкретное время.
+    """
     body: dict[str, Any] = {
         "patientId": ctx.patient_id,
         "doctorMembershipId": doctor,
-        "scheduledAt": _slot(),
+        "scheduledAt": scheduled_at or _slot(),
         "items": [{"serviceId": ctx.service_id, "teeth": [46]}],
     }
     resp = await client.post(f"{API}/clinic/appointments", headers=ctx.headers, json=body)
@@ -261,6 +269,163 @@ async def test_doctors_report_scoped_to_self_for_worker(
     # У неоплаченного врача в полном отчёте виден долг.
     other_row = next(r for r in owner.json()["rows"] if r["membershipId"] == other)
     assert other_row["debtTiyin"] == 3000
+
+
+
+async def test_summary_counts_refunds_and_cancel_reasons(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Сводка: число операций возврата и разбивка отмен по причинам справочника."""
+    doctor, _ = await _add_doctor(client, clinic_a, "Врач Возвраты")
+    paid = await _appointment(client, clinic_a, doctor)
+    await _complete(client, clinic_a, paid, None)
+    payment = await client.post(
+        f"{API}/clinic/cash/payments",
+        headers=clinic_a.headers,
+        json={"appointmentId": paid, "amountTiyin": 3000, "method": "cash"},
+    )
+    assert payment.status_code == 201, payment.text
+    for amount in (500, 700):
+        refund = await client.post(
+            f"{API}/clinic/cash/payments/{payment.json()['id']}/refund",
+            headers=clinic_a.headers,
+            json={"amountTiyin": amount},
+        )
+        assert refund.status_code == 201, refund.text
+
+    async def cancel(reason: str, **extra: str) -> None:
+        appointment_id = await _appointment(client, clinic_a, doctor)
+        resp = await client.patch(
+            f"{API}/clinic/appointments/{appointment_id}",
+            headers=clinic_a.headers,
+            json={"status": "cancelled", "cancelReason": reason, **extra},
+        )
+        assert resp.status_code == 200, resp.text
+
+    await cancel("patient_request")
+    await cancel("patient_request")
+    await cancel("other", cancelComment="Пациент передумал")
+
+    resp = await client.get(f"{API}/clinic/reports/summary", headers=clinic_a.headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["revenue"]["refundTiyin"] == 1200
+    assert body["revenue"]["refundsCount"] == 2  # две операции, а не сумма
+    assert body["appointments"]["cancelled"] == 3
+    assert body["appointments"]["cancelReasons"] == {
+        "patientRequest": 2,
+        "patientIllness": 0,
+        "clinicReschedule": 0,
+        "doctorUnavailable": 0,
+        "duplicate": 0,
+        "other": 1,
+    }
+
+
+async def test_doctors_report_counts_no_show_and_workload(
+    client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Отчёт по врачу: неявки и загрузка = минуты приёмов / рабочие минуты по графику."""
+    doctor, _ = await _add_doctor(client, clinic_a, "Врач Загрузка")
+    day = _report_day()
+
+    def at(hour: int, minute: int = 0) -> str:
+        return datetime.combine(day, time(hour, minute), tzinfo=BISHKEK).isoformat()
+
+    # Явные слоты 09:00 и 09:30 — чтобы позже сузить график врача, не задев приёмы.
+    completed_id = await _appointment(client, clinic_a, doctor, scheduled_at=at(9))
+    await _complete(client, clinic_a, completed_id, 3000)
+    missed_id = await _appointment(client, clinic_a, doctor, scheduled_at=at(9, 30))
+    missed = await client.patch(
+        f"{API}/clinic/appointments/{missed_id}",
+        headers=clinic_a.headers,
+        json={"status": "no_show"},
+    )
+    assert missed.status_code == 200, missed.text
+    duration = (
+        await client.get(f"{API}/clinic/appointments/{completed_id}", headers=clinic_a.headers)
+    ).json()["durationMin"]
+
+    params = {"from": day.isoformat(), "to": day.isoformat()}
+
+    async def row() -> dict[str, Any]:
+        resp = await client.get(
+            f"{API}/clinic/reports/doctors", headers=clinic_a.headers, params=params
+        )
+        assert resp.status_code == 200, resp.text
+        return next(r for r in resp.json()["rows"] if r["membershipId"] == doctor)
+
+    first = await row()
+    assert first["appointments"] == 2
+    assert first["completed"] == 1
+    assert first["noShow"] == 1
+    assert first["bookedMinutes"] == duration  # неявка время не «загружает»
+    assert first["workingMinutes"] == 480  # 09:00–18:00 минус обед 12:00–13:00 по умолчанию
+    assert first["workloadPercent"] == round(duration * 100 / 480)
+
+    # Свой график 09:00–15:00 сужает знаменатель: шесть часов минус обед = 300 минут.
+    hours = await client.put(
+        f"{API}/clinic/schedule/doctors/{doctor}/hours",
+        headers=clinic_a.headers,
+        json={
+            "days": [
+                {"weekday": d, "startsAt": "09:00:00", "endsAt": "15:00:00", "isWorking": d < 6}
+                for d in range(7)
+            ]
+        },
+    )
+    assert hours.status_code == 200, hours.text
+    narrowed = await row()
+    assert narrowed["workingMinutes"] == 300
+    assert narrowed["workloadPercent"] == round(duration * 100 / 300)
+
+    # «За всё время» знаменателя нет — загрузка не считается.
+    params = {"period": "all"}
+    forever = await row()
+    assert forever["workingMinutes"] is None
+    assert forever["workloadPercent"] is None
+    assert forever["bookedMinutes"] == duration
+
+
+async def test_revenue_and_services_filter_by_doctor(
+    client: AsyncClient, admin_client: AsyncClient, clinic_a: ClinicCtx
+) -> None:
+    """Ряд по дням и услуги одного врача; врач с view_own чужого не смотрит."""
+    mine, mine_headers = await _add_doctor(client, clinic_a, "Врач Свой")
+    other, _ = await _add_doctor(client, clinic_a, "Врач Чужой")
+    await _complete(client, clinic_a, await _appointment(client, clinic_a, mine), 3000)
+    await _complete(client, clinic_a, await _appointment(client, clinic_a, other), 3000)
+
+    params = {"doctorMembershipId": other}
+    revenue = await client.get(
+        f"{API}/clinic/reports/revenue", headers=clinic_a.headers, params=params
+    )
+    assert revenue.status_code == 200, revenue.text
+    assert sum(p["incomeTiyin"] for p in revenue.json()["points"]) == 3000
+    services = await client.get(
+        f"{API}/clinic/reports/services", headers=clinic_a.headers, params=params
+    )
+    assert services.status_code == 200, services.text
+    assert [(r["count"], r["revenueTiyin"]) for r in services.json()["rows"]] == [(1, 3000)]
+
+    # Врач (view_own): своё можно, чужое — 403 с понятным кодом.
+    own = await client.get(
+        f"{API}/clinic/reports/services",
+        headers=mine_headers,
+        params={"doctorMembershipId": mine},
+    )
+    assert own.status_code == 200, own.text
+    assert [(r["count"], r["revenueTiyin"]) for r in own.json()["rows"]] == [(1, 3000)]
+    foreign = await client.get(f"{API}/clinic/reports/revenue", headers=mine_headers, params=params)
+    assert foreign.status_code == 403, foreign.text
+    assert foreign.json()["error"] == "not_own_report"
+
+    # Платформенный контур принимает тот же фильтр.
+    admin = await admin_client.get(
+        f"{API}/admin/reports/clinics/{clinic_a.clinic_id}/services", params=params
+    )
+    assert admin.status_code == 200, admin.text
+    assert [(r["count"], r["revenueTiyin"]) for r in admin.json()["rows"]] == [(1, 3000)]
 
 
 async def test_services_and_revenue_scoped_for_worker(

@@ -19,6 +19,9 @@ from app.modules.reports.application.use_cases.get_summary import GetReportSumma
 from app.modules.reports.application.use_cases.list_clinics import ListClinicsReportUseCase
 from app.modules.reports.domain.period import ReportPeriod
 from app.modules.reports.infrastructure.repositories.reports_repository import ReportsRepository
+from app.modules.schedule.application.services.availability_service import (
+    build_availability_service,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +71,11 @@ def get_revenue_series_use_case(
 
 def get_doctors_report_use_case(
     reports: ReportsRepository = Depends(get_reports_repository),
+    session: AsyncSession = Depends(get_session),
 ) -> GetDoctorsReportUseCase:
-    return GetDoctorsReportUseCase(reports)
+    # Сервис доступности — из расписания: загрузка врача считается той же
+    # арифметикой, что свободные слоты, а не её копией в отчётах.
+    return GetDoctorsReportUseCase(reports, build_availability_service(session))
 
 
 def get_services_report_use_case(

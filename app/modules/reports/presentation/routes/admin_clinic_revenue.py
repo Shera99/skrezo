@@ -45,17 +45,23 @@ async def admin_clinic_revenue(
     group_by: RevenueGroupBy = Query(
         default=RevenueGroupBy.DAY, alias="groupBy", description="Шаг ряда: day | month"
     ),
+    doctor_membership_id: uuid.UUID | None = Query(
+        default=None,
+        alias="doctorMembershipId",
+        description="Только платежи по приёмам этого врача (id членства)",
+    ),
     period: PeriodQuery = Depends(period_query),
     _: uuid.UUID = Depends(get_authenticated_user_id),
     use_case: GetRevenueSeriesUseCase = Depends(get_revenue_series_use_case),
 ) -> RevenueSeriesResponse:
-    """Выручка выбранной клиники по дням или месяцам (по дате платежа)."""
+    """Выручка выбранной клиники по дням или месяцам (по дате платежа), при
+    ``doctorMembershipId`` — одного её врача."""
     result = await use_case.execute(
         clinic_id,
         period=period.period,
         date_from=period.date_from,
         date_to=period.date_to,
         group_by=group_by,
-        own_membership_id=None,
+        doctor_membership_id=doctor_membership_id,
     )
     return RevenueSeriesResponse.from_series(result)

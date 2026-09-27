@@ -1584,7 +1584,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/revenue?groupBy=&period=1m&from=2026-01-01&to=2026-01-01",
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/revenue?groupBy=&doctorMembershipId=00000000-0000-0000-0000-000000000000&period=1m&from=2026-01-01&to=2026-01-01",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -1603,6 +1603,12 @@
                       "value": "",
                       "disabled": true,
                       "description": "Шаг ряда: day | month"
+                    },
+                    {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только платежи по приёмам этого врача (id членства)"
                     },
                     {
                       "key": "period",
@@ -1624,7 +1630,7 @@
                     }
                   ]
                 },
-                "description": "Выручка выбранной клиники по дням или месяцам (по дате платежа)."
+                "description": "Выручка выбранной клиники по дням или месяцам (по дате платежа), при\n``doctorMembershipId`` — одного её врача."
               },
               "response": []
             },
@@ -1678,7 +1684,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/services?period=1m&from=2026-01-01&to=2026-01-01",
+                  "raw": "{{base_url}}/api/v1/admin/reports/clinics/{{clinic_id}}/services?doctorMembershipId=00000000-0000-0000-0000-000000000000&period=1m&from=2026-01-01&to=2026-01-01",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -1692,6 +1698,12 @@
                     "services"
                   ],
                   "query": [
+                    {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только позиции приёмов этого врача (id членства)"
+                    },
                     {
                       "key": "period",
                       "value": "1m",
@@ -1712,7 +1724,7 @@
                     }
                   ]
                 },
-                "description": "Услуги выбранной клиники за период по убыванию выручки."
+                "description": "Услуги выбранной клиники за период по убыванию выручки, при\n``doctorMembershipId`` — одного её врача."
               },
               "response": []
             }
@@ -4765,7 +4777,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/cash/payments?from=2026-01-01&to=2026-01-01&patientId=00000000-0000-0000-0000-000000000000&method=&page=1&pageSize=25",
+                  "raw": "{{base_url}}/api/v1/clinic/cash/payments?from=2026-01-01&to=2026-01-01&patientId=00000000-0000-0000-0000-000000000000&doctorMembershipId=00000000-0000-0000-0000-000000000000&method=&page=1&pageSize=25",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -4796,6 +4808,12 @@
                       "description": ""
                     },
                     {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только операции по приёмам этого врача (id членства)"
+                    },
+                    {
                       "key": "method",
                       "value": "",
                       "disabled": true,
@@ -4815,7 +4833,7 @@
                     }
                   ]
                 },
-                "description": "Операции кассы за период с фильтрами.\n\nС правом ``cash.view_all`` виден журнал всей клиники, с правом\n``cash.view_own`` — только операции, проведённые вызывающим (``recorded_by``)."
+                "description": "Операции кассы за период с фильтрами.\n\nС правом ``cash.view_all`` виден журнал всей клиники, с правом\n``cash.view_own`` — только операции, проведённые вызывающим (``recorded_by``).\n``doctorMembershipId`` режет журнал по врачу приёма — касса врача считается\nна сервере, а не сборкой всей ленты на клиенте; у каждой операции есть\n``doctorMembershipId`` и ``doctorName`` её приёма."
               },
               "response": []
             },
@@ -4899,7 +4917,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/cash/summary?from=2026-01-01&to=2026-01-01",
+                  "raw": "{{base_url}}/api/v1/clinic/cash/summary?from=2026-01-01&to=2026-01-01&doctorMembershipId=00000000-0000-0000-0000-000000000000",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -4922,10 +4940,16 @@
                       "value": "2026-01-01",
                       "disabled": true,
                       "description": "По дату включительно"
+                    },
+                    {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только операции по приёмам этого врача (id членства)"
                     }
                   ]
                 },
-                "description": "Итоги кассы за период.\n\nС правом ``cash.view_all`` — по всей клинике, с правом ``cash.view_own`` —\nтолько по своим платежам (``recorded_by``)."
+                "description": "Итоги кассы за период.\n\nС правом ``cash.view_all`` — по всей клинике, с правом ``cash.view_own`` —\nтолько по своим платежам (``recorded_by``). ``doctorMembershipId`` сужает\nитоги до операций по приёмам одного врача — касса врача одним запросом."
               },
               "response": []
             },
@@ -5033,7 +5057,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/reports/revenue?groupBy=&period=1m&from=2026-01-01&to=2026-01-01",
+                  "raw": "{{base_url}}/api/v1/clinic/reports/revenue?groupBy=&doctorMembershipId=00000000-0000-0000-0000-000000000000&period=1m&from=2026-01-01&to=2026-01-01",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -5050,6 +5074,12 @@
                       "value": "",
                       "disabled": true,
                       "description": "Шаг ряда: day | month"
+                    },
+                    {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только платежи по приёмам этого врача (id членства); с view_own — своё"
                     },
                     {
                       "key": "period",
@@ -5071,7 +5101,7 @@
                     }
                   ]
                 },
-                "description": "Выручка по дням или месяцам — по дате платежа, в таймзоне клиники.\n\nС правом ``reports.view_own`` учитываются только платежи по приёмам, где\nвызывающий лечащий врач."
+                "description": "Выручка по дням или месяцам — по дате платежа, в таймзоне клиники.\n\n``doctorMembershipId`` даёт ряд одного врача для его карточки. С правом\n``reports.view_own`` учитываются только платежи по приёмам, где вызывающий\nлечащий врач; чужой ``doctorMembershipId`` при этом → 403 ``not_own_report``."
               },
               "response": []
             },
@@ -5113,7 +5143,7 @@
                     }
                   ]
                 },
-                "description": "Показатели врачей за период, по убыванию начисленного.\n\nС правом ``reports.view_all`` — все врачи клиники; с ``reports.view_own`` в\nвыдаче останется одна строка — сам вызывающий."
+                "description": "Показатели врачей за период, по убыванию начисленного.\n\nЗагрузка (``workloadPercent``) — доля рабочего времени периода, занятая\nприёмами: минуты приёмов без отменённых и неявок к рабочим минутам по\nграфику (часы клиники ∩ график врача − обед − отсутствия). Для\n``period=all`` знаменателя нет — ``workingMinutes`` и ``workloadPercent``\nравны ``null``. Ряд по дням и услуги одного врача — ``/revenue`` и\n``/services`` с ``doctorMembershipId``.\n\nС правом ``reports.view_all`` — все врачи клиники; с ``reports.view_own`` в\nвыдаче останется одна строка — сам вызывающий."
               },
               "response": []
             },
@@ -5123,7 +5153,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/reports/services?period=1m&from=2026-01-01&to=2026-01-01",
+                  "raw": "{{base_url}}/api/v1/clinic/reports/services?doctorMembershipId=00000000-0000-0000-0000-000000000000&period=1m&from=2026-01-01&to=2026-01-01",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -5135,6 +5165,12 @@
                     "services"
                   ],
                   "query": [
+                    {
+                      "key": "doctorMembershipId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": "Только позиции приёмов этого врача (id членства); с view_own — своё"
+                    },
                     {
                       "key": "period",
                       "value": "1m",
@@ -5155,7 +5191,7 @@
                     }
                   ]
                 },
-                "description": "Услуги за период по убыванию выручки.\n\nСчитается по позициям приёмов (``appointment_item``) с учётом количества, а\nне по основной услуге приёма; позиции без услуги сводятся в «Без услуги».\nС правом ``reports.view_own`` — только по своим приёмам."
+                "description": "Услуги за период по убыванию выручки.\n\nСчитается по позициям приёмов (``appointment_item``) с учётом количества, а\nне по основной услуге приёма; позиции без услуги сводятся в «Без услуги».\n``doctorMembershipId`` даёт услуги одного врача для его карточки. С правом\n``reports.view_own`` — только по своим приёмам; чужой ``doctorMembershipId``\nпри этом → 403 ``not_own_report``."
               },
               "response": []
             }

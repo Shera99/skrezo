@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, Select, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.modules.cash.domain.models import (
     AppointmentBilling,
@@ -190,6 +191,10 @@ class CashRepository:
     def _record_columns(self) -> Select[Any]:
         recorder = Account.full_name
         refunded = _refunded_by_payment()
+        # Врач приёма — отдельные псевдонимы членства и аккаунта: кассир уже
+        # присоединён через те же таблицы, без alias это был бы один и тот же join.
+        doctor = aliased(Membership)
+        doctor_account = aliased(Account)
         return (
             select(
                 CashPayment.id,
@@ -207,10 +212,15 @@ class CashRepository:
                 # Журнал сразу отвечает на вопрос «сколько ещё можно вернуть» —
                 # иначе фронт считал бы это сам, собирая возвраты по страницам.
                 func.coalesce(refunded.c.refunded, 0).label("refunded"),
+                Appointment.doctor_membership_id,
+                doctor_account.full_name.label("doctor_name"),
             )
             .join(Patient, Patient.id == CashPayment.patient_id)
+            .join(Appointment, Appointment.id == CashPayment.appointment_id)
             .outerjoin(Membership, Membership.id == CashPayment.recorded_by_membership_id)
             .outerjoin(Account, Account.id == Membership.account_id)
+            .outerjoin(doctor, doctor.id == Appointment.doctor_membership_id)
+            .outerjoin(doctor_account, doctor_account.id == doctor.account_id)
             .outerjoin(refunded, refunded.c.payment_id == CashPayment.id)
         )
 
@@ -230,6 +240,8 @@ class CashRepository:
             created_at=row[10],
             refunds_payment_id=row[11],
             refunded_tiyin=int(row[12]),
+            doctor_membership_id=row[13],
+            doctor_name=row[14],
         )
 
     async def _load_record(
@@ -252,9 +264,16 @@ class CashRepository:
         date_to: datetime | None,
         patient_id: uuid.UUID | None,
         method: PaymentMethod | None,
+        doctor_membership_id: uuid.UUID | None,
         own_membership_id: uuid.UUID | None,
     ) -> list[ColumnElement[bool]]:
-        """Общие условия журнала/сводки (клиника + фильтры + own-скоуп)."""
+        """Общие условия журнала/сводки (клиника + фильтры + own-скоуп).
+
+        Фильтр по врачу идёт через приём: у операции кассы врача нет, он у
+        приёма, который она оплачивает. Подзапросом, а не join'ом, чтобы одни и
+        те же условия годились журналу, его ``count()`` и сводке. Приёмы
+        ограничены той же клиникой — чужой ``doctor_membership_id`` даёт пусто.
+        """
         conditions: list[ColumnElement[bool]] = [CashPayment.clinic_id == clinic_id]
         if date_from is not None:
             conditions.append(CashPayment.created_at >= date_from)
@@ -264,6 +283,15 @@ class CashRepository:
             conditions.append(CashPayment.patient_id == patient_id)
         if method is not None:
             conditions.append(CashPayment.method == method)
+        if doctor_membership_id is not None:
+            conditions.append(
+                CashPayment.appointment_id.in_(
+                    select(Appointment.id).where(
+                        Appointment.clinic_id == clinic_id,
+                        Appointment.doctor_membership_id == doctor_membership_id,
+                    )
+                )
+            )
         if own_membership_id is not None:
             conditions.append(CashPayment.recorded_by_membership_id == own_membership_id)
         return conditions
@@ -276,6 +304,7 @@ class CashRepository:
         date_to: datetime | None,
         patient_id: uuid.UUID | None,
         method: PaymentMethod | None,
+        doctor_membership_id: uuid.UUID | None,
         own_membership_id: uuid.UUID | None,
         limit: int,
         offset: int,
@@ -287,6 +316,7 @@ class CashRepository:
             date_to=date_to,
             patient_id=patient_id,
             method=method,
+            doctor_membership_id=doctor_membership_id,
             own_membership_id=own_membership_id,
         )
         total = (
@@ -312,6 +342,7 @@ class CashRepository:
         *,
         date_from: datetime | None,
         date_to: datetime | None,
+        doctor_membership_id: uuid.UUID | None,
         own_membership_id: uuid.UUID | None,
     ) -> list[MethodTotals]:
         """Приход/возврат/нетто по каждому способу оплаты за период."""
@@ -321,6 +352,7 @@ class CashRepository:
             date_to=date_to,
             patient_id=None,
             method=None,
+            doctor_membership_id=doctor_membership_id,
             own_membership_id=own_membership_id,
         )
         income = func.sum(
