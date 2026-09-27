@@ -228,10 +228,21 @@ redis-cli -a "$REDIS_PASS" --no-auth-warning ping                    # PONG
 
 ## 6. `.env` и ключи
 
+Серверы друг друга обычно не видят, а root по SSH на новый уже не входит, поэтому
+файлы идут через ваш компьютер под вашим пользователем, а на место их переносит root.
+
+С вашего компьютера (`.env` и `secrets/` — со старого прода или из `.env.example`):
+
 ```bash
-# Со старого сервера (или из .env.example, если с нуля):
-scp root@СТАРЫЙ:/путь/к/проекту/.env /opt/skrezo/app/.env
-scp -r root@СТАРЫЙ:/путь/к/проекту/secrets/ /opt/skrezo/app/
+scp .env skrezouser@НОВЫЙ:~/skrezo.env
+scp -r secrets skrezouser@НОВЫЙ:~/skrezo-secrets
+```
+
+На сервере от root:
+
+```bash
+mv /home/skrezouser/skrezo.env /opt/skrezo/app/.env
+mv /home/skrezouser/skrezo-secrets/* /opt/skrezo/app/secrets/ && rmdir /home/skrezouser/skrezo-secrets
 chown -R skrezo:skrezo /opt/skrezo/app/.env /opt/skrezo/app/secrets
 chmod 600 /opt/skrezo/app/.env && chmod 700 /opt/skrezo/app/secrets
 ```
@@ -279,15 +290,24 @@ sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/python -m app.scripts
 cd /путь/к/проекту
 docker compose stop api worker                                    # с этого момента — простой
 docker compose exec -T postgres pg_dump -U skrezo -Fc skrezo > /tmp/skrezo.dump
-scp /tmp/skrezo.dump root@НОВЫЙ:/tmp/skrezo.dump
-rsync -a ./storage/ root@НОВЫЙ:/opt/skrezo/app/storage/
 ```
 
-На **новом**:
+Переслать на новый сервер под вашим пользователем: со старого сервера напрямую
+(его публичный ключ нужно добавить в `~/.ssh/authorized_keys` пользователя на новом)
+либо в два приёма через свой компьютер:
 
 ```bash
+scp /tmp/skrezo.dump skrezouser@НОВЫЙ:~/skrezo.dump
+rsync -a ./storage/ skrezouser@НОВЫЙ:~/skrezo-storage/
+```
+
+На **новом** от root:
+
+```bash
+mv /home/skrezouser/skrezo.dump /tmp/skrezo.dump
 sudo -u postgres pg_restore --dbname=skrezo --no-owner --role=skrezo --jobs=4 /tmp/skrezo.dump
 # «extension already exists» / «must be owner of extension» — ожидаемо, данные восстановлены.
+rsync -a /home/skrezouser/skrezo-storage/ /opt/skrezo/app/storage/ && rm -r /home/skrezouser/skrezo-storage
 chown -R skrezo:skrezo /opt/skrezo/app/storage
 sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/alembic upgrade head'   # догоняет новые миграции
 rm /tmp/skrezo.dump
