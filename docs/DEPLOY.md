@@ -150,6 +150,18 @@ Git в этом каталоге — только от `skrezo` (`sudo -u skrezo
 так делает и `deploy.sh`. От root git откажет («dubious ownership»), а если добавить
 исключение, root-овские файлы в `.git` сломают следующий pull от `skrezo`.
 
+Чтобы не набирать `sudo -u skrezo …` каждый раз, заведите ярлык в `~/.bashrc` своего
+пользователя (выполнить один раз от себя, не от root):
+
+```bash
+echo "alias skr='sudo -iu skrezo bash -c \"cd /opt/skrezo/app && source .venv/bin/activate && exec bash\"'" >> ~/.bashrc && source ~/.bashrc
+```
+
+Теперь `skr` открывает оболочку от `skrezo` прямо в `/opt/skrezo/app` с активным
+`.venv`: `git pull`, `alembic upgrade head`, `python -m app.scripts…` работают как есть,
+выход — `exit`. Повседневный деплой ярлыка не требует: `sudo …/deploy/bin/deploy.sh`
+из-под своего пользователя делает всё сам.
+
 uv ставится в `/usr/local/bin`; Python 3.14 (в Ubuntu 24.04 его нет) uv скачает
 сам в `/opt/skrezo/.local/share/uv/python` — версия зафиксирована в
 `.python-version`, зависимости — в `uv.lock`:
@@ -333,6 +345,9 @@ psql "postgresql://skrezo:$PG_PASS@127.0.0.1:6432/pgbouncer" -c 'SHOW POOLS;'
 - **Шлюзы OTP/SMS**, если у них белый список IP, — добавить IP сервера.
 
 ## Эксплуатация
+
+Всё ниже выполняется из-под своего пользователя с `sudo`; `sudo -i` и переходы в каталог
+проекта нужны были только при установке.
 
 **Деплой без простоя** (код → зависимости → миграции → API по одному → воркеры):
 
