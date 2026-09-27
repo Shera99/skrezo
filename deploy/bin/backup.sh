@@ -19,6 +19,8 @@ chmod 700 "$BACKUP_DIR"
 runuser -u postgres -- pg_dump --format=custom --dbname=skrezo \
     > "$BACKUP_DIR/db/skrezo-$STAMP.dump"
 
+# До первой загрузки файла каталога может не быть — создаём от имени приложения.
+install -d -o skrezo -g skrezo "$APP_DIR/storage"
 rsync -a --delete "$APP_DIR/storage/" "$BACKUP_DIR/storage/"
 
 find "$BACKUP_DIR/db" -name 'skrezo-*.dump' -mtime +"$KEEP_DAYS" -delete

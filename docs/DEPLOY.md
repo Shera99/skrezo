@@ -143,7 +143,12 @@ sudo -u skrezo -H bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
 cat /opt/skrezo/.ssh/id_ed25519.pub
 
 sudo -u skrezo -H git clone git@github.com:Shera99/skrezo.git /opt/skrezo/app
+sudo -u skrezo -H mkdir -p /opt/skrezo/app/storage      # файлы пациентов; в git его нет
 ```
+
+Git в этом каталоге — только от `skrezo` (`sudo -u skrezo -H git -C /opt/skrezo/app pull`),
+так делает и `deploy.sh`. От root git откажет («dubious ownership»), а если добавить
+исключение, root-овские файлы в `.git` сломают следующий pull от `skrezo`.
 
 uv ставится в `/usr/local/bin`; Python 3.14 (в Ubuntu 24.04 его нет) uv скачает
 сам в `/opt/skrezo/.local/share/uv/python` — версия зафиксирована в
