@@ -2340,7 +2340,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates",
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates?lang=string",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -2350,9 +2350,17 @@
                     "clinic",
                     "whatsapp",
                     "templates"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
                   ]
                 },
-                "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`.\nСлужебные шаблоны Meta (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`)\nв каталоге не показываются."
+                "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`;\nу остальных `unavailableReason` объясняет почему («На проверке в Meta с\n20 сентября»). `title` и `variableLabels` — понятные слова вместо\nтехнического имени и `{{1}}`: у общих шаблонов их задаёт Skrezo, у шаблонов\nклиники показывается имя из Meta. Служебные шаблоны Meta\n(`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`) в каталоге не\nпоказываются."
               },
               "response": []
             },
@@ -2362,7 +2370,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/sync",
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/sync?lang=string",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -2373,9 +2381,17 @@
                     "whatsapp",
                     "templates",
                     "sync"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
                   ]
                 },
-                "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка\nне трогает. Дёргать после правок шаблонов в кабинете — расписания нет."
+                "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются (момент смены статуса\nзапоминается — из него складывается `unavailableReason`). Общие шаблоны\nплатформы сверка не трогает. Дёргать после правок шаблонов в кабинете —\nрасписания нет."
               },
               "response": []
             },
@@ -2469,6 +2485,86 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phoneNumberId\": \"712233445566778\",\n  \"displayPhone\": \"+996700123456\",\n  \"wabaId\": \"string\",\n  \"mode\": \"api_only\",\n  \"active\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "whatsapp-admin",
+          "item": [
+            {
+              "name": "Общие шаблоны WhatsApp платформы",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/whatsapp/templates?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "whatsapp",
+                    "templates"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Общие шаблоны платформы — те, что видят все клиники (`shared: true`).\n\n`title` и `variableLabels` — то, что кабинеты клиник покажут вместо\nтехнического имени и `{{1}}`; без заданных значений отдаются имя из Meta\nи сами плейсхолдеры."
+              },
+              "response": []
+            },
+            {
+              "name": "Название и подписи переменных общего шаблона",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/whatsapp/templates/{{template_id}}?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "whatsapp",
+                    "templates",
+                    "{{template_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Задать понятное название и подписи переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Напоминание о приёме\",\n  \"variableLabels\": [\n    \"Имя\",\n    \"Дата и время\"\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3458,10 +3554,10 @@
                     "simulate-inbound"
                   ]
                 },
-                "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.",
+                "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.\n\n`dryRun` — пробный прогон для режима `auto`: конвейер работает как боевой,\nно ответ, кнопки и шаблоны в WhatsApp не уходят (у таких сообщений\n`sent: false`), а нажатие кнопки не создаёт приём и не меняет запись.\nДиалог сохраняется и виден в кабинете клиники. Резерв слота, карточка\nпациента и события для инбокса создаются как в боевом прогоне.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"clinicId\": \"00000000-0000-0000-0000-000000000000\",\n  \"fromPhone\": \"+996700123456\",\n  \"text\": \"Канча турат чистка?\",\n  \"buttonPayload\": \"hold:6f1e0e6a-…\"\n}",
+                  "raw": "{\n  \"clinicId\": \"00000000-0000-0000-0000-000000000000\",\n  \"fromPhone\": \"+996700123456\",\n  \"text\": \"Канча турат чистка?\",\n  \"buttonPayload\": \"hold:6f1e0e6a-…\",\n  \"dryRun\": false\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4986,6 +5082,130 @@
           ]
         },
         {
+          "name": "reminders",
+          "item": [
+            {
+              "name": "Отметить «напомнили»",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reminders/marks",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reminders",
+                    "marks"
+                  ]
+                },
+                "description": "Зафиксировать, что пациенту напомнили: повод, приём-источник, комментарий.\n\nОтметка хранится на сервере и видна всем администраторам клиники — второму\nадминистратору больше не нужно угадывать, кому уже звонили. Кто отметил —\nчленство вызывающего в этой клинике. Пациент должен быть пациентом клиники\n(есть её приём), приём-источник — его приёмом в этой клинике.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"patientId\": \"00000000-0000-0000-0000-000000000000\",\n  \"kind\": \"recall\",\n  \"appointmentId\": \"00000000-0000-0000-0000-000000000000\",\n  \"comment\": \"Позвонили, обещала прийти в октябре\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Журнал отметок «напомнили»",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reminders/marks?patientId=00000000-0000-0000-0000-000000000000&kind=&from=2026-01-01&to=2026-01-01&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reminders",
+                    "marks"
+                  ],
+                  "query": [
+                    {
+                      "key": "patientId",
+                      "value": "00000000-0000-0000-0000-000000000000",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "kind",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Фильтр по поводу"
+                    },
+                    {
+                      "key": "from",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "С даты (tz клиники)"
+                    },
+                    {
+                      "key": "to",
+                      "value": "2026-01-01",
+                      "disabled": true,
+                      "description": "По дату включительно"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Отметки клиники с фильтрами по пациенту, поводу и периоду.\n\nБез дат — за всё время. Для экрана «Напоминания» по каждому пациенту\nдостаточно `lastReminderAt` в `GET /clinic/patients`; журнал — для истории\nи карточки пациента (`patientId`)."
+              },
+              "response": []
+            },
+            {
+              "name": "Снять отметку «напомнили»",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/reminders/marks/{{mark_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "reminders",
+                    "marks",
+                    "{{mark_id}}"
+                  ]
+                },
+                "description": "Удалить отметку по id — когда отметили не того пациента или не тот повод.\n\nУдаление скоупится клиникой из токена: чужую отметку не снять (404).\nФакт попадает в журнал действий клиники."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "reports",
           "item": [
             {
@@ -5745,7 +5965,7 @@
                     }
                   ]
                 },
-                "description": "Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.\n\nПрочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на\nтелефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету)."
+                "description": "Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.\n\nПрочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на\nтелефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету).\nУ записи есть `url` — раздел кабинета для перехода (переписка, расписание,\nкарточка пациента, оплата); приложение по-прежнему может строить переход\nсамо по `type` и `entityId`."
               },
               "response": []
             },
@@ -6250,6 +6470,11 @@
       "type": "string"
     },
     {
+      "key": "mark_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
       "key": "membership_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
@@ -6281,6 +6506,11 @@
     },
     {
       "key": "service_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "template_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },

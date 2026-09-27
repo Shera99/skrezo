@@ -319,6 +319,87 @@ async def test_booking_button_creates_appointment_once(
     assert len(fake.calls) == 3
 
 
+async def test_dry_run_keeps_dialog_but_sends_and_books_nothing(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """dryRun в auto: ответ и кнопка сохранены как неотправленные, приём по кнопке не создан."""
+    await _set_mode(admin_client, ctx, "auto")
+    doctor_id = await own_membership_id(client, ctx.owner_headers)
+    service_id = await _service_id(client, ctx)
+    phone = "+996700200077"
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="create_patient", args={"firstName": "Тест"})),
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="propose_appointment",
+                args={"doctorId": doctor_id, "startsAt": _workday_ten(), "serviceId": service_id},
+            )
+        ),
+        AiResult(text=_reply_json("Отправил кнопку подтверждения — нажмите её.", intent="booking")),
+    ]
+    resp = await admin_client.post(
+        f"{API}/admin/ai/simulate-inbound",
+        json={
+            "clinicId": ctx.clinic_id,
+            "fromPhone": phone,
+            "text": "Запишите меня завтра в 10",
+            "dryRun": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["dryRun"] is True
+    assert body["outcome"] == "sent"  # так ответил бы боевой конвейер в auto
+    bot = [m for m in body["messages"] if m["role"] == "bot"]
+    assert bot and bot[-1]["sent"] is False
+
+    async with _resources.factory() as session:
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        confirmation_id = f"hold:{hold.id}"
+        saved = list(
+            (
+                await session.execute(
+                    select(AiMessage).where(
+                        AiMessage.conversation_id == uuid.UUID(body["conversationId"])
+                    )
+                )
+            ).scalars()
+        )
+    # Диалог сохранён целиком, но ни у одного нашего сообщения нет wamid.
+    assert {m.role for m in saved} >= {AiMessageRole.PATIENT, AiMessageRole.BOT}
+    assert all(m.wa_message_id is None for m in saved if m.role is not AiMessageRole.PATIENT)
+
+    # Кнопка в пробном прогоне: пациент увидел бы «вы записаны», приёма нет,
+    # резерв не потрачен — настоящее нажатие сработает как обычно.
+    pressed = await admin_client.post(
+        f"{API}/admin/ai/simulate-inbound",
+        json={
+            "clinicId": ctx.clinic_id,
+            "fromPhone": phone,
+            "text": "-",
+            "buttonPayload": confirmation_id,
+            "dryRun": True,
+        },
+    )
+    assert pressed.status_code == 200, pressed.text
+    assert pressed.json()["dryRun"] is True
+    assert any("вы записаны" in (m["body"] or "") for m in pressed.json()["messages"])
+    async with _resources.factory() as session:
+        assert (await session.execute(select(Appointment))).scalar_one_or_none() is None
+        hold = (await session.execute(select(SlotHold))).scalar_one()
+        assert hold.consumed_at is None and hold.appointment_id is None
+
+    # Без dryRun то же нажатие создаёт приём — резерв остался рабочим.
+    real = await _press_button(admin_client, ctx, phone, confirmation_id)
+    assert any("вы записаны" in (m["body"] or "") for m in real["messages"])
+    async with _resources.factory() as session:
+        assert (await session.execute(select(Appointment))).scalar_one() is not None
+
+
 async def test_booking_expired_hold_declines(
     admin_client: AsyncClient,
     client: AsyncClient,

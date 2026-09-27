@@ -20,7 +20,7 @@ from app.shared.db.models.patient_tooth import PatientTooth
 
 
 class PatientListItem(CamelModel):
-    """Пациент в списке клиники — с последним визитом и долгом в этой клинике."""
+    """Пациент в списке клиники — с последним визитом, долгом и отметкой «напомнили»."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -33,6 +33,7 @@ class PatientListItem(CamelModel):
                 "gender": "female",
                 "lastVisitAt": "2026-03-14T10:00:00+06:00",
                 "debtTiyin": 150000,
+                "lastReminderAt": "2026-09-20T11:40:00+06:00",
             }
         }
     )
@@ -60,6 +61,14 @@ class PatientListItem(CamelModel):
         ),
         examples=[150000],
     )
+    last_reminder_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Последняя отметка «напомнили» в этой клинике (`POST /clinic/reminders/marks`); "
+            "`null` — не напоминали"
+        ),
+        examples=["2026-09-20T11:40:00+06:00"],
+    )
 
     @classmethod
     def from_row(cls, r: PatientListRow) -> PatientListItem:
@@ -72,6 +81,7 @@ class PatientListItem(CamelModel):
             gender=r.gender,
             last_visit_at=r.last_visit_at,
             debt_tiyin=r.debt_tiyin,
+            last_reminder_at=r.last_reminder_at,
         )
 
 

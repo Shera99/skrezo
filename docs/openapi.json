@@ -5627,6 +5627,267 @@
         }
       }
     },
+    "/api/v1/clinic/reminders/marks": {
+      "post": {
+        "tags": [
+          "reminders"
+        ],
+        "summary": "Отметить «напомнили»",
+        "description": "Зафиксировать, что пациенту напомнили: повод, приём-источник, комментарий.\n\nОтметка хранится на сервере и видна всем администраторам клиники — второму\nадминистратору больше не нужно угадывать, кому уже звонили. Кто отметил —\nчленство вызывающего в этой клинике. Пациент должен быть пациентом клиники\n(есть её приём), приём-источник — его приёмом в этой клинике.",
+        "operationId": "create_mark_api_v1_clinic_reminders_marks_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRemindedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Записанная отметка",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderMarkOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Пациент не из этой клиники или приём не его",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "patient": {
+                    "value": {
+                      "error": "patient_not_found",
+                      "message": "Пациент не найден в клинике"
+                    }
+                  },
+                  "appointment": {
+                    "value": {
+                      "error": "appointment_not_found",
+                      "message": "Приём не найден"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "reminders"
+        ],
+        "summary": "Журнал отметок «напомнили»",
+        "description": "Отметки клиники с фильтрами по пациенту, поводу и периоду.\n\nБез дат — за всё время. Для экрана «Напоминания» по каждому пациенту\nдостаточно `lastReminderAt` в `GET /clinic/patients`; журнал — для истории\nи карточки пациента (`patientId`).",
+        "operationId": "list_marks_api_v1_clinic_reminders_marks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "patientId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Patientid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReminderKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Фильтр по поводу",
+              "title": "Kind"
+            },
+            "description": "Фильтр по поводу"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "С даты (tz клиники)",
+              "title": "From"
+            },
+            "description": "С даты (tz клиники)"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "По дату включительно",
+              "title": "To"
+            },
+            "description": "По дату включительно"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Pagesize"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Отметки (последние сверху) с пагинацией",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderMarksResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinic/reminders/marks/{mark_id}": {
+      "delete": {
+        "tags": [
+          "reminders"
+        ],
+        "summary": "Снять отметку «напомнили»",
+        "description": "Удалить отметку по id — когда отметили не того пациента или не тот повод.\n\nУдаление скоупится клиникой из токена: чужую отметку не снять (404).\nФакт попадает в журнал действий клиники.",
+        "operationId": "delete_mark_api_v1_clinic_reminders_marks__mark_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mark_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Mark Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Отметка удалена",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderMarkDeletedResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Отметка не найдена (чужая клиника или неверный id)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "reminder_mark_not_found",
+                  "message": "Отметка не найдена"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinic/dashboard": {
       "get": {
         "tags": [
@@ -8882,7 +9143,7 @@
           "push"
         ],
         "summary": "Инбокс уведомлений",
-        "description": "Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.\n\nПрочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на\nтелефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету).",
+        "description": "Своя лента событий клиники: новые сверху, `unreadCount` — бейдж.\n\nПрочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на\nтелефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету).\nУ записи есть `url` — раздел кабинета для перехода (переписка, расписание,\nкарточка пациента, оплата); приложение по-прежнему может строить переход\nсамо по `type` и `entityId`.",
         "operationId": "list_inbox_api_v1_clinic_inbox_get",
         "security": [
           {
@@ -9775,8 +10036,49 @@
           "whatsapp"
         ],
         "summary": "Шаблоны WhatsApp клиники",
-        "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`.\nСлужебные шаблоны Meta (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`)\nв каталоге не показываются.",
+        "description": "Локальный каталог шаблонов — то, что интерфейс показывает вместо поля\nввода при закрытом окне. Отправлять можно только `status: approved`;\nу остальных `unavailableReason` объясняет почему («На проверке в Meta с\n20 сентября»). `title` и `variableLabels` — понятные слова вместо\nтехнического имени и `{{1}}`: у общих шаблонов их задаёт Skrezo, у шаблонов\nклиники показывается имя из Meta. Служебные шаблоны Meta\n(`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`) в каталоге не\nпоказываются.",
         "operationId": "list_templates_api_v1_clinic_whatsapp_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Свои шаблоны + общие платформы",
@@ -9787,13 +10089,18 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/clinic/whatsapp/templates/sync": {
@@ -9802,8 +10109,49 @@
           "whatsapp"
         ],
         "summary": "Синхронизировать шаблоны из кабинета Meta",
-        "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка\nне трогает. Дёргать после правок шаблонов в кабинете — расписания нет.",
+        "description": "Полная сверка с кабинетом Meta по WABA привязки: новые появляются,\nудалённые пропадают, статусы обновляются (момент смены статуса\nзапоминается — из него складывается `unavailableReason`). Общие шаблоны\nплатформы сверка не трогает. Дёргать после правок шаблонов в кабинете —\nрасписания нет.",
         "operationId": "sync_templates_api_v1_clinic_whatsapp_templates_sync_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Каталог после сверки",
@@ -9838,12 +10186,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/clinic/conversations/{conversation_id}/templates": {
@@ -10043,6 +10386,185 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/whatsapp/templates": {
+      "get": {
+        "tags": [
+          "whatsapp-admin"
+        ],
+        "summary": "Общие шаблоны WhatsApp платформы",
+        "description": "Общие шаблоны платформы — те, что видят все клиники (`shared: true`).\n\n`title` и `variableLabels` — то, что кабинеты клиник покажут вместо\nтехнического имени и `{{1}}`; без заданных значений отдаются имя из Meta\nи сами плейсхолдеры.",
+        "operationId": "admin_list_templates_api_v1_admin_whatsapp_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Каталог общих шаблонов с названиями и подписями переменных",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/whatsapp/templates/{template_id}": {
+      "patch": {
+        "tags": [
+          "whatsapp-admin"
+        ],
+        "summary": "Название и подписи переменных общего шаблона",
+        "description": "Задать понятное название и подписи переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
+        "operationId": "admin_set_template_labels_api_v1_admin_whatsapp_templates__template_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          },
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateLabelsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Шаблон после правки",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Общий шаблон не найден (шаблоны клиник здесь не правятся)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "template_not_found",
+                  "message": "Общий шаблон не найден"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Число подписей не совпало с числом переменных шаблона",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "labels_count_mismatch",
+                  "message": "Шаблон ждёт 2 подписей, передано 1",
+                  "expected": 2
                 }
               }
             }
@@ -12189,7 +12711,7 @@
           "ai"
         ],
         "summary": "Имитировать входящее сообщение пациента",
-        "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.",
+        "description": "Прогнать текст через боевой конвейер и вернуть результат синхронно.\n\nТребуется привязка номера клинике (`PUT /admin/clients/{id}/whatsapp`) и\nвключённый режим ассистента (`PUT /admin/clients/{id}/ai-mode`). При\n`shadow` ответ бота виден здесь, но пациенту бы не ушёл; при `off`\nсообщение просто сохраняется — как до Ф2.\n\n`dryRun` — пробный прогон для режима `auto`: конвейер работает как боевой,\nно ответ, кнопки и шаблоны в WhatsApp не уходят (у таких сообщений\n`sent: false`), а нажатие кнопки не создаёт приём и не меняет запись.\nДиалог сохраняется и виден в кабинете клиники. Резерв слота, карточка\nпациента и события для инбокса создаются как в боевом прогоне.",
         "operationId": "simulate_inbound_api_v1_admin_ai_simulate_inbound_post",
         "requestBody": {
           "content": {
@@ -17922,6 +18444,21 @@
             ],
             "title": "Entityid"
           },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "Раздел кабинета для перехода: диалог → `/chat/<id>`, приём и сводка → `/schedule`, платёж → `/patients/<id>`, подписка → `/pay`. Прямой адрес на `CABINET_URL` без редиректов — iOS откроет приложение, иначе браузер. `null` — у события нет раздела или адрес кабинета не настроен",
+            "examples": [
+              "https://office.skrezo.com/chat/6f1e0e6a-0c3b-4c2a-9c2e-1f2d3e4f5a6b"
+            ]
+          },
           "readAt": {
             "anyOf": [
               {
@@ -19086,6 +19623,58 @@
         ],
         "title": "MarkReadResponse"
       },
+      "MarkRemindedRequest": {
+        "properties": {
+          "patientId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patientid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReminderKind",
+            "description": "Повод: recall — повторный осмотр, debt — долг по приёму, visit — предстоящий приём, other — прочее",
+            "examples": [
+              "recall"
+            ]
+          },
+          "appointmentId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appointmentid",
+            "description": "Приём-источник повода: долг по нему, визит или последний осмотр"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "Что сказал пациент или как связались",
+            "examples": [
+              "Позвонили, обещала прийти в октябре"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "patientId",
+          "kind"
+        ],
+        "title": "MarkRemindedRequest",
+        "description": "Отметка «напомнили»: кому, по какому поводу, что сказали."
+      },
       "MeResponse": {
         "properties": {
           "account": {
@@ -20167,6 +20756,22 @@
             "examples": [
               150000
             ]
+          },
+          "lastReminderAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastreminderat",
+            "description": "Последняя отметка «напомнили» в этой клинике (`POST /clinic/reminders/marks`); `null` — не напоминали",
+            "examples": [
+              "2026-09-20T11:40:00+06:00"
+            ]
           }
         },
         "type": "object",
@@ -20176,7 +20781,7 @@
           "firstName"
         ],
         "title": "PatientListItem",
-        "description": "Пациент в списке клиники — с последним визитом и долгом в этой клинике.",
+        "description": "Пациент в списке клиники — с последним визитом, долгом и отметкой «напомнили».",
         "example": {
           "birthDate": "1990-04-12",
           "debtTiyin": 150000,
@@ -20184,6 +20789,7 @@
           "gender": "female",
           "id": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60",
           "lastName": "Асанова",
+          "lastReminderAt": "2026-09-20T11:40:00+06:00",
           "lastVisitAt": "2026-03-14T10:00:00+06:00",
           "phone": "+996700123456"
         }
@@ -21713,6 +22319,157 @@
         ],
         "title": "RegressionRunsResponse"
       },
+      "ReminderKind": {
+        "type": "string",
+        "enum": [
+          "recall",
+          "debt",
+          "visit",
+          "other"
+        ],
+        "title": "ReminderKind",
+        "description": "Повод напоминания — по нему экран «Напоминания» группирует отметки."
+      },
+      "ReminderMarkDeletedResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "ReminderMarkDeletedResponse",
+        "description": "Подтверждение удаления отметки."
+      },
+      "ReminderMarkOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "patientId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patientid"
+          },
+          "patientName": {
+            "type": "string",
+            "title": "Patientname",
+            "examples": [
+              "Асанова Айгүл"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReminderKind"
+          },
+          "appointmentId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appointmentid"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "markedByMembershipId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markedbymembershipid",
+            "description": "Кто отметил (членство); null — сотрудник удалён"
+          },
+          "markedByName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markedbyname",
+            "examples": [
+              "Иванова Айнура"
+            ]
+          },
+          "markedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Markedat",
+            "description": "Когда отметили, в таймзоне клиники",
+            "examples": [
+              "2026-09-27T11:40:00+06:00"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "patientId",
+          "patientName",
+          "kind",
+          "markedAt"
+        ],
+        "title": "ReminderMarkOut",
+        "description": "Отметка в журнале — с именами пациента и сотрудника."
+      },
+      "ReminderMarksResponse": {
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/ReminderMarkOut"
+            },
+            "type": "array",
+            "title": "List"
+          },
+          "totalCount": {
+            "type": "integer",
+            "title": "Totalcount"
+          },
+          "currentPage": {
+            "type": "integer",
+            "title": "Currentpage"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "list",
+          "totalCount",
+          "currentPage",
+          "pageSize"
+        ],
+        "title": "ReminderMarksResponse",
+        "description": "Журнал отметок (offset-пагинация, последние сверху)."
+      },
       "ReplaceItemsRequest": {
         "properties": {
           "items": {
@@ -22665,6 +23422,12 @@
             "examples": [
               "hold:6f1e0e6a-…"
             ]
+          },
+          "dryRun": {
+            "type": "boolean",
+            "title": "Dryrun",
+            "description": "Пробный прогон: ответ бота, кнопки и шаблоны считаются и сохраняются в диалог, но в WhatsApp не уходят; нажатие кнопки не создаёт приём и не меняет запись. Диалог виден в кабинете клиники",
+            "default": false
           }
         },
         "type": "object",
@@ -22686,7 +23449,13 @@
           "outcome": {
             "type": "string",
             "title": "Outcome",
-            "description": "sent | shadow | draft | escalated | skipped | deferred"
+            "description": "sent | shadow | draft | escalated | skipped | deferred | button; при `dryRun` `sent` значит «ушло бы»"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "title": "Dryrun",
+            "description": "Прогон был пробным: сообщения бота не отправлялись (`sent: false`)",
+            "default": false
           },
           "botReply": {
             "anyOf": [
@@ -23611,6 +24380,50 @@
         "title": "TelemetryRowOut",
         "description": "Доставляемость по паре (платформа, провайдер)."
       },
+      "TemplateLabelsRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Понятное название для кабинетов клиник; null — вернуть имя из Meta",
+            "examples": [
+              "Напоминание о приёме"
+            ]
+          },
+          "variableLabels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variablelabels",
+            "description": "Подписи переменных по порядку плейсхолдеров — ровно столько, сколько переменных у шаблона; не передано — не меняются",
+            "examples": [
+              [
+                "Имя",
+                "Дата и время"
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "title": "TemplateLabelsRequest",
+        "description": "Название и подписи переменных общего шаблона платформы (правит Skrezo)."
+      },
       "TemplateOut": {
         "properties": {
           "id": {
@@ -23622,6 +24435,14 @@
             "type": "string",
             "title": "Metaname",
             "description": "Имя шаблона в кабинете Meta"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Понятное название для интерфейса: у общих шаблонов платформы его задаёт Skrezo, у шаблонов клиники — имя из Meta",
+            "examples": [
+              "Напоминание о приёме"
+            ]
           },
           "lang": {
             "type": "string",
@@ -23651,10 +24472,52 @@
             "title": "Variables",
             "description": "Плейсхолдеры тела по порядку — столько переменных ждёт отправка"
           },
+          "variableLabels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Variablelabels",
+            "description": "Подписи переменных по порядку плейсхолдеров («Имя», «Дата и время»); без подписи — сам плейсхолдер `{{1}}`",
+            "examples": [
+              [
+                "Имя",
+                "Дата и время"
+              ]
+            ]
+          },
           "status": {
             "type": "string",
             "title": "Status",
             "description": "approved | pending | rejected | paused | disabled; отправка — только approved"
+          },
+          "statusChangedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statuschangedat",
+            "description": "Когда синхронизация увидела текущий статус; null — до появления поля"
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailablereason",
+            "description": "Почему шаблон нельзя отправить, на языке запроса (`?lang`, Accept-Language); null — можно",
+            "examples": [
+              "На проверке в Meta с 20 сентября"
+            ]
           },
           "shared": {
             "type": "boolean",
@@ -23666,10 +24529,12 @@
         "required": [
           "id",
           "metaName",
+          "title",
           "lang",
           "category",
           "bodyPreview",
           "variables",
+          "variableLabels",
           "status",
           "shared"
         ],
@@ -25624,6 +26489,11 @@
       "x-displayName": "Касса клиники"
     },
     {
+      "name": "reminders",
+      "description": "Отметки «напомнили»: журнал связи сотрудника с пациентом по поводу — повторный осмотр, долг, визит. Хранятся на сервере и видны всем администраторам клиники (право `reminders.manage`); последняя отметка пациента — `lastReminderAt` в списке пациентов.",
+      "x-displayName": "Напоминания"
+    },
+    {
       "name": "reports",
       "description": "Операционные отчёты клиники: выручка, врачи, услуги, пациенты. Право `reports.view_all` — вся клиника, `reports.view_own` — только свои приёмы.",
       "x-displayName": "Отчёты клиники"
@@ -25657,6 +26527,11 @@
       "name": "whatsapp",
       "description": "Канал WhatsApp Cloud API: вебхук Meta, диалоги пациентов с фильтрами «Ждут ответа» / «Нужен человек», счётчиками и отметкой прочитанного, поиск по переписке, ответы клиники (право `conversations.manage`), медиа и расшифровки голосовых, привязка номера из админки. Свободный текст — только в 24-часовое окно после сообщения пациента; дальше — одобренные шаблоны (те же, что у напоминаний). Не путать с OTP-каналами доставки кодов.",
       "x-displayName": "WhatsApp (переписка)"
+    },
+    {
+      "name": "whatsapp-admin",
+      "description": "Общие шаблоны WhatsApp платформы: каталог и понятные названия с подписями переменных для кабинетов клиник (только `is_platform_admin`).",
+      "x-displayName": "WhatsApp (Skrezo)"
     },
     {
       "name": "usage",
@@ -25746,6 +26621,7 @@
       "name": "WhatsApp и AI-ассистент",
       "tags": [
         "whatsapp",
+        "whatsapp-admin",
         "ai"
       ]
     },
@@ -25759,6 +26635,7 @@
         "services",
         "appointments",
         "cash",
+        "reminders",
         "reports",
         "subscription",
         "clinic-settings",

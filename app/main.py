@@ -47,6 +47,7 @@ from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
 from app.modules.push.presentation.routes import router as push_router
+from app.modules.reminders.presentation.routes import router as reminders_router
 from app.modules.reports.presentation.routes import admin_router as reports_admin_router
 from app.modules.reports.presentation.routes import router as reports_router
 from app.modules.schedule.presentation.routes import router as schedule_router
@@ -58,6 +59,7 @@ from app.modules.subscriptions.presentation.routes import (
 from app.modules.subscriptions.presentation.routes import router as subscription_router
 from app.modules.tariffs.presentation.routes import router as tariffs_router
 from app.modules.usage.presentation.routes import router as usage_router
+from app.modules.whatsapp.presentation.routes import admin_router as whatsapp_admin_router
 from app.modules.whatsapp.presentation.routes import router as whatsapp_router
 from app.realtime import build_asgi, sio
 from app.realtime.listener import run_realtime_listener
@@ -171,6 +173,16 @@ OPENAPI_TAGS = [
         "description": "Касса клиники: платежи и возвраты по приёмам, долги, сводка.",
     },
     {
+        "name": "reminders",
+        "x-displayName": "Напоминания",
+        "description": (
+            "Отметки «напомнили»: журнал связи сотрудника с пациентом по поводу — "
+            "повторный осмотр, долг, визит. Хранятся на сервере и видны всем "
+            "администраторам клиники (право `reminders.manage`); последняя отметка "
+            "пациента — `lastReminderAt` в списке пациентов."
+        ),
+    },
+    {
         "name": "reports",
         "x-displayName": "Отчёты клиники",
         "description": (
@@ -247,6 +259,14 @@ OPENAPI_TAGS = [
             "текст — только в 24-часовое окно после сообщения пациента; дальше — "
             "одобренные шаблоны (те же, что у напоминаний). Не путать с "
             "OTP-каналами доставки кодов."
+        ),
+    },
+    {
+        "name": "whatsapp-admin",
+        "x-displayName": "WhatsApp (Skrezo)",
+        "description": (
+            "Общие шаблоны WhatsApp платформы: каталог и понятные названия с подписями "
+            "переменных для кабинетов клиник (только `is_platform_admin`)."
         ),
     },
     {
@@ -369,7 +389,7 @@ OPENAPI_TAG_GROUPS = [
     },
     {
         "name": "WhatsApp и AI-ассистент",
-        "tags": ["whatsapp", "ai"],
+        "tags": ["whatsapp", "whatsapp-admin", "ai"],
     },
     {
         "name": "Рабочее приложение клиники",
@@ -381,6 +401,7 @@ OPENAPI_TAG_GROUPS = [
             "services",
             "appointments",
             "cash",
+            "reminders",
             "reports",
             "subscription",
             "clinic-settings",
@@ -475,6 +496,7 @@ def create_app() -> FastAPI:
     app.include_router(services_router, prefix=settings.api_v1_prefix)
     app.include_router(appointments_router, prefix=settings.api_v1_prefix)
     app.include_router(cash_router, prefix=settings.api_v1_prefix)
+    app.include_router(reminders_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
     app.include_router(subscription_router, prefix=settings.api_v1_prefix)
     app.include_router(clinic_settings_router, prefix=settings.api_v1_prefix)
@@ -489,6 +511,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix=settings.api_v1_prefix)
     app.include_router(push_router, prefix=settings.api_v1_prefix)
     app.include_router(whatsapp_router, prefix=settings.api_v1_prefix)
+    app.include_router(whatsapp_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(usage_router, prefix=settings.api_v1_prefix)
     app.include_router(ai_router, prefix=settings.api_v1_prefix)
 

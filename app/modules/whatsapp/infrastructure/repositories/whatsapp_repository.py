@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import case, delete, func, or_, select, true, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -19,7 +20,7 @@ from app.modules.whatsapp.domain.models import ConversationCounters, Conversatio
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, WhatsAppMode
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
-from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic import DEFAULT_TIMEZONE, Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
@@ -510,7 +511,8 @@ class WhatsAppRepository:
         Полная сверка, а не только upsert: шаблон, удалённый в кабинете,
         должен пропасть и у нас — иначе клиника отправляет в несуществующее
         и получает молчаливый отказ Graph API. Общие шаблоны платформы
-        (``clinic_id IS NULL``) сверка не трогает.
+        (``clinic_id IS NULL``) сверка не трогает. Момент смены статуса
+        запоминается здесь же: по нему кабинет объясняет «на проверке с …».
         """
         keys = [(t.meta_name, t.lang) for t in items]
         stale = delete(WhatsAppTemplate).where(WhatsAppTemplate.clinic_id == clinic_id)
@@ -528,13 +530,19 @@ class WhatsAppRepository:
                 )
             ).scalars()
         }
+        now = datetime.now(UTC)
         for info in items:
             row = existing.get((info.meta_name, info.lang))
             if row is None:
                 row = WhatsAppTemplate(
-                    clinic_id=clinic_id, meta_name=info.meta_name, lang=info.lang
+                    clinic_id=clinic_id,
+                    meta_name=info.meta_name,
+                    lang=info.lang,
+                    status_changed_at=now,
                 )
                 self._session.add(row)
+            elif row.status != info.status:
+                row.status_changed_at = now
             row.category = info.category
             row.body_preview = info.body_preview
             row.variables = list(info.variables)
@@ -600,3 +608,34 @@ class WhatsAppRepository:
                 )
             )
         ).scalar_one_or_none()
+
+    async def common_templates(self) -> list[WhatsAppTemplate]:
+        """Общие шаблоны платформы (``clinic_id IS NULL``) — каталог для админки."""
+        rows = (
+            await self._session.execute(
+                select(WhatsAppTemplate)
+                .where(WhatsAppTemplate.clinic_id.is_(None))
+                .order_by(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang)
+            )
+        ).scalars()
+        return list(rows)
+
+    async def common_template(self, template_id: uuid.UUID) -> WhatsAppTemplate | None:
+        """Общий шаблон платформы по id; шаблон клиники сюда не попадает."""
+        return (
+            await self._session.execute(
+                select(WhatsAppTemplate).where(
+                    WhatsAppTemplate.id == template_id, WhatsAppTemplate.clinic_id.is_(None)
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def clinic_tz(self, clinic_id: uuid.UUID) -> ZoneInfo:
+        """Таймзона клиники — для дат в причинах недоступности шаблонов."""
+        name = (
+            await self._session.execute(select(Clinic.timezone).where(Clinic.id == clinic_id))
+        ).scalar_one_or_none()
+        try:
+            return ZoneInfo(name or DEFAULT_TIMEZONE)
+        except ZoneInfoNotFoundError, ValueError:
+            return ZoneInfo(DEFAULT_TIMEZONE)

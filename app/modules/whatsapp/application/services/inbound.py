@@ -46,6 +46,10 @@ logger = structlog.get_logger(__name__)
 _MEDIA_TYPES = ("image", "audio", "video", "document", "sticker")
 
 
+#: Ответ в диалог на кнопку напоминания в пробном прогоне (в WhatsApp не уходит).
+_DRY_RUN_REMINDER_NOTE = "Пробный прогон: подтверждение по кнопке напоминания не применено."
+
+
 def _normalize_phone(raw: str) -> str:
     """Номер из вебхука — к каноническому E.164 (как ``patient.phone``).
 
@@ -132,6 +136,8 @@ class InboundProcessor:
         repository: WhatsAppRepository,
         client: WhatsAppCloudClient,
         speech: SpeechProvider | None = None,
+        *,
+        dry_run: bool = False,
     ) -> None:
         self._session = session
         self._repository = repository
@@ -139,6 +145,9 @@ class InboundProcessor:
         # ``None`` — распознавание не настроено: голосовое сохраняется как есть
         # и уходит человеку (§11), выдуманной расшифровки не бывает.
         self._speech = speech
+        # Пробный прогон симулятора: кнопка подтверждения не создаёт приём и не
+        # меняет запись; отправку наружу глушит подменённый ``client``.
+        self._dry_run = dry_run
         self._meter = UsageMeter(session)
 
     async def process(self, payload: dict[str, Any]) -> list[InboundRef]:
@@ -339,14 +348,22 @@ class InboundProcessor:
         )
 
     async def _confirm_booking(self, conversation: AiConversation, button_id: str) -> None:
-        """Создать приём по кнопке и ответить пациенту шаблоном (не моделью)."""
+        """Создать приём по кнопке и ответить пациенту шаблоном (не моделью).
+
+        В пробном прогоне (``dry_run``) запись не создаётся и не меняется: для
+        кнопки записи возвращается текст, который увидел бы пациент, а кнопки
+        напоминаний (визит, повторный осмотр) не применяются вовсе — они меняют
+        статус настоящего приёма.
+        """
         from app.modules.ai.application.booking import BookingService
 
         # Локальные копии: внутри confirm возможен rollback (гонка за слот),
         # который протухает загруженные ORM-объекты — доступ к их атрибутам
         # после него падал бы MissingGreenlet.
         clinic_id = conversation.clinic_id
-        if button_id.startswith("visit:"):
+        if button_id.startswith(("visit:", "recall:")) and self._dry_run:
+            reply_text = _DRY_RUN_REMINDER_NOTE
+        elif button_id.startswith("visit:"):
             from app.modules.ai.application.visits import VisitReminderService
 
             reply_text = await VisitReminderService(self._session, self._client).handle_button(
@@ -359,7 +376,9 @@ class InboundProcessor:
                 conversation, button_id
             )
         else:
-            reply_text = await BookingService(self._session).confirm(conversation, button_id)
+            reply_text = await BookingService(self._session).confirm(
+                conversation, button_id, dry_run=self._dry_run
+            )
         await self._session.refresh(conversation)
         binding = await self._repository.binding_by_clinic(clinic_id)
         wa_message_id: str | None = None

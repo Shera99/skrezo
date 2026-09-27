@@ -23,7 +23,7 @@ import itertools
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -575,6 +575,97 @@ async def test_templates_sync_full_reconciliation(
     listed = await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
     assert listed.status_code == 200
     assert {t["metaName"] for t in listed.json()["list"]} == {"visit_reminder"}
+
+
+async def test_template_catalog_explains_unavailability_and_labels(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    fake_graph: _FakeGraphClient,
+) -> None:
+    """Каталог отдаёт название, подписи переменных и причину недоступности с датой."""
+    await _bind_with_waba(admin_client, ctx)
+    synced = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    assert synced.status_code == 200, synced.text
+    by_name = {t["metaName"]: t for t in synced.json()["list"]}
+    approved = by_name["visit_reminder"]
+    assert approved["unavailableReason"] is None
+    assert approved["title"] == "visit_reminder"  # у шаблона клиники — имя из Meta
+    assert approved["variableLabels"] == ["{{1}}", "{{2}}"]
+    assert approved["statusChangedAt"] is not None
+    pending = by_name["promo"]
+    assert pending["unavailableReason"].startswith("На проверке в Meta с ")
+
+    english = await client.get(
+        f"{API}/clinic/whatsapp/templates", headers=ctx.headers, params={"lang": "en"}
+    )
+    assert english.status_code == 200, english.text
+    promo_en = next(t for t in english.json()["list"] if t["metaName"] == "promo")
+    assert promo_en["unavailableReason"].startswith("Under review by Meta since ")
+
+    # Meta одобрила шаблон — после сверки причина пропадает.
+    fake_graph.templates = [_REMINDER, replace(_PENDING, status="approved")]
+    again = await client.post(f"{API}/clinic/whatsapp/templates/sync", headers=ctx.headers)
+    promo = next(t for t in again.json()["list"] if t["metaName"] == "promo")
+    assert promo["status"] == "approved" and promo["unavailableReason"] is None
+
+
+async def test_admin_sets_title_and_labels_of_common_template(
+    admin_client: AsyncClient, client: AsyncClient, ctx: ClinicCtx, _resources: Resources
+) -> None:
+    """Skrezo подписывает общий шаблон, кабинет клиники видит подписи; число подписей строгое."""
+    # Общий шаблон платформы заводит Skrezo в БД (clinic_id NULL) — API создания нет.
+    async with _resources.factory() as session:
+        row = WhatsAppTemplate(
+            clinic_id=None,
+            meta_name="debt_reminder_common",
+            lang="ru",
+            category="UTILITY",
+            body_preview="{{1}}, у вас долг {{2}}.",
+            variables=["1", "2"],
+            status="approved",
+        )
+        session.add(row)
+        await session.commit()
+        template_id = str(row.id)
+
+    listed = await admin_client.get(f"{API}/admin/whatsapp/templates")
+    assert listed.status_code == 200, listed.text
+    assert template_id in {t["id"] for t in listed.json()["list"]}
+
+    mismatch = await admin_client.patch(
+        f"{API}/admin/whatsapp/templates/{template_id}", json={"variableLabels": ["Имя"]}
+    )
+    assert mismatch.status_code == 422, mismatch.text
+    assert mismatch.json()["error"] == "labels_count_mismatch"
+
+    updated = await admin_client.patch(
+        f"{API}/admin/whatsapp/templates/{template_id}",
+        json={"title": "Напоминание о долге", "variableLabels": ["Имя", "Сумма"]},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Напоминание о долге"
+    assert updated.json()["variableLabels"] == ["Имя", "Сумма"]
+
+    catalog = await client.get(f"{API}/clinic/whatsapp/templates", headers=ctx.headers)
+    assert catalog.status_code == 200, catalog.text
+    shared = next(t for t in catalog.json()["list"] if t["id"] == template_id)
+    assert shared["shared"] is True
+    assert shared["title"] == "Напоминание о долге"
+    assert shared["variableLabels"] == ["Имя", "Сумма"]
+
+    # Пустое название возвращает имя из Meta; неизвестный id → 404.
+    cleared = await admin_client.patch(
+        f"{API}/admin/whatsapp/templates/{template_id}", json={"title": None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["title"] == "debt_reminder_common"
+    assert cleared.json()["variableLabels"] == ["Имя", "Сумма"]  # подписи не тронуты
+    missing = await admin_client.patch(
+        f"{API}/admin/whatsapp/templates/{uuid.uuid4()}", json={"title": "x"}
+    )
+    assert missing.status_code == 404, missing.text
+    assert missing.json()["error"] == "template_not_found"
 
 
 async def test_sync_without_creds_keeps_catalog(

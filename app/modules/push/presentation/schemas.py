@@ -109,11 +109,21 @@ class InboxItemOut(CamelModel):
         default=None, description="Куда ведёт запись (`appointment`, `payment`…)"
     )
     entity_id: uuid.UUID | None = None
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Раздел кабинета для перехода: диалог → `/chat/<id>`, приём и сводка → "
+            "`/schedule`, платёж → `/patients/<id>`, подписка → `/pay`. Прямой адрес на "
+            "`CABINET_URL` без редиректов — iOS откроет приложение, иначе браузер. "
+            "`null` — у события нет раздела или адрес кабинета не настроен"
+        ),
+        examples=["https://office.skrezo.com/chat/6f1e0e6a-0c3b-4c2a-9c2e-1f2d3e4f5a6b"],
+    )
     read_at: datetime | None = None
     created_at: datetime
 
     @classmethod
-    def from_orm_item(cls, i: InboxItem) -> InboxItemOut:
+    def from_orm_item(cls, i: InboxItem, *, url: str | None = None) -> InboxItemOut:
         return cls(
             id=i.id,
             type=i.type,
@@ -122,6 +132,7 @@ class InboxItemOut(CamelModel):
             body=i.body,
             entity_type=i.entity_type,
             entity_id=i.entity_id,
+            url=url,
             read_at=i.read_at,
             created_at=i.created_at,
         )

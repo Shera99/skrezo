@@ -24,6 +24,8 @@ class PatientListRow:
     last_visit_at: datetime | None = None
     #: Долг пациента в этой клинике: сумма остатков завершённых приёмов.
     debt_tiyin: int = 0
+    #: Последняя отметка «напомнили» в этой клинике — чтобы экран не звонил дважды.
+    last_reminder_at: datetime | None = None
 
 
 @dataclass(slots=True)

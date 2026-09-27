@@ -52,6 +52,7 @@ from app.shared.db.models.permission import Permission
 from app.shared.db.models.platform_payment import PlatformPayment
 from app.shared.db.models.push_event import PushEvent
 from app.shared.db.models.push_job import PushJob
+from app.shared.db.models.reminder_mark import ReminderMark
 from app.shared.db.models.role import Role
 from app.shared.db.models.role_permission import RolePermission
 from app.shared.db.models.service import Service
@@ -112,6 +113,7 @@ __all__ = [
     "PlatformPayment",
     "PushEvent",
     "PushJob",
+    "ReminderMark",
     "Role",
     "RolePermission",
     "Service",

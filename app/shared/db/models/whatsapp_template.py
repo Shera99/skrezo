@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,3 +58,16 @@ class WhatsAppTemplate(Base, UUIDPKMixin, TimestampMixin):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    # Момент последней смены статуса при синхронизации — из него складывается
+    # причина недоступности «на проверке в Meta с 20 сентября». NULL у строк,
+    # сверенных до появления поля: момент неизвестен, дата не показывается.
+    status_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Понятное название и подписи переменных — только у общих шаблонов платформы
+    # (их пишет команда Skrezo в админке). У шаблона клиники показывается имя из
+    # Meta, а подписи — сами плейсхолдеры.
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    variable_labels: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )

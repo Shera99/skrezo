@@ -463,7 +463,7 @@ make run           # uvicorn с автоперезагрузкой
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/patients` | Пациенты этой клиники (у кого есть приём), поиск/пагинация, `pageSize` 1–100 (`patients.view`). У каждого — `lastVisitAt` (последний завершённый приём) и `debtTiyin` (долг по правилам кассы) в этой клинике; долг виден всем с доступом к пациентам |
+| `GET` | `/clinic/patients` | Пациенты этой клиники (у кого есть приём), поиск/пагинация, `pageSize` 1–100 (`patients.view`). У каждого — `lastVisitAt` (последний завершённый приём), `debtTiyin` (долг по правилам кассы) и `lastReminderAt` (последняя отметка «напомнили») в этой клинике; долг виден всем с доступом к пациентам |
 | `GET` | `/clinic/patients/lookup?phone=` | Глобальный поиск по телефону для привязки (`patients.edit`) |
 | `POST` | `/clinic/patients` | Создать глобального пациента (409 с `patientId`, если телефон занят) |
 | `GET` · `PATCH` | `/clinic/patients/{id}` | Карточка + одонтограмма + заметка (`note`) / правка (нужна связь с клиникой) |
@@ -664,6 +664,22 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 > `refundableTiyin`, а возврат — `refundsPaymentId`, чтобы фронт не пересобирал
 > остаток сам.
 
+**Напоминания: отметки «напомнили» (клиент-сайд, право `reminders.manage`).**
+Экран «Напоминания» находит пациентов по `lastVisitAt` и `debtTiyin` из списка
+пациентов, а факт звонка или сообщения фиксирует на сервере — раньше отметки
+жили в браузере, и второй администратор их не видел. Отметка — журнал, не
+рассылка: автоматические напоминания ассистента (Ф7) живут отдельно.
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `POST` | `/clinic/reminders/marks` | Отметить: `patientId`, `kind` (`recall` / `debt` / `visit` / `other`), необязательные `appointmentId` и `comment`; чужой пациент или приём → 404 |
+| `GET` | `/clinic/reminders/marks?patientId=&kind=&from=&to=&page=&pageSize=` | Журнал (последние сверху); даты — сутки клиники целиком, без дат — за всё время |
+| `DELETE` | `/clinic/reminders/marks/{id}` | Снять ошибочную отметку; чужая → 404 |
+
+> У каждого пациента в списке есть `lastReminderAt` — последняя отметка в этой
+> клинике, чтобы экран не звонил дважды. Отметка и её снятие попадают в журнал
+> действий клиники (`reminders.mark`, `reminders.mark_remove`).
+
 **Настройки клиники (клиент-сайд).** Клиника ведёт себя сама; тариф ведёт Skrezo.
 
 | Метод | Путь | Описание |
@@ -833,7 +849,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/clinic/inbox?unread=&beforeId=&limit=` | Своя лента событий + `unreadCount` (бейдж); новые сверху |
+| `GET` | `/clinic/inbox?unread=&beforeId=&limit=` | Своя лента событий + `unreadCount` (бейдж); новые сверху. У записи — `url` раздела кабинета для перехода: диалог → `/chat/<id>`, приём и сводка → `/schedule`, платёж → `/patients/<id>`, подписка → `/pay` (прямой адрес на `CABINET_URL`, iOS откроет приложение) |
 | `POST` | `/clinic/inbox/{id}/read` | Отметить прочитанным (идемпотентно); чужая запись → 404 |
 | `POST` | `/clinic/inbox/read-all` | «Пока вас не было…» — всё прочитано одной кнопкой |
 | `POST` | `/clinic/inbox/displayed` | Подтвердить ПОКАЗ записей (пачкой, идемпотентно) — отменяет отложенные normal-пуши и пишет телеметрию |
@@ -878,8 +894,10 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `POST` | `/clinic/conversations/{id}/assistant` | `{active:false}` — «дальше отвечаю сам», `{active:true}` — вернуть диалог боту (эскалации закрываются); закрытый диалог возобновляется |
 | `GET` | `/clinic/conversations/{id}/messages?beforeId=&limit=` | История (новые сверху, курсор «старше id») |
 | `POST` | `/clinic/conversations/{id}/messages` | Ответ свободным текстом; окно закрыто → 422 `window_closed` |
-| `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы; служебные Meta (`hello_world`) скрыты |
-| `POST` | `/clinic/whatsapp/templates/sync` | Сверка с кабинетом Meta по WABA привязки (без кредов → 502); служебные шаблоны не сохраняются |
+| `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы; служебные Meta (`hello_world`) скрыты. У шаблона — `title` и `variableLabels` (у общих задаёт Skrezo, у своих — имя из Meta и `{{1}}`), `statusChangedAt` и `unavailableReason` на языке запроса («На проверке в Meta с 20 сентября»; `null` — можно отправлять) |
+| `POST` | `/clinic/whatsapp/templates/sync` | Сверка с кабинетом Meta по WABA привязки (без кредов → 502); служебные шаблоны не сохраняются; смена статуса запоминает момент |
+| `GET` | `/admin/whatsapp/templates` | Skrezo: общие шаблоны платформы с названиями и подписями |
+| `PATCH` | `/admin/whatsapp/templates/{id}` | Skrezo: `title` (null — имя из Meta) и `variableLabels` общего шаблона; подписей ровно по числу переменных, иначе 422 `labels_count_mismatch`; шаблон клиники → 404 |
 | `POST` | `/clinic/conversations/{id}/templates` | Отправить одобренный шаблон — работает и в закрытое окно; служебный Meta → 422 `template_service` |
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
 | `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
@@ -1327,7 +1345,7 @@ WhatsApp → воркер → контекст (промпт + карточка 
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `POST` | `/admin/ai/simulate-inbound` | Skrezo: имитация входящего WhatsApp (текст или `buttonPayload` — нажатие кнопки подтверждения) — прогон через боевой конвейер синхронно |
+| `POST` | `/admin/ai/simulate-inbound` | Skrezo: имитация входящего WhatsApp (текст или `buttonPayload` — нажатие кнопки подтверждения) — прогон через боевой конвейер синхронно. `dryRun: true` — пробный прогон для `auto`: ответ, кнопки и шаблоны в WhatsApp не уходят (`sent: false`), кнопка не создаёт приём и не меняет запись, диалог сохраняется и виден в кабинете |
 | `PUT` | `/admin/clients/{id}/ai-mode` | Режим ассистента клиники (off/shadow/assisted/auto) |
 | `GET` | `/clinic/glossary?status=` | Словарь + очередь предложений (`pending`) (`conversations.manage`) |
 | `POST` | `/clinic/glossary` | Термин вручную — действует сразу |

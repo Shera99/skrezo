@@ -30,6 +30,7 @@ from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.patient_tooth import PatientTooth
+from app.shared.db.models.reminder_mark import ReminderMark
 from app.shared.db.models.service import Service
 from app.shared.db.updates import apply_updates
 
@@ -117,7 +118,9 @@ class PatientRepository:
             .scalars()
             .all()
         )
-        stats = await self._visit_and_debt(clinic_id, [p.id for p in rows])
+        ids = [p.id for p in rows]
+        stats = await self._visit_and_debt(clinic_id, ids)
+        reminders = await self._last_reminders(clinic_id, ids)
         items = [
             PatientListRow(
                 id=p.id,
@@ -128,6 +131,7 @@ class PatientRepository:
                 gender=p.gender,
                 last_visit_at=stats.get(p.id, (None, 0))[0],
                 debt_tiyin=stats.get(p.id, (None, 0))[1],
+                last_reminder_at=reminders.get(p.id),
             )
             for p in rows
         ]
@@ -173,6 +177,19 @@ class PatientRepository:
             .group_by(Appointment.patient_id)
         )
         return {row[0]: (row[1], int(row[2])) for row in rows}
+
+    async def _last_reminders(
+        self, clinic_id: uuid.UUID, patient_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, datetime]:
+        """Последняя отметка «напомнили» по каждому пациенту страницы — одним запросом."""
+        if not patient_ids:
+            return {}
+        rows = await self._session.execute(
+            select(ReminderMark.patient_id, func.max(ReminderMark.marked_at))
+            .where(ReminderMark.clinic_id == clinic_id, ReminderMark.patient_id.in_(patient_ids))
+            .group_by(ReminderMark.patient_id)
+        )
+        return {row[0]: row[1] for row in rows}
 
     async def odontogram(self, patient_id: uuid.UUID) -> Sequence[PatientTooth]:
         return (

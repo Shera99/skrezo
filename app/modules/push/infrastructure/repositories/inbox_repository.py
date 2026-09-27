@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.inbox_item import InboxItem
 
 
@@ -101,3 +102,18 @@ class InboxRepository:
             .returning(InboxItem.id)
         )
         return len(list(result.scalars()))
+
+    async def patient_ids_by_payment(
+        self, payment_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, uuid.UUID]:
+        """Пациент каждой операции кассы — для ссылки «платёж → карточка пациента».
+
+        Запись инбокса помнит только сущность и её id; пациента платежа
+        поднимаем одним запросом на страницу, а не по записи.
+        """
+        if not payment_ids:
+            return {}
+        rows = await self._session.execute(
+            select(CashPayment.id, CashPayment.patient_id).where(CashPayment.id.in_(payment_ids))
+        )
+        return {row[0]: row[1] for row in rows}

@@ -87,6 +87,14 @@ class SimulateInboundRequest(CamelModel):
         ),
         examples=["hold:6f1e0e6a-…"],
     )
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "Пробный прогон: ответ бота, кнопки и шаблоны считаются и сохраняются в "
+            "диалог, но в WhatsApp не уходят; нажатие кнопки не создаёт приём и не "
+            "меняет запись. Диалог виден в кабинете клиники"
+        ),
+    )
 
 
 class SimulatedMessageOut(CamelModel):
@@ -100,7 +108,16 @@ class SimulateInboundResponse(CamelModel):
     """Результат прогона: как отработал настоящий конвейер."""
 
     conversation_id: uuid.UUID
-    outcome: str = Field(description="sent | shadow | draft | escalated | skipped | deferred")
+    outcome: str = Field(
+        description=(
+            "sent | shadow | draft | escalated | skipped | deferred | button; при `dryRun` "
+            "`sent` значит «ушло бы»"
+        )
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Прогон был пробным: сообщения бота не отправлялись (`sent: false`)",
+    )
     bot_reply: str | None = Field(default=None, description="Что ответил (или предложил) бот")
     escalation_reason: str | None = None
     messages: list[SimulatedMessageOut] = Field(description="Хвост диалога, новые снизу")

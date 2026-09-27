@@ -30,6 +30,7 @@ from app.modules.push.presentation.schemas import (
     InboxResponse,
 )
 from app.shared.auth import ClientContext
+from app.shared.cabinet_links import event_url
 from app.shared.realtime import publish_realtime
 
 router = APIRouter()
@@ -68,6 +69,9 @@ async def list_inbox(
 
     Прочитанность живёт на сервере: отметил на планшете — бейдж упадёт и на
     телефоне (клиент дотягивает по `unreadCount`, с Ф4 — мгновенно по сокету).
+    У записи есть `url` — раздел кабинета для перехода (переписка, расписание,
+    карточка пациента, оплата); приложение по-прежнему может строить переход
+    само по `type` и `entityId`.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
@@ -79,8 +83,23 @@ async def list_inbox(
         limit=limit,
     )
     count = await inbox.unread_count(context.account_id, context.clinic_id)
+    patients = await inbox.patient_ids_by_payment(
+        [i.entity_id for i in items if i.entity_type == "payment" and i.entity_id is not None]
+    )
     return InboxResponse(
-        items=[InboxItemOut.from_orm_item(i) for i in items], unread_count=count
+        items=[
+            InboxItemOut.from_orm_item(
+                i,
+                url=event_url(
+                    i.type,
+                    i.entity_type,
+                    i.entity_id,
+                    patient_id=patients.get(i.entity_id) if i.entity_id is not None else None,
+                ),
+            )
+            for i in items
+        ],
+        unread_count=count,
     )
 
 

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 
 from pydantic import Field
 
 from app.modules.whatsapp.domain.models import ConversationRow
+from app.modules.whatsapp.domain.templates import (
+    template_title,
+    unavailable_reason,
+    variable_labels,
+)
 from app.modules.whatsapp.domain.window import is_window_open
 from app.shared.api.schemas import CamelModel
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang, WhatsAppMode
@@ -287,29 +292,80 @@ class TemplateOut(CamelModel):
 
     id: uuid.UUID
     meta_name: str = Field(description="Имя шаблона в кабинете Meta")
+    title: str = Field(
+        description=(
+            "Понятное название для интерфейса: у общих шаблонов платформы его задаёт "
+            "Skrezo, у шаблонов клиники — имя из Meta"
+        ),
+        examples=["Напоминание о приёме"],
+    )
     lang: str = Field(description="Код языка Meta", examples=["ru"])
     category: str = Field(examples=["utility"])
     body_preview: str = Field(description="Текст тела с плейсхолдерами {{1}}, {{2}}…")
     variables: list[str] = Field(
         description="Плейсхолдеры тела по порядку — столько переменных ждёт отправка"
     )
+    variable_labels: list[str] = Field(
+        description=(
+            "Подписи переменных по порядку плейсхолдеров («Имя», «Дата и время»); без "
+            "подписи — сам плейсхолдер `{{1}}`"
+        ),
+        examples=[["Имя", "Дата и время"]],
+    )
     status: str = Field(
         description="approved | pending | rejected | paused | disabled; отправка — только approved"
+    )
+    status_changed_at: datetime | None = Field(
+        default=None,
+        description="Когда синхронизация увидела текущий статус; null — до появления поля",
+    )
+    unavailable_reason: str | None = Field(
+        default=None,
+        description=(
+            "Почему шаблон нельзя отправить, на языке запроса (`?lang`, Accept-Language); "
+            "null — можно"
+        ),
+        examples=["На проверке в Meta с 20 сентября"],
     )
     shared: bool = Field(description="Общий шаблон платформы (доступен всем клиникам)")
 
     @classmethod
-    def from_orm_template(cls, t: WhatsAppTemplate) -> TemplateOut:
+    def from_orm_template(
+        cls, t: WhatsAppTemplate, *, lang: Lang = Lang.RU, tz: tzinfo = UTC
+    ) -> TemplateOut:
         return cls(
             id=t.id,
             meta_name=t.meta_name,
+            title=template_title(t.meta_name, t.title),
             lang=t.lang,
             category=t.category,
             body_preview=t.body_preview,
             variables=[str(v) for v in t.variables],
+            variable_labels=variable_labels(t.variables, t.variable_labels),
             status=t.status,
+            status_changed_at=t.status_changed_at,
+            unavailable_reason=unavailable_reason(t.status, t.status_changed_at, lang, tz),
             shared=t.clinic_id is None,
         )
+
+
+class TemplateLabelsRequest(CamelModel):
+    """Название и подписи переменных общего шаблона платформы (правит Skrezo)."""
+
+    title: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Понятное название для кабинетов клиник; null — вернуть имя из Meta",
+        examples=["Напоминание о приёме"],
+    )
+    variable_labels: list[str] | None = Field(
+        default=None,
+        description=(
+            "Подписи переменных по порядку плейсхолдеров — ровно столько, сколько "
+            "переменных у шаблона; не передано — не меняются"
+        ),
+        examples=[["Имя", "Дата и время"]],
+    )
 
 
 class TemplatesResponse(CamelModel):

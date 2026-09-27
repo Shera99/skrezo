@@ -14,6 +14,9 @@ from app.modules.whatsapp.application.use_cases.list_conversations import (
 from app.modules.whatsapp.application.use_cases.mark_read import MarkConversationReadUseCase
 from app.modules.whatsapp.application.use_cases.send_message import SendMessageUseCase
 from app.modules.whatsapp.application.use_cases.send_template import SendTemplateUseCase
+from app.modules.whatsapp.application.use_cases.set_template_labels import (
+    SetTemplateLabelsUseCase,
+)
 from app.modules.whatsapp.application.use_cases.sync_templates import SyncTemplatesUseCase
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -80,3 +83,10 @@ def get_send_template_use_case(
     client: WhatsAppCloudClient = Depends(get_whatsapp_client),
 ) -> SendTemplateUseCase:
     return SendTemplateUseCase(session, repository, client)
+
+
+def get_set_template_labels_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+) -> SetTemplateLabelsUseCase:
+    return SetTemplateLabelsUseCase(session, repository)

@@ -313,7 +313,7 @@ class BookingService:
                 status_code=409,
             )
 
-    async def _confirm_change(self, hold: SlotHold, lang: str) -> str:
+    async def _confirm_change(self, hold: SlotHold, lang: str, *, dry_run: bool = False) -> str:
         """Перенос или отмена по кнопке — штатным use-case правки приёма.
 
         Идемпотентно, как и запись: повтор кнопки отвечает «уже выполнено».
@@ -342,9 +342,16 @@ class BookingService:
         ):
             # Пока пациент думал, запись изменилась (пришёл, отменили, прошла):
             # кнопка не должна ни отменять визит, ни двигать историю.
-            hold.consumed_at = now
-            await self._session.commit()
+            if not dry_run:
+                hold.consumed_at = now
+                await self._session.commit()
             return booking_text("appointment_gone", lang)
+        if dry_run:
+            # Пробный прогон: текст как при настоящем нажатии, запись не трогаем.
+            local = hold.starts_at.astimezone(await self._clinic_tz(hold.clinic_id))
+            return booking_text("rescheduled" if is_reschedule else "cancelled", lang).format(
+                summary=hold.summary, when=local.strftime("%d.%m %H:%M")
+            )
 
         hold_id, clinic_id = hold.id, hold.clinic_id
         starts_at, summary = hold.starts_at, hold.summary
@@ -412,7 +419,9 @@ class BookingService:
 
     # ── Подтверждение (зовёт ТОЛЬКО обработчик кнопки, не модель) ───────────
 
-    async def confirm(self, conversation: AiConversation, raw_button_id: str) -> str:
+    async def confirm(
+        self, conversation: AiConversation, raw_button_id: str, *, dry_run: bool = False
+    ) -> str:
         """Создать приём по нажатой кнопке; вернуть текст ответа пациенту.
 
         Идемпотентно: повторное нажатие отвечает «вы уже записаны», второй
@@ -420,6 +429,9 @@ class BookingService:
         действует». Гонка за слот разрешается штатной проверкой занятости
         (и EXCLUDE-констрейнтом) — пациенту уходит извинение и просьба выбрать
         другое время (§6.4: эскалация не нужна).
+
+        ``dry_run`` — пробный прогон симулятора: проверки и текст те же, но
+        приём не создаётся, а резерв не гасится.
         """
         lang = "ky" if conversation.lang is Lang.KG else "ru"
         try:
@@ -439,7 +451,7 @@ class BookingService:
         if hold is None:
             return booking_text("hold_missing", lang)
         if hold.kind != HOLD_BOOK:
-            return await self._confirm_change(hold, lang)
+            return await self._confirm_change(hold, lang, dry_run=dry_run)
         if hold.appointment_id is not None:
             return booking_text("already_booked", lang)
         if hold.consumed_at is not None:
@@ -448,6 +460,13 @@ class BookingService:
         now = datetime.now(UTC)
         if hold.expires_at < now:
             return booking_text("hold_expired", lang)
+        if dry_run:
+            # Пробный прогон: пациент увидел бы «вы записаны», но приёма нет и
+            # резерв остаётся живым — настоящее нажатие сработает как обычно.
+            local = hold.starts_at.astimezone(await self._clinic_tz(hold.clinic_id))
+            return booking_text("booked", lang).format(
+                summary=hold.summary, when=local.strftime("%d.%m %H:%M")
+            )
 
         # Пометка ДО use-case: его commit фиксирует резерв и приём атомарно.
         hold.consumed_at = now

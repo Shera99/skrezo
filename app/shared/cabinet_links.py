@@ -39,6 +39,50 @@ def pay_url(payment_id: uuid.UUID | None = None) -> str | None:
     return cabinet_url("pay", payment=str(payment_id))
 
 
+def patient_url(patient_id: uuid.UUID) -> str | None:
+    """Карточка пациента в кабинете."""
+    return cabinet_url(f"patients/{patient_id}")
+
+
+def chat_url(conversation_id: uuid.UUID) -> str | None:
+    """Переписка с пациентом (диалог WhatsApp)."""
+    return cabinet_url(f"chat/{conversation_id}")
+
+
+def assistant_learn_url(item_id: uuid.UUID) -> str | None:
+    """Обучение ассистента: карточка пробела знаний или предложения."""
+    return cabinet_url(f"assistant/learn/{item_id}")
+
+
+def schedule_url() -> str | None:
+    """Расписание клиники."""
+    return cabinet_url("schedule")
+
+
+def event_url(
+    event_type: str,
+    entity_type: str | None,
+    entity_id: uuid.UUID | None,
+    *,
+    patient_id: uuid.UUID | None = None,
+) -> str | None:
+    """Раздел кабинета для события каталога уведомлений; ``None`` — раздела нет.
+
+    Правило одно на все ленты: диалог → переписка, приём и сводка дня →
+    расписание, платёж → карточка пациента (когда пациент известен), подписка →
+    оплата. У событий о сотрудниках и ролях раздела нет.
+    """
+    if event_type.startswith("subscription."):
+        return pay_url()
+    if entity_type == "conversation" and entity_id is not None:
+        return chat_url(entity_id)
+    if entity_type == "appointment" or event_type.startswith("digest."):
+        return schedule_url()
+    if entity_type == "payment" and patient_id is not None:
+        return patient_url(patient_id)
+    return None
+
+
 def cabinet_host() -> str | None:
     """Домен кабинета без схемы — для привязки кода из SMS к сайту и приложению."""
     if not settings.cabinet_url:

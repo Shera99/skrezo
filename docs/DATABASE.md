@@ -28,6 +28,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | **Клиническое ядро** | `patient`, `patient_tooth`, `patient_file`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 | **Касса клиники** | `cash_payment` |
+| **Напоминания** | `reminder_mark` — отметки «напомнили» (пациент, повод, приём-источник, кто и когда) |
 
 ---
 

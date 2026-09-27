@@ -29,6 +29,8 @@ from app.modules.whatsapp.presentation.schemas import (
     TemplatesResponse,
 )
 from app.shared.auth import ClientContext
+from app.shared.db.enums import Lang
+from app.shared.i18n.lang import get_request_lang
 
 router = APIRouter()
 
@@ -75,18 +77,26 @@ _SEND_ERRORS: dict[int | str, dict[str, Any]] = {
 )
 async def list_templates(
     context: ClientContext = Depends(require_permission("conversations.manage")),
+    lang: Lang = Depends(get_request_lang),
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> TemplatesResponse:
     """Локальный каталог шаблонов — то, что интерфейс показывает вместо поля
-    ввода при закрытом окне. Отправлять можно только `status: approved`.
-    Служебные шаблоны Meta (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`)
-    в каталоге не показываются."""
+    ввода при закрытом окне. Отправлять можно только `status: approved`;
+    у остальных `unavailableReason` объясняет почему («На проверке в Meta с
+    20 сентября»). `title` и `variableLabels` — понятные слова вместо
+    технического имени и `{{1}}`: у общих шаблонов их задаёт Skrezo, у шаблонов
+    клиники показывается имя из Meta. Служебные шаблоны Meta
+    (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`) в каталоге не
+    показываются."""
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     items = await repository.list_templates(
         context.clinic_id, exclude_names=settings.wa_service_template_names
     )
-    return TemplatesResponse(list=[TemplateOut.from_orm_template(t) for t in items])
+    tz = await repository.clinic_tz(context.clinic_id)
+    return TemplatesResponse(
+        list=[TemplateOut.from_orm_template(t, lang=lang, tz=tz) for t in items]
+    )
 
 
 @router.post(
@@ -98,16 +108,23 @@ async def list_templates(
 )
 async def sync_templates(
     context: ClientContext = Depends(require_permission("conversations.manage")),
+    lang: Lang = Depends(get_request_lang),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
     use_case: SyncTemplatesUseCase = Depends(get_sync_templates_use_case),
 ) -> TemplatesResponse:
     """Полная сверка с кабинетом Meta по WABA привязки: новые появляются,
-    удалённые пропадают, статусы обновляются. Общие шаблоны платформы сверка
-    не трогает. Дёргать после правок шаблонов в кабинете — расписания нет.
+    удалённые пропадают, статусы обновляются (момент смены статуса
+    запоминается — из него складывается `unavailableReason`). Общие шаблоны
+    платформы сверка не трогает. Дёргать после правок шаблонов в кабинете —
+    расписания нет.
     """
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     items = await use_case.execute(context.clinic_id)
-    return TemplatesResponse(list=[TemplateOut.from_orm_template(t) for t in items])
+    tz = await repository.clinic_tz(context.clinic_id)
+    return TemplatesResponse(
+        list=[TemplateOut.from_orm_template(t, lang=lang, tz=tz) for t in items]
+    )
 
 
 @router.post(
