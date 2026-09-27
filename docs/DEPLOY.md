@@ -75,7 +75,50 @@ ufw default allow outgoing
 ufw allow OpenSSH
 ufw allow 'Nginx Full'
 ufw --force enable
-systemctl enable --now fail2ban       # jail sshd включён по умолчанию
+```
+
+SSH — только по ключу, root не входит. Публичный ключ уже должен лежать в
+`~/.ssh/authorized_keys` вашего пользователя с sudo (ниже — `skrezouser`; подставьте
+своё имя из `whoami`, иначе закроете себе вход). Текущую сессию не закрывайте, пока
+новое подключение не проверено:
+
+```bash
+cat > /etc/ssh/sshd_config.d/10-skrezo.conf <<'CONF'
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+MaxAuthTries 4
+LoginGraceTime 30
+AllowUsers skrezouser
+X11Forwarding no
+CONF
+sshd -t && systemctl restart ssh      # sshd -t — проверка синтаксиса до перезапуска
+```
+
+Файл `10-…` читается раньше `50-cloud-init.conf`, где облачный образ оставляет
+`PasswordAuthentication yes`, — побеждает первое значение, то есть наше. Пароль
+пользователю **не блокировать** (`passwd -l`): он нужен `sudo`; по SSH пароль уже не
+принимается. Проверка из второго окна: `ssh skrezouser@СЕРВЕР` входит без пароля,
+`ssh root@СЕРВЕР` — отказ.
+
+fail2ban — бан на сутки после 5 неудач за 10 минут; `backend = systemd` обязателен:
+без него на 24.04 jail не находит журнал sshd и не стартует:
+
+```bash
+cat > /etc/fail2ban/jail.local <<'CONF'
+[DEFAULT]
+bantime = 24h
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+backend = systemd
+CONF
+systemctl enable --now fail2ban && systemctl restart fail2ban
+fail2ban-client status sshd
 ```
 
 Журнал systemd — ограничить размер, иначе логи за год съедят диск:
