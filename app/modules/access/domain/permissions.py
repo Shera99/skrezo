@@ -113,6 +113,14 @@ PERMISSION_CATALOG: list[PermissionDef] = [
         "Настройки ассистента: ступени доверия и выключатель",
         is_write=True,
     ),
+    # Номер WhatsApp клиники: подключение через окно Meta и отключение. По
+    # умолчанию только у владельца — номер и бизнес-аккаунт принадлежат ему.
+    PermissionDef(
+        "whatsapp.manage",
+        "settings",
+        "Подключение и отключение номера WhatsApp клиники",
+        is_write=True,
+    ),
 ]
 
 ALL_PERMISSION_KEYS: tuple[str, ...] = tuple(p.key for p in PERMISSION_CATALOG)

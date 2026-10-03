@@ -24,6 +24,7 @@ import structlog
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.shared.ai import AiMessagePart, AiProvider, AiProviderError
 from app.shared.db.enums import AiMessageRole, AiMode
 from app.shared.db.models.ai_message import AiMessage
@@ -154,7 +155,7 @@ class AiHealthService:
         ).scalars()
         failed: list[str] = []
         for binding in bindings:
-            if not await self._wa.check_token(binding.phone_number_id):
+            if not await client_for(self._wa, binding).check_token(binding.phone_number_id):
                 failed.append(binding.phone_number_id)
         return failed
 

@@ -10030,6 +10030,96 @@
         }
       }
     },
+    "/api/v1/clinic/conversations/{conversation_id}/history": {
+      "get": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Архив переписки из приложения WhatsApp Business",
+        "description": "Переписка из приложения до подключения номера к Skrezo (Embedded Signup).\n\nПоказывается над живой лентой диалога: когда `GET …/messages` дошёл до\nначала, кабинет листает архив. Архив упорядочен по времени отправки и не\nучаствует в непрочитанных и в ответах ассистента. Пустой список — архива нет.",
+        "operationId": "get_history_api_v1_clinic_conversations__conversation_id__history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "beforeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`nextBeforeId` предыдущей страницы",
+              "title": "Beforeid"
+            },
+            "description": "`nextBeforeId` предыдущей страницы"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Сообщения до подключения номера, от свежих к старым",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Диалог не найден (или принадлежит другой клинике)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "conversation_not_found",
+                  "message": "Диалог не найден"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinic/whatsapp/templates": {
       "get": {
         "tags": [
@@ -10391,6 +10481,209 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/clinic/whatsapp": {
+      "get": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Номер WhatsApp клиники и параметры окна подключения",
+        "description": "Экран «WhatsApp» в настройках кабинета.\n\n`connected: false` и `signup.available: true` — показать кнопку «Подключить\nWhatsApp»: `FB.init` с `signup.appId` и `signup.graphApiVersion`, затем\n`FB.login` с `config_id = signup.configId`, `response_type: \"code\"`,\n`override_default_response_type: true` и `extras: {setup: {}, featureType:\nsignup.featureType, sessionInfoVersion: signup.sessionInfoVersion}`.\n`needsReconnect` заполнен — номер перестал работать, нужно пройти окно заново.",
+        "operationId": "get_whatsapp_connection_api_v1_clinic_whatsapp_get",
+        "responses": {
+          "200": {
+            "description": "Подключённый номер (или `connected: false`) и настройки окна Meta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Отключить номер WhatsApp от Skrezo",
+        "description": "Отписать Skrezo от аккаунта клиники и забыть её токен.\n\nПереписка, архив и контакты остаются; приложение WhatsApp Business на\nтелефоне продолжает работать. Подключить номер снова можно через окно Meta.",
+        "operationId": "disconnect_whatsapp_api_v1_clinic_whatsapp_delete",
+        "responses": {
+          "200": {
+            "description": "`connected: false`; переписка и архив сохраняются",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Номер не подключён",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "whatsapp_not_connected",
+                  "message": "WhatsApp не подключён к клинике"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/clinic/whatsapp/embedded-signup": {
+      "post": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Подключить номер через окно Meta (Embedded Signup)",
+        "description": "Завершить подключение после окна Meta.\n\nКабинет шлёт сюда `code` из колбэка `FB.login` и `wabaId` из события\n`WA_EMBEDDED_SIGNUP` сразу, не дожидаясь действий пользователя: код живёт 30\nсекунд. Бэкенд меняет код на токен клиники (хранится только\nзашифрованным), находит номер, подписывает Skrezo на вебхуки аккаунта и\nзапрашивает контакты и историю переписки приложения WhatsApp Business.\nПовторное подключение того же номера (после отзыва доступа) разрешено.",
+        "operationId": "connect_via_embedded_signup_api_v1_clinic_whatsapp_embedded_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddedSignupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Подключённый номер",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Код истёк, нет доступа к WABA (`waba_access_denied`), номер не найден (`phone_number_not_in_waba`), в WABA несколько номеров (`phone_number_required`, в теле — `phoneNumbers`) или номеров нет (`waba_has_no_numbers`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "signup_code_invalid",
+                  "message": "Код подключения недействителен или истёк — пройдите подключение ещё раз"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Подключён другой номер либо этот номер у другой клиники (`phone_number_taken`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "whatsapp_already_connected",
+                  "message": "К клинике уже подключён другой номер — сначала отключите его"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Meta не ответила или не завершила шаг (`meta_step_failed`, в теле — `step`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "meta_unavailable",
+                  "message": "Meta не ответила — попробуйте подключить номер ещё раз"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Приложение Meta или ключ шифрования не настроены на сервере",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "whatsapp_signup_unavailable",
+                  "message": "Подключение номера из кабинета пока не настроено — обратитесь в Skrezo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/clinic/whatsapp/refresh": {
+      "post": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Обновить состояние номера у Meta",
+        "description": "Перечитать имя, качество и доступ к номеру; успешный ответ снимает\nотметку «Meta не принимает доступ клиники», если она стояла.",
+        "operationId": "refresh_whatsapp_connection_api_v1_clinic_whatsapp_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Номер с актуальными именем, качеством и доступом",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Номер не подключён",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "whatsapp_not_connected",
+                  "message": "WhatsApp не подключён к клинике"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Meta не ответила",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "meta_unavailable",
+                  "message": "Meta не ответила — попробуйте обновить позже"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/admin/whatsapp/templates": {
@@ -16445,6 +16738,21 @@
             ],
             "title": "Patientname"
           },
+          "contactName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contactname",
+            "description": "Имя собеседника из адресной книги приложения WhatsApp Business клиники (номер подключён через Embedded Signup); показывать, пока нет `patientName`",
+            "examples": [
+              "Айгуль (чистка)"
+            ]
+          },
           "lang": {
             "$ref": "#/components/schemas/Lang"
           },
@@ -18211,6 +18519,134 @@
         "title": "DraftSendRequest",
         "description": "Отправить черновик; ``body`` — правка текста перед отправкой."
       },
+      "EmbeddedSignupConfigOut": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "description": "Можно ли подключить номер из кабинета. `false` — Skrezo ещё не настроил приложение Meta: кнопку подключения не показывать"
+          },
+          "appId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appid",
+            "description": "ID приложения Meta для `FB.init({appId})`",
+            "examples": [
+              "4438887573096444"
+            ]
+          },
+          "configId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configid",
+            "description": "ID конфигурации Facebook Login for Business для `FB.login({config_id})`",
+            "examples": [
+              "1234567890123456"
+            ]
+          },
+          "graphApiVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graphapiversion",
+            "description": "Версия Graph API для `FB.init({version})`",
+            "examples": [
+              "v23.0"
+            ]
+          },
+          "featureType": {
+            "type": "string",
+            "title": "Featuretype",
+            "description": "`extras.featureType` для `FB.login`: номер остаётся в приложении WhatsApp Business и работает в Skrezo одновременно",
+            "examples": [
+              "whatsapp_business_app_onboarding"
+            ]
+          },
+          "sessionInfoVersion": {
+            "type": "string",
+            "title": "Sessioninfoversion",
+            "description": "`extras.sessionInfoVersion` для `FB.login`",
+            "examples": [
+              "3"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "featureType",
+          "sessionInfoVersion"
+        ],
+        "title": "EmbeddedSignupConfigOut",
+        "description": "Параметры окна Meta для кабинета; все значения публичные, секретов нет."
+      },
+      "EmbeddedSignupRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "description": "`response.authResponse.code` из колбэка `FB.login`"
+          },
+          "wabaId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^\\d+$",
+            "title": "Wabaid",
+            "description": "`data.waba_id` из события `WA_EMBEDDED_SIGNUP` (FINISH…)",
+            "examples": [
+              "102290129340398"
+            ]
+          },
+          "phoneNumberId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonenumberid",
+            "description": "`data.phone_number_id` из события — есть у нового номера; у номера из приложения WhatsApp Business его нет, номер находится по WABA",
+            "examples": [
+              "106540352242922"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "wabaId"
+        ],
+        "title": "EmbeddedSignupRequest",
+        "description": "Что кабинет получил из окна Meta — отправить сразу: код живёт 30 секунд.",
+        "example": {
+          "code": "AQBx…",
+          "wabaId": "102290129340398"
+        }
+      },
       "EventPriority": {
         "type": "string",
         "enum": [
@@ -18353,6 +18789,97 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HistoryMessageOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ],
+            "title": "Direction",
+            "description": "`in` — написал собеседник, `out` — клиника из приложения"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "mediaType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediatype",
+            "description": "Тип вложения по словарю Meta; `media_placeholder` — медиа без файла"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "Статус из истории: DELIVERED / READ / PLAYED",
+            "examples": [
+              "READ"
+            ]
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sentat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "direction",
+          "body",
+          "sentAt"
+        ],
+        "title": "HistoryMessageOut",
+        "description": "Сообщение архива переписки из приложения WhatsApp Business."
+      },
+      "HistoryPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryMessageOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "nextBeforeId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextbeforeid",
+            "description": "Передать в `beforeId`, чтобы загрузить старше; `null` — архив кончился"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "HistoryPageResponse",
+        "description": "Страница архива: от свежих к старым."
       },
       "InboxDisplayedRequest": {
         "properties": {
@@ -26254,6 +26781,260 @@
         ],
         "title": "ValidationError"
       },
+      "WhatsAppAppSyncOut": {
+        "properties": {
+          "contactsRequestedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contactsrequestedat",
+            "description": "Когда запрошены контакты приложения"
+          },
+          "historyRequestedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historyrequestedat",
+            "description": "Когда запрошена история переписки"
+          },
+          "historyProgress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historyprogress",
+            "description": "Ход импорта истории по данным Meta, 0–100",
+            "examples": [
+              55
+            ]
+          },
+          "historySyncedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historysyncedat",
+            "description": "История загружена полностью"
+          },
+          "historyError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historyerror",
+            "description": "Почему истории не будет (клиника отказалась делиться в приложении и т.п.)"
+          }
+        },
+        "type": "object",
+        "title": "WhatsAppAppSyncOut",
+        "description": "Перенос данных приложения WhatsApp Business: контакты и история переписки."
+      },
+      "WhatsAppConnectionResponse": {
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "title": "Connected",
+            "description": "Номер подключён и принимает сообщения"
+          },
+          "phoneNumberId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonenumberid",
+            "description": "ID номера в Meta"
+          },
+          "displayPhone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayphone",
+            "examples": [
+              "+996700123456"
+            ]
+          },
+          "verifiedName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifiedname",
+            "description": "Отображаемое имя бизнеса, одобренное Meta"
+          },
+          "wabaId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wabaid",
+            "description": "WhatsApp Business Account клиники"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhatsAppMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`coexistence` — номер работает и в приложении WhatsApp Business; `api_only`"
+          },
+          "connectedVia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "embedded_signup"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connectedvia",
+            "description": "`embedded_signup` — подключила клиника сама; `manual` — команда Skrezo"
+          },
+          "connectedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connectedat"
+          },
+          "qualityRating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualityrating",
+            "description": "Рейтинг качества номера у Meta: GREEN / YELLOW / RED"
+          },
+          "statusCheckedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statuscheckedat",
+            "description": "Когда состояние номера последний раз спрашивали у Meta"
+          },
+          "needsReconnect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhatsAppReconnectOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Заполнено — номер не работает, нужно подключить заново"
+          },
+          "sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhatsAppAppSyncOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Перенос контактов и истории (только номер, подключённый клиникой сама)"
+          },
+          "signup": {
+            "$ref": "#/components/schemas/EmbeddedSignupConfigOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connected",
+          "signup"
+        ],
+        "title": "WhatsAppConnectionResponse",
+        "description": "Номер WhatsApp клиники и параметры окна подключения Meta.",
+        "example": {
+          "connected": true,
+          "connectedAt": "2026-10-04T09:15:00Z",
+          "connectedVia": "embedded_signup",
+          "displayPhone": "+996700123456",
+          "mode": "coexistence",
+          "phoneNumberId": "106540352242922",
+          "qualityRating": "GREEN",
+          "signup": {
+            "appId": "4438887573096444",
+            "available": true,
+            "configId": "1234567890123456",
+            "featureType": "whatsapp_business_app_onboarding",
+            "graphApiVersion": "v23.0",
+            "sessionInfoVersion": "3"
+          },
+          "statusCheckedAt": "2026-10-04T09:15:00Z",
+          "sync": {
+            "contactsRequestedAt": "2026-10-04T09:15:02Z",
+            "historyProgress": 100,
+            "historyRequestedAt": "2026-10-04T09:15:02Z",
+            "historySyncedAt": "2026-10-04T09:21:40Z"
+          },
+          "verifiedName": "Стоматология Улыбка",
+          "wabaId": "102290129340398"
+        }
+      },
       "WhatsAppMode": {
         "type": "string",
         "enum": [
@@ -26262,6 +27043,38 @@
         ],
         "title": "WhatsAppMode",
         "description": "Режим подключения номера клиники к Cloud API (§2.3 ТЗ ассистента)."
+      },
+      "WhatsAppReconnectOut": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "`partner_removed` — доступ отозван в Meta; `account_offboarded` — номер перерегистрирован в приложении на другом телефоне; `account_deleted`; `token_invalid` — Meta не принимает доступ клиники",
+            "examples": [
+              "partner_removed"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "Доступ Skrezo к аккаунту WhatsApp Business отозван в Meta"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "since",
+          "reason",
+          "message"
+        ],
+        "title": "WhatsAppReconnectOut",
+        "description": "Номер перестал работать у нас — клинике нужно пройти подключение заново."
       },
       "WorkerStatusResponse": {
         "properties": {

@@ -410,6 +410,36 @@ psql "postgresql://skrezo:$PG_PASS@127.0.0.1:6432/pgbouncer" -c 'SHOW POOLS;'
 - **Кабинет и мобильные приложения** — новый базовый адрес API.
 - **Шлюзы OTP/SMS**, если у них белый список IP, — добавить IP сервера.
 
+### Подключение номеров самими клиниками (Embedded Signup)
+
+Клиника подключает свой номер WhatsApp из кабинета через окно Meta; номер
+остаётся и в приложении WhatsApp Business. Для этого один раз:
+
+1. **Приложение Meta Skrezo** — бизнес подтверждён, приложение проверено Meta на
+   права `whatsapp_business_management` и `whatsapp_business_messaging`
+   (статус Tech Provider). Без этого окно работает только для тестировщиков
+   приложения.
+2. **Facebook Login for Business → конфигурация** с вариантом входа
+   «WhatsApp Embedded Signup»; её ID — в `WA_EMBEDDED_SIGNUP_CONFIG_ID`, ID
+   приложения — в `WA_CLOUD_APP_ID` (`WA_CLOUD_APP_SECRET` уже задан для вебхука).
+3. **Домен кабинета** (`CABINET_URL`, только https) — в разрешённые домены JS SDK
+   и Facebook Login приложения.
+4. **Вебхуки → WhatsApp Business Account**: подписать поля `messages`,
+   `smb_message_echoes`, `history`, `smb_app_state_sync`, `account_update`.
+   Без `history` и `smb_app_state_sync` окно не предложит номер из приложения.
+5. **Ключ шифрования токенов клиник** — в `.env` как `DATA_ENCRYPTION_KEY`:
+
+```bash
+sudo -u skrezo /opt/skrezo/app/.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Ключ хранить отдельно от бэкапов базы: потеряете его — все клиники, подключённые
+сами, должны будут пройти окно Meta заново. Ротация — новый ключ первым через
+запятую (`DATA_ENCRYPTION_KEY=новый,старый`), старый убрать после перешифровки.
+После правки `.env` — перезапуск API и воркеров. Кнопка подключения появляется
+в кабинете, когда заданы все четыре значения (`GET /clinic/whatsapp` →
+`signup.available: true`).
+
 ## Эксплуатация
 
 Всё ниже выполняется из-под своего пользователя с `sudo`; `sudo -i` и переходы в каталог

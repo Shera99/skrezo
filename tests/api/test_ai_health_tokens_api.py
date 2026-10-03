@@ -15,6 +15,9 @@ class _CountingWa:
         self.alive = alive
         self.checked: list[str] = []
 
+    def for_token(self, access_token: str | None) -> _CountingWa:
+        return self  # у привязок теста нет своего токена клиники
+
     async def check_token(self, phone_number_id: str) -> bool:
         self.checked.append(phone_number_id)
         return self.alive

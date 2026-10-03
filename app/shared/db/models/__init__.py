@@ -64,6 +64,8 @@ from app.shared.db.models.subscription import Subscription
 from app.shared.db.models.subscription_event import SubscriptionEvent
 from app.shared.db.models.tariff_package import TariffPackage
 from app.shared.db.models.tariff_version import TariffVersion
+from app.shared.db.models.whatsapp_contact import WhatsAppContact
+from app.shared.db.models.whatsapp_history_message import WhatsAppHistoryMessage
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 
 __all__ = [
@@ -125,5 +127,7 @@ __all__ = [
     "SubscriptionEvent",
     "TariffPackage",
     "TariffVersion",
+    "WhatsAppContact",
+    "WhatsAppHistoryMessage",
     "WhatsAppTemplate",
 ]

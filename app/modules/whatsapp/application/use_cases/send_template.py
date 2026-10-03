@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAppError
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.domain.templates import is_service_template
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -93,7 +94,7 @@ class SendTemplateUseCase:
                 extra={"expected": expected},
             )
         try:
-            sent = await self._client.send_template(
+            sent = await client_for(self._client, binding).send_template(
                 binding.phone_number_id,
                 conversation.wa_phone,
                 template.meta_name,

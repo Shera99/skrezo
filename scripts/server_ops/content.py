@@ -930,6 +930,24 @@ SECTIONS.append(
                 flags=((WARN, "осторожно"),),
             ),
             C(
+                "Как подключены номера клиник",
+                "Номер, режим, кто подключал (клиника сама или Skrezo), включён ли и сколько истории перенесено.",
+                r"""pgsu -c "SELECT c.name, w.display_phone, w.mode, w.connected_via, w.active, w.history_progress FROM clinic_whatsapp w JOIN clinic c ON c.id = w.clinic_id ORDER BY c.name;" """.strip(),
+                kw="embedded signup подключение номер",
+            ),
+            C(
+                "Номера, которые нужно переподключить",
+                "Доступ отозван, номер перерегистрирован на другом телефоне или Meta не принимает токен клиники. Команда Skrezo получает о каждом случае одно сообщение в чат.",
+                r"""pgsu -c "SELECT c.name, w.display_phone, w.needs_reconnect_reason, w.needs_reconnect_at, w.reconnect_notified_at FROM clinic_whatsapp w JOIN clinic c ON c.id = w.clinic_id WHERE w.needs_reconnect_at IS NOT NULL;" """.strip(),
+                "`(0 rows)`",
+                kw="переподключить отозван доступ",
+            ),
+            C(
+                "Итоги ежечасной проверки номеров",
+                "Сколько токенов отвергнуто, сколько номеров помечено и снято, сколько синхронизаций дозапрошено.",
+                r"""pgsu -c "SELECT started_at, status, detail FROM job_run WHERE job_name = 'check_whatsapp_tokens' ORDER BY started_at DESC LIMIT 5;" """.strip(),
+            ),
+            C(
                 "Кэш контекста ассистента",
                 "Для скольких клиник сейчас закэширован контекст ассистента у провайдера.",
                 r"""rcli --scan --pattern 'ai:prefix:*' | wc -l""",

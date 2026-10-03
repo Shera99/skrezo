@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import AppError, ConflictError, ValidationAppError
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.domain.templates import is_service_template
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -44,7 +45,7 @@ class SyncTemplatesUseCase:
                 "У привязки не указан WABA — без него шаблоны спросить не у кого",
                 code="waba_id_missing",
             )
-        fetched = await self._client.fetch_templates(binding.waba_id)
+        fetched = await client_for(self._client, binding).fetch_templates(binding.waba_id)
         if fetched is None:
             raise AppError(
                 "Синхронизация шаблонов недоступна: Graph API не ответил "

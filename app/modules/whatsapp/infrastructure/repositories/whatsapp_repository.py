@@ -23,6 +23,8 @@ from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import DEFAULT_TIMEZONE, Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.patient import Patient
+from app.shared.db.models.whatsapp_contact import WhatsAppContact
+from app.shared.db.models.whatsapp_history_message import WhatsAppHistoryMessage
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 from app.shared.whatsapp_cloud import TemplateInfo
 
@@ -49,6 +51,35 @@ class WhatsAppRepository:
             )
         ).scalar_one_or_none()
 
+    async def bindings_by_waba(self, waba_id: str) -> list[ClinicWhatsApp]:
+        """Привязки номеров WABA: вебхук ``account_update`` знает только WABA."""
+        return list(
+            (
+                await self._session.execute(
+                    select(ClinicWhatsApp).where(ClinicWhatsApp.waba_id == waba_id)
+                )
+            ).scalars()
+        )
+
+    async def active_bindings(self) -> list[ClinicWhatsApp]:
+        """Все включённые привязки — для ежечасного обхода номеров."""
+        return list(
+            (
+                await self._session.execute(
+                    select(ClinicWhatsApp).where(ClinicWhatsApp.active.is_(True))
+                )
+            ).scalars()
+        )
+
+    async def clinic_names(self, clinic_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Названия клиник — для сообщения команде Skrezo."""
+        if not clinic_ids:
+            return {}
+        rows = await self._session.execute(
+            select(Clinic.id, Clinic.name).where(Clinic.id.in_(clinic_ids))
+        )
+        return {row[0]: row[1] for row in rows}
+
     async def clinic_exists(self, clinic_id: uuid.UUID) -> bool:
         return (
             await self._session.execute(select(Clinic.id).where(Clinic.id == clinic_id))
@@ -69,6 +100,9 @@ class WhatsAppRepository:
         if binding is None:
             binding = ClinicWhatsApp(clinic_id=clinic_id, phone_number_id=phone_number_id)
             self._session.add(binding)
+        elif binding.phone_number_id != phone_number_id:
+            # Другой номер — токен и PIN прежнего к нему не относятся.
+            reset_self_service(binding)
         binding.phone_number_id = phone_number_id
         binding.display_phone = display_phone
         binding.waba_id = waba_id
@@ -164,6 +198,15 @@ class WhatsAppRepository:
             .limit(1)
             .lateral("last_message")
         )
+        # Диалог, у которого есть только архив из приложения (Embedded Signup), —
+        # превью берётся из архива: иначе строка в списке пустая.
+        archived = (
+            select(WhatsAppHistoryMessage.body.label("body"))
+            .where(WhatsAppHistoryMessage.conversation_id == AiConversation.id)
+            .order_by(WhatsAppHistoryMessage.sent_at.desc(), WhatsAppHistoryMessage.id.desc())
+            .limit(1)
+            .lateral("last_archived")
+        )
         patient_name = func.concat_ws(" ", Patient.last_name, Patient.first_name)
         stmt = (
             select(
@@ -181,10 +224,18 @@ class WhatsAppRepository:
                 last.c.duration,
                 self._unread_subquery().label("unread"),
                 self._pending_draft_subquery().label("pending_draft_id"),
+                WhatsAppContact.full_name,
+                archived.c.body,
             )
             .select_from(AiConversation)
             .outerjoin(Patient, Patient.id == AiConversation.patient_id)
+            .outerjoin(
+                WhatsAppContact,
+                (WhatsAppContact.clinic_id == AiConversation.clinic_id)
+                & (WhatsAppContact.wa_phone == AiConversation.wa_phone),
+            )
             .outerjoin(last, true())
+            .outerjoin(archived, true())
             .where(AiConversation.clinic_id == clinic_id)
         )
         if status is not None:
@@ -216,6 +267,7 @@ class WhatsAppRepository:
                 or_(
                     AiConversation.wa_phone.ilike(pattern),
                     patient_name.ilike(pattern),
+                    WhatsAppContact.full_name.ilike(pattern),
                     in_messages,
                 )
             )
@@ -241,12 +293,13 @@ class WhatsAppRepository:
                 status=r[5],
                 last_msg_at=r[6],
                 last_patient_msg_at=r[7],
-                last_body=r[8],
+                last_body=r[8] if r[9] is not None else r[15],
                 last_role=r[9],
                 last_media_type=r[10],
                 last_media_duration_sec=r[11],
                 unread_count=int(r[12] or 0),
                 pending_draft_id=r[13],
+                contact_name=r[14],
             )
             for r in rows
         ]
@@ -630,6 +683,98 @@ class WhatsAppRepository:
             )
         ).scalar_one_or_none()
 
+    # ── Данные приложения WhatsApp Business (Embedded Signup) ──────────────
+
+    async def upsert_contact(
+        self, clinic_id: uuid.UUID, wa_phone: str, *, full_name: str, first_name: str | None
+    ) -> None:
+        """Контакт добавлен или переименован в адресной книге приложения."""
+        stmt = pg_insert(WhatsAppContact).values(
+            id=uuid.uuid4(),
+            clinic_id=clinic_id,
+            wa_phone=wa_phone,
+            full_name=full_name,
+            first_name=first_name,
+        )
+        await self._session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_whatsapp_contact_phone",
+                set_={
+                    "full_name": stmt.excluded.full_name,
+                    "first_name": stmt.excluded.first_name,
+                    "updated_at": func.now(),
+                },
+            )
+        )
+
+    async def delete_contact(self, clinic_id: uuid.UUID, wa_phone: str) -> None:
+        """Контакт удалён из адресной книги приложения."""
+        await self._session.execute(
+            delete(WhatsAppContact).where(
+                WhatsAppContact.clinic_id == clinic_id, WhatsAppContact.wa_phone == wa_phone
+            )
+        )
+
+    async def insert_history(
+        self,
+        conversation: AiConversation,
+        *,
+        wa_message_id: str,
+        direction: str,
+        body: str,
+        media_type: str | None,
+        status: str | None,
+        sent_at: datetime,
+    ) -> bool:
+        """Сообщение архива; ``False`` — уже было (Meta повторила пачку)."""
+        stmt = (
+            pg_insert(WhatsAppHistoryMessage)
+            .values(
+                clinic_id=conversation.clinic_id,
+                conversation_id=conversation.id,
+                wa_message_id=wa_message_id,
+                direction=direction,
+                body=body,
+                media_type=media_type,
+                status=status,
+                sent_at=sent_at,
+            )
+            .on_conflict_do_nothing(index_elements=["wa_message_id"])
+            .returning(WhatsAppHistoryMessage.id)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def history_page(
+        self, conversation_id: uuid.UUID, *, before: int | None, limit: int
+    ) -> list[WhatsAppHistoryMessage]:
+        """Архив диалога от свежих к старым; ``before`` — id последнего показанного.
+
+        Курсор — по паре (время, id), а не по id: пачки истории приходят не по
+        порядку, и id ничего не говорит о том, какое сообщение раньше.
+        """
+        stmt = select(WhatsAppHistoryMessage).where(
+            WhatsAppHistoryMessage.conversation_id == conversation_id
+        )
+        if before is not None:
+            anchor = (
+                await self._session.execute(
+                    select(WhatsAppHistoryMessage.sent_at, WhatsAppHistoryMessage.id).where(
+                        WhatsAppHistoryMessage.id == before,
+                        WhatsAppHistoryMessage.conversation_id == conversation_id,
+                    )
+                )
+            ).one_or_none()
+            if anchor is None:
+                return []
+            stmt = stmt.where(
+                tuple_(WhatsAppHistoryMessage.sent_at, WhatsAppHistoryMessage.id)
+                < tuple_(anchor[0], anchor[1])
+            )
+        stmt = stmt.order_by(
+            WhatsAppHistoryMessage.sent_at.desc(), WhatsAppHistoryMessage.id.desc()
+        ).limit(limit)
+        return list((await self._session.execute(stmt)).scalars())
+
     async def clinic_tz(self, clinic_id: uuid.UUID) -> ZoneInfo:
         """Таймзона клиники — для дат в причинах недоступности шаблонов."""
         name = (
@@ -639,3 +784,23 @@ class WhatsAppRepository:
             return ZoneInfo(name or DEFAULT_TIMEZONE)
         except ZoneInfoNotFoundError, ValueError:
             return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def reset_self_service(binding: ClinicWhatsApp) -> None:
+    """Забыть учётные данные и состояние, относящиеся к прежнему номеру клиники."""
+    binding.connected_via = "manual"
+    binding.access_token_enc = None
+    binding.two_step_pin_enc = None
+    binding.connected_by = None
+    binding.connected_at = None
+    binding.verified_name = None
+    binding.quality_rating = None
+    binding.status_checked_at = None
+    binding.needs_reconnect_at = None
+    binding.needs_reconnect_reason = None
+    binding.reconnect_notified_at = None
+    binding.contacts_sync_requested_at = None
+    binding.history_sync_requested_at = None
+    binding.history_progress = None
+    binding.history_synced_at = None
+    binding.history_error = None

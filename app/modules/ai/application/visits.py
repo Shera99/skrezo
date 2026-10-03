@@ -35,6 +35,7 @@ from app.modules.push.application.outbox import emit_event
 from app.modules.schedule.application.services.availability_service import (
     build_availability_service,
 )
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -152,7 +153,7 @@ class VisitReminderService:
             else None
         )
         try:
-            result = await self._wa.send_template(
+            result = await client_for(self._wa, binding).send_template(
                 binding.phone_number_id,
                 patient.phone,
                 template.meta_name,

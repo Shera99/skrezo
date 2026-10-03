@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, tzinfo
+from typing import Literal
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
+from app.modules.whatsapp.application.use_cases.connection_status import ConnectionStatus
+from app.modules.whatsapp.domain.connection import reconnect_message
 from app.modules.whatsapp.domain.models import ConversationRow
 from app.modules.whatsapp.domain.templates import (
     template_title,
@@ -19,6 +22,7 @@ from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang, Whats
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+from app.shared.db.models.whatsapp_history_message import WhatsAppHistoryMessage
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 
 
@@ -31,6 +35,14 @@ class ConversationListItem(CamelModel):
         default=None, description="Глобальный пациент, если номер опознан"
     )
     patient_name: str | None = None
+    contact_name: str | None = Field(
+        default=None,
+        description=(
+            "Имя собеседника из адресной книги приложения WhatsApp Business клиники "
+            "(номер подключён через Embedded Signup); показывать, пока нет `patientName`"
+        ),
+        examples=["Айгуль (чистка)"],
+    )
     lang: Lang
     status: AiConversationStatus
     last_msg_at: datetime
@@ -79,6 +91,7 @@ class ConversationListItem(CamelModel):
             wa_phone=r.wa_phone,
             patient_id=r.patient_id,
             patient_name=r.patient_name,
+            contact_name=r.contact_name,
             lang=r.lang,
             status=r.status,
             last_msg_at=r.last_msg_at,
@@ -380,4 +393,264 @@ class SendTemplateRequest(CamelModel):
         default_factory=list,
         description="Значения плейсхолдеров {{1}}, {{2}}… по порядку",
         examples=[["Айгүл", "завтра в 11:00"]],
+    )
+
+
+# ── Номер клиники: самостоятельное подключение (Embedded Signup) ────────────
+
+
+class EmbeddedSignupConfigOut(CamelModel):
+    """Параметры окна Meta для кабинета; все значения публичные, секретов нет."""
+
+    available: bool = Field(
+        description=(
+            "Можно ли подключить номер из кабинета. `false` — Skrezo ещё не настроил "
+            "приложение Meta: кнопку подключения не показывать"
+        )
+    )
+    app_id: str | None = Field(
+        default=None,
+        description="ID приложения Meta для `FB.init({appId})`",
+        examples=["4438887573096444"],
+    )
+    config_id: str | None = Field(
+        default=None,
+        description="ID конфигурации Facebook Login for Business для `FB.login({config_id})`",
+        examples=["1234567890123456"],
+    )
+    graph_api_version: str | None = Field(
+        default=None, description="Версия Graph API для `FB.init({version})`", examples=["v23.0"]
+    )
+    feature_type: str = Field(
+        description=(
+            "`extras.featureType` для `FB.login`: номер остаётся в приложении "
+            "WhatsApp Business и работает в Skrezo одновременно"
+        ),
+        examples=["whatsapp_business_app_onboarding"],
+    )
+    session_info_version: str = Field(
+        description="`extras.sessionInfoVersion` для `FB.login`", examples=["3"]
+    )
+
+
+class WhatsAppReconnectOut(CamelModel):
+    """Номер перестал работать у нас — клинике нужно пройти подключение заново."""
+
+    since: datetime
+    reason: str = Field(
+        description=(
+            "`partner_removed` — доступ отозван в Meta; `account_offboarded` — номер "
+            "перерегистрирован в приложении на другом телефоне; `account_deleted`; "
+            "`token_invalid` — Meta не принимает доступ клиники"
+        ),
+        examples=["partner_removed"],
+    )
+    message: str = Field(examples=["Доступ Skrezo к аккаунту WhatsApp Business отозван в Meta"])
+
+
+class WhatsAppAppSyncOut(CamelModel):
+    """Перенос данных приложения WhatsApp Business: контакты и история переписки."""
+
+    contacts_requested_at: datetime | None = Field(
+        default=None, description="Когда запрошены контакты приложения"
+    )
+    history_requested_at: datetime | None = Field(
+        default=None, description="Когда запрошена история переписки"
+    )
+    history_progress: int | None = Field(
+        default=None, description="Ход импорта истории по данным Meta, 0–100", examples=[55]
+    )
+    history_synced_at: datetime | None = Field(
+        default=None, description="История загружена полностью"
+    )
+    history_error: str | None = Field(
+        default=None,
+        description="Почему истории не будет (клиника отказалась делиться в приложении и т.п.)",
+    )
+
+
+class WhatsAppConnectionResponse(CamelModel):
+    """Номер WhatsApp клиники и параметры окна подключения Meta."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "connected": True,
+                "phoneNumberId": "106540352242922",
+                "displayPhone": "+996700123456",
+                "verifiedName": "Стоматология Улыбка",
+                "wabaId": "102290129340398",
+                "mode": "coexistence",
+                "connectedVia": "embedded_signup",
+                "connectedAt": "2026-10-04T09:15:00Z",
+                "qualityRating": "GREEN",
+                "statusCheckedAt": "2026-10-04T09:15:00Z",
+                "needsReconnect": None,
+                "sync": {
+                    "contactsRequestedAt": "2026-10-04T09:15:02Z",
+                    "historyRequestedAt": "2026-10-04T09:15:02Z",
+                    "historyProgress": 100,
+                    "historySyncedAt": "2026-10-04T09:21:40Z",
+                    "historyError": None,
+                },
+                "signup": {
+                    "available": True,
+                    "appId": "4438887573096444",
+                    "configId": "1234567890123456",
+                    "graphApiVersion": "v23.0",
+                    "featureType": "whatsapp_business_app_onboarding",
+                    "sessionInfoVersion": "3",
+                },
+            }
+        }
+    )
+
+    connected: bool = Field(description="Номер подключён и принимает сообщения")
+    phone_number_id: str | None = Field(default=None, description="ID номера в Meta")
+    display_phone: str | None = Field(default=None, examples=["+996700123456"])
+    verified_name: str | None = Field(
+        default=None, description="Отображаемое имя бизнеса, одобренное Meta"
+    )
+    waba_id: str | None = Field(default=None, description="WhatsApp Business Account клиники")
+    mode: WhatsAppMode | None = Field(
+        default=None,
+        description="`coexistence` — номер работает и в приложении WhatsApp Business; `api_only`",
+    )
+    connected_via: Literal["manual", "embedded_signup"] | None = Field(
+        default=None,
+        description="`embedded_signup` — подключила клиника сама; `manual` — команда Skrezo",
+    )
+    connected_at: datetime | None = None
+    quality_rating: str | None = Field(
+        default=None, description="Рейтинг качества номера у Meta: GREEN / YELLOW / RED"
+    )
+    status_checked_at: datetime | None = Field(
+        default=None, description="Когда состояние номера последний раз спрашивали у Meta"
+    )
+    needs_reconnect: WhatsAppReconnectOut | None = Field(
+        default=None, description="Заполнено — номер не работает, нужно подключить заново"
+    )
+    sync: WhatsAppAppSyncOut | None = Field(
+        default=None,
+        description="Перенос контактов и истории (только номер, подключённый клиникой сама)",
+    )
+    signup: EmbeddedSignupConfigOut
+
+    @classmethod
+    def from_status(cls, status: ConnectionStatus) -> WhatsAppConnectionResponse:
+        b = status.binding
+        signup = EmbeddedSignupConfigOut(
+            available=status.signup.available,
+            app_id=status.signup.app_id,
+            config_id=status.signup.config_id,
+            graph_api_version=status.signup.graph_api_version,
+            feature_type=status.signup.feature_type,
+            session_info_version=status.signup.session_info_version,
+        )
+        if b is None or not b.active:
+            return cls(connected=False, signup=signup)
+        reconnect = (
+            WhatsAppReconnectOut(
+                since=b.needs_reconnect_at,
+                reason=b.needs_reconnect_reason or "token_invalid",
+                message=reconnect_message(b.needs_reconnect_reason) or "",
+            )
+            if b.needs_reconnect_at is not None
+            else None
+        )
+        self_service = b.connected_via == "embedded_signup"
+        return cls(
+            connected=True,
+            phone_number_id=b.phone_number_id,
+            display_phone=b.display_phone,
+            verified_name=b.verified_name,
+            waba_id=b.waba_id,
+            mode=b.mode,
+            connected_via="embedded_signup" if self_service else "manual",
+            connected_at=b.connected_at,
+            quality_rating=b.quality_rating,
+            status_checked_at=b.status_checked_at,
+            needs_reconnect=reconnect,
+            sync=(
+                WhatsAppAppSyncOut(
+                    contacts_requested_at=b.contacts_sync_requested_at,
+                    history_requested_at=b.history_sync_requested_at,
+                    history_progress=b.history_progress,
+                    history_synced_at=b.history_synced_at,
+                    history_error=b.history_error,
+                )
+                if self_service
+                else None
+            ),
+            signup=signup,
+        )
+
+
+class EmbeddedSignupRequest(CamelModel):
+    """Что кабинет получил из окна Meta — отправить сразу: код живёт 30 секунд."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"code": "AQBx…", "wabaId": "102290129340398"}}
+    )
+
+    code: str = Field(
+        min_length=1,
+        max_length=4096,
+        description="`response.authResponse.code` из колбэка `FB.login`",
+    )
+    waba_id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^\d+$",
+        description="`data.waba_id` из события `WA_EMBEDDED_SIGNUP` (FINISH…)",
+        examples=["102290129340398"],
+    )
+    phone_number_id: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^\d+$",
+        description=(
+            "`data.phone_number_id` из события — есть у нового номера; у номера из "
+            "приложения WhatsApp Business его нет, номер находится по WABA"
+        ),
+        examples=["106540352242922"],
+    )
+
+
+class HistoryMessageOut(CamelModel):
+    """Сообщение архива переписки из приложения WhatsApp Business."""
+
+    id: int
+    direction: Literal["in", "out"] = Field(
+        description="`in` — написал собеседник, `out` — клиника из приложения"
+    )
+    body: str
+    media_type: str | None = Field(
+        default=None,
+        description="Тип вложения по словарю Meta; `media_placeholder` — медиа без файла",
+    )
+    status: str | None = Field(
+        default=None, description="Статус из истории: DELIVERED / READ / PLAYED", examples=["READ"]
+    )
+    sent_at: datetime
+
+    @classmethod
+    def from_model(cls, m: WhatsAppHistoryMessage) -> HistoryMessageOut:
+        return cls(
+            id=m.id,
+            direction="out" if m.direction == "out" else "in",
+            body=m.body,
+            media_type=m.media_type,
+            status=m.status,
+            sent_at=m.sent_at,
+        )
+
+
+class HistoryPageResponse(CamelModel):
+    """Страница архива: от свежих к старым."""
+
+    items: list[HistoryMessageOut]
+    next_before_id: int | None = Field(
+        default=None,
+        description="Передать в `beforeId`, чтобы загрузить старше; `null` — архив кончился",
     )

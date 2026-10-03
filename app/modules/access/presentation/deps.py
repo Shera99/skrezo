@@ -190,6 +190,41 @@ def require_permission(
     return _guard
 
 
+def require_any_permission(
+    *permission_keys: str,
+) -> Callable[..., Awaitable[ClientContext]]:
+    """Зависимость: у текущего клиента есть ХОТЯ БЫ ОДНО из прав ``permission_keys``.
+
+    Для экранов на стыке ролей: состояние номера WhatsApp видят и владелец
+    (``whatsapp.manage``), и администратор переписки (``conversations.manage``).
+    Ограничения триала и закрытой подписки проверяются по выданному праву.
+    """
+
+    async def _guard(
+        context: ClientContext = Depends(get_clinic_context),
+        resolver: PermissionResolver = Depends(get_permission_resolver),
+        policy: SubscriptionPolicy = Depends(get_subscription_policy),
+    ) -> ClientContext:
+        if context.role_id is None:
+            raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
+        resolved = await resolver.resolve(context.role_id)
+        if resolved is None:
+            raise ForbiddenError("Роль не найдена")
+        granted = [
+            key for key in permission_keys if resolved.is_owner or key in resolved.permissions
+        ]
+        if not granted:
+            raise ForbiddenError("Недостаточно прав")
+        reasons = [await policy.deny_reason(context.clinic_id, key) for key in granted]
+        if all(reason is not None for reason in reasons):
+            first = reasons[0]
+            assert first is not None
+            raise ForbiddenError(DENY_MESSAGES[first], code=first.value)
+        return context
+
+    return _guard
+
+
 def get_role_admin_repository(
     session: AsyncSession = Depends(get_session),
 ) -> RoleAdminRepository:

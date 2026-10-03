@@ -42,6 +42,7 @@ from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import 
 )
 from app.modules.push.application.outbox import emit_event
 from app.modules.usage.application.services.usage_meter import UsageMeter
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -176,7 +177,7 @@ class ProcessAiReplyService:
         tool_context = ToolContext(
             conversation=conversation,
             clinic=clinic,
-            wa_client=self._wa,
+            wa_client=client_for(self._wa, binding) if binding is not None else self._wa,
             binding_phone_number_id=(
                 binding.phone_number_id if binding is not None and binding.active else None
             ),
@@ -458,7 +459,7 @@ class ProcessAiReplyService:
                     conversation, clinic, "tool_error", {"note": "whatsapp not connected"}
                 )
             try:
-                sent = await self._wa.send_text(
+                sent = await client_for(self._wa, binding).send_text(
                     binding.phone_number_id, conversation.wa_phone, reply.reply
                 )
             except WhatsAppSendError as exc:
@@ -605,7 +606,7 @@ class ProcessAiReplyService:
             if binding is not None and binding.active:
                 lang = "ky" if conversation.lang is Lang.KG else "ru"
                 try:
-                    sent = await self._wa.send_text(
+                    sent = await client_for(self._wa, binding).send_text(
                         binding.phone_number_id,
                         conversation.wa_phone,
                         _ESCALATION_TEXTS[lang],
@@ -741,7 +742,7 @@ class ProcessAiReplyService:
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
             if binding is not None and binding.active:
                 try:
-                    sent = await self._wa.send_text(
+                    sent = await client_for(self._wa, binding).send_text(
                         binding.phone_number_id, conversation.wa_phone, body
                     )
                     sent_at = datetime.now(UTC)

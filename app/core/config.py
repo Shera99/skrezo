@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     #: они ходят сюда. Пусто — берётся ``DATABASE_URL`` (без пулера они равны).
     database_direct_url: str = ""
 
+    # ── Шифрование секретов в базе ──────────────────────────────────────────
+    #: Ключ Fernet для секретов, которые приходится хранить в БД (токены Meta
+    #: клиник из Embedded Signup). Несколько ключей через запятую — ротация:
+    #: шифрует первый, расшифровывают все. Сгенерировать —
+    #: ``Fernet.generate_key()`` из ``cryptography.fernet`` (см. docs/DEPLOY.md).
+    #: Пусто — подключение номеров самой клиникой недоступно.
+    data_encryption_key: str = ""
+
     # ── JWT: единый контур авторизации ──────────────────────────────────────
     # Один секрет на всех (команда Skrezo и сотрудники клиник входят одинаково —
     # телефон + пароль). В production обязательно переопределить длинным
@@ -125,6 +133,12 @@ class Settings(BaseSettings):
     wa_cloud_access_token: str = ""  # system-user token приложения Meta
     wa_cloud_app_secret: str = ""  # APP_SECRET — подпись вебхука X-Hub-Signature-256
     wa_cloud_verify_token: str = ""  # проверочный токен подписки вебхука (GET)
+    #: Самостоятельное подключение номера клиникой (Embedded Signup Meta): ID
+    #: приложения Meta и ID конфигурации «Facebook Login for Business» с типом
+    #: WhatsApp Embedded Signup. Оба пусты — кнопки подключения в кабинете нет,
+    #: номера привязывает команда Skrezo вручную (``/admin/clients/{id}/whatsapp``).
+    wa_cloud_app_id: str = ""
+    wa_embedded_signup_config_id: str = ""
     #: Служебные шаблоны Meta (тестовый ``hello_world`` и подобные): в каталог
     #: клиники не попадают и пациентам не отправляются. Список через запятую.
     wa_service_template_names: Annotated[list[str], NoDecode] = Field(

@@ -14,13 +14,26 @@ from app.shared.whatsapp_cloud.client import (
     WhatsAppCloudClient,
     WhatsAppSendError,
 )
-from app.shared.whatsapp_cloud.factory import build_whatsapp_client
+from app.shared.whatsapp_cloud.factory import build_onboarding_client, build_whatsapp_client
+from app.shared.whatsapp_cloud.onboarding import (
+    SYNC_CONTACTS,
+    SYNC_HISTORY,
+    MetaOnboardingClient,
+    MetaOnboardingError,
+    PhoneNumberInfo,
+)
 
 __all__ = [
+    "SYNC_CONTACTS",
+    "SYNC_HISTORY",
     "DownloadedMedia",
+    "MetaOnboardingClient",
+    "MetaOnboardingError",
+    "PhoneNumberInfo",
     "SentMessage",
     "TemplateInfo",
     "WhatsAppCloudClient",
     "WhatsAppSendError",
+    "build_onboarding_client",
     "build_whatsapp_client",
 ]

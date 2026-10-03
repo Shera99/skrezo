@@ -36,6 +36,10 @@ class DryRunWhatsAppClient:
     def __init__(self, inner: WhatsAppCloudClient) -> None:
         self._inner = inner
 
+    def for_token(self, access_token: str | None) -> DryRunWhatsAppClient:
+        """Пробный прогон от имени токена клиники: отправка по-прежнему глушится."""
+        return DryRunWhatsAppClient(self._inner.for_token(access_token))
+
     @staticmethod
     def _sent(kind: str, **fields: object) -> SentMessage:
         logger.info("wa_cloud_dry_run", kind=kind, **fields)

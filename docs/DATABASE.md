@@ -29,6 +29,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | **Расписание** | `clinic_working_hours`, `doctor_schedule`, `doctor_time_off` |
 | **Касса клиники** | `cash_payment` |
 | **Напоминания** | `reminder_mark` — отметки «напомнили» (пациент, повод, приём-источник, кто и когда) |
+| **WhatsApp-канал** | `clinic_whatsapp` — номер клиники: общий токен Skrezo (привязка командой) либо собственный бизнес-токен клиники из Embedded Signup, только зашифрованным (`access_token_enc`, Fernet); там же «нужно переподключить» и ход переноса данных приложения. `whatsapp_template` — шаблоны. `whatsapp_contact` — адресная книга приложения WhatsApp Business (имена в списке диалогов). `whatsapp_history_message` — архив переписки из приложения до подключения: отдельно от живой ленты `ai_message`, упорядочен по `sent_at` |
 
 ---
 

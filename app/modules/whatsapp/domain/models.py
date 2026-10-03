@@ -30,6 +30,8 @@ class ConversationRow:
     unread_count: int = 0
     #: Черновик ассистента, ждущий решения («Проверяю»).
     pending_draft_id: int | None = None
+    #: Имя из адресной книги приложения WhatsApp Business клиники.
+    contact_name: str | None = None
 
     @property
     def awaiting_reply(self) -> bool:

@@ -64,6 +64,19 @@ class GraphWhatsAppClient:
         self._token = access_token
         # Ф8: один пул соединений на процесс (см. shared/http), а не на вызов.
         self._client = client or httpx.AsyncClient(timeout=_TIMEOUT)
+        # Клиенты от имени токенов клиник (Embedded Signup): пул соединений общий,
+        # экземпляры кэшируются — их столько, сколько клиник, а не сообщений.
+        self._children: dict[str, GraphWhatsAppClient] = {}
+
+    def for_token(self, access_token: str | None) -> GraphWhatsAppClient:
+        """Тот же клиент с токеном клиники; пустой или тот же токен — ``self``."""
+        if not access_token or access_token == self._token:
+            return self
+        child = self._children.get(access_token)
+        if child is None:
+            child = GraphWhatsAppClient(self._api_url, access_token, client=self._client)
+            self._children[access_token] = child
+        return child
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}

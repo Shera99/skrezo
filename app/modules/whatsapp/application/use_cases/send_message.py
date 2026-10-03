@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAppError
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.domain.window import is_window_open
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -54,7 +55,7 @@ class SendMessageUseCase:
                 code="window_closed",
             )
         try:
-            sent = await self._client.send_text(
+            sent = await client_for(self._client, binding).send_text(
                 binding.phone_number_id, conversation.wa_phone, body
             )
         except WhatsAppSendError as exc:

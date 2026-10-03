@@ -11,12 +11,15 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import session_factory
-from app.jobs.tasks.context import attempt
+from app.jobs.tasks.context import attempt, notifier
 from app.modules.ai.application.health import AiHealthService
 from app.modules.jobs.application.services.job_recorder import JobRunRecorder
+from app.modules.whatsapp.application.services.connection_monitor import (
+    WhatsAppConnectionMonitor,
+)
 from app.shared.ai.factory import build_ai_provider
 from app.shared.speech import build_speech_provider
-from app.shared.whatsapp_cloud import build_whatsapp_client
+from app.shared.whatsapp_cloud import build_onboarding_client, build_whatsapp_client
 
 
 async def check_ai_health(ctx: dict[str, Any]) -> int:
@@ -39,9 +42,21 @@ async def check_ai_health(ctx: dict[str, Any]) -> int:
 
 
 async def check_whatsapp_tokens(ctx: dict[str, Any]) -> int:
-    """Раз в час: принимает ли Graph API наш токен по каждому номеру; число отказов."""
+    """Раз в час: принимает ли Graph API токен каждого номера; число отказов.
+
+    Номер клиники проверяется её собственным токеном (Embedded Signup). По
+    итогам монитор помечает «нужно переподключить», пишет команде Skrezo и
+    дозапрашивает контакты и историю приложения, пока открыто окно Meta.
+    """
     async with JobRunRecorder("check_whatsapp_tokens", attempt(ctx)) as run:
         async with session_factory() as session:
             failed = await AiHealthService(session, None, build_whatsapp_client()).check_tokens()
-        run.note(f"номеров с ошибкой токена: {len(failed)}")
+            report = await WhatsAppConnectionMonitor(
+                session, build_onboarding_client(), notifier(ctx)
+            ).run(failed)
+        run.note(
+            f"номеров с ошибкой токена: {len(failed)}, "
+            f"нужно переподключить: +{report.flagged}, восстановилось: {report.cleared}, "
+            f"сообщено команде: {report.notified}, запрошено синхронизаций: {report.syncs}"
+        )
         return len(failed)

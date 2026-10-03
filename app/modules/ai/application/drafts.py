@@ -28,6 +28,7 @@ from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAp
 from app.core.jobs import AI_REPLY, JobQueue
 from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.domain.window import is_window_open
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -93,7 +94,7 @@ class DraftService:
             )
         text = (body or "").strip() or draft.body
         try:
-            sent = await self._client.send_text(
+            sent = await client_for(self._client, binding).send_text(
                 binding.phone_number_id, conversation.wa_phone, text
             )
         except WhatsAppSendError as exc:

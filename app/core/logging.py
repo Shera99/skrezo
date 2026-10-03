@@ -18,6 +18,11 @@ def configure_logging() -> None:
         format="%(message)s",
         level=logging.DEBUG if settings.app_debug else logging.INFO,
     )
+    # httpx на INFO пишет полный URL каждого запроса — вместе с одноразовыми
+    # кодами и секретами в строке запроса (обмен кода Embedded Signup несёт
+    # секрет приложения Meta). Вызовы внешних API видны по нашим событиям.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,

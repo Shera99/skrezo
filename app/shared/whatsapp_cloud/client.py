@@ -44,6 +44,15 @@ class DownloadedMedia:
 class WhatsAppCloudClient(Protocol):
     """Что умеет транспорт: отправить текст/шаблон, скачать медиа."""
 
+    def for_token(self, access_token: str | None) -> WhatsAppCloudClient:
+        """Тот же транспорт от имени токена клиники (номер из Embedded Signup).
+
+        ``None`` — общий токен Skrezo (номера, привязанные командой вручную).
+        Лог-фолбэк возвращает себя: без кредов платформы живой отправки нет ни
+        для кого, и тесты не уходят в сеть с токеном клиники.
+        """
+        ...
+
     async def send_text(self, phone_number_id: str, to_phone: str, body: str) -> SentMessage:
         """Отправить свободный текст (только в открытое 24-часовое окно)."""
         ...

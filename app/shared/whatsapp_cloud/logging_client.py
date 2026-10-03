@@ -19,6 +19,10 @@ logger = structlog.get_logger(__name__)
 class LoggingWhatsAppClient:
     """Пишет исходящие в лог вместо Graph API."""
 
+    def for_token(self, access_token: str | None) -> LoggingWhatsAppClient:
+        """Без кредов платформы токен клиники ничего не меняет — тот же лог."""
+        return self
+
     async def send_text(self, phone_number_id: str, to_phone: str, body: str) -> SentMessage:
         logger.info("wa_cloud_logged", to=to_phone, phone_number_id=phone_number_id, text=body)
         return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")

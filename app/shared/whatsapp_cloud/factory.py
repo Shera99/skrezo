@@ -11,6 +11,7 @@ from app.shared.http import shared_async_client
 from app.shared.whatsapp_cloud.client import WhatsAppCloudClient
 from app.shared.whatsapp_cloud.graph_client import GraphWhatsAppClient
 from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
+from app.shared.whatsapp_cloud.onboarding import GraphOnboardingClient, MetaOnboardingClient
 
 #: Таймаут запросов к Graph API: отправка, медиа, шаблоны.
 GRAPH_TIMEOUT = 15.0
@@ -45,3 +46,19 @@ def reset_whatsapp_client() -> None:
     """Забыть собранный клиент (тесты)."""
     global _instance
     _instance = None
+
+
+def build_onboarding_client() -> MetaOnboardingClient | None:
+    """Клиент шагов Embedded Signup; ``None`` — приложение Meta не настроено.
+
+    Нужны ID и секрет приложения: секрет подписывает обмен одноразового кода
+    на токен клиники. Тот же пул соединений, что у транспорта.
+    """
+    if not (settings.wa_cloud_app_id and settings.wa_cloud_app_secret):
+        return None
+    return GraphOnboardingClient(
+        settings.wa_cloud_api_url,
+        settings.wa_cloud_app_id,
+        settings.wa_cloud_app_secret,
+        shared_async_client("whatsapp", timeout=GRAPH_TIMEOUT),
+    )

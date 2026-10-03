@@ -13,6 +13,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -74,7 +75,7 @@ class OutboundTemplates:
     ) -> Delivered:
         """Отправить шаблон и положить копию в диалог; ошибки отправки — наружу."""
         variables = values[: len(template.variables)]
-        result = await self._wa.send_template(
+        result = await client_for(self._wa, binding).send_template(
             binding.phone_number_id,
             patient.phone,
             template.meta_name,

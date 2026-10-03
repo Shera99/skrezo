@@ -148,6 +148,9 @@ make run           # uvicorn с автоперезагрузкой
 | `WA_CLOUD_ACCESS_TOKEN` | system-user token приложения Meta | — (лог: исходящие в лог) |
 | `WA_CLOUD_APP_SECRET` | подпись вебхука `X-Hub-Signature-256` | — (⚠️ в бою обязателен) |
 | `WA_CLOUD_VERIFY_TOKEN` | подтверждение подписки вебхука (GET) | — |
+| `WA_CLOUD_APP_ID` | ID приложения Meta — окно подключения номера в кабинете (Embedded Signup) | — |
+| `WA_EMBEDDED_SIGNUP_CONFIG_ID` | ID конфигурации Facebook Login for Business (WhatsApp Embedded Signup) | — |
+| `DATA_ENCRYPTION_KEY` | ключ Fernet для секретов в БД (токены Meta клиник); несколько через запятую — ротация, шифрует первый | — |
 | `AI_PROVIDER` | провайдер ассистента: `off` \| `gemini` | `off` |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | ключ Google AI Studio и модель | — / `gemini-3.6-flash` |
 | `AI_TEMPERATURE` / `AI_MAX_TOKENS` / `AI_MAX_TOOL_CALLS` | параметры фактических ответов | `0.2` / `1024` / `6` |
@@ -902,9 +905,60 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `PATCH` | `/admin/whatsapp/templates/{id}` | Skrezo: `title` (null — имя из Meta) и `variableLabels` общего шаблона; подписей ровно по числу переменных, иначе 422 `labels_count_mismatch`; шаблон клиники → 404 |
 | `POST` | `/clinic/conversations/{id}/templates` | Отправить одобренный шаблон — работает и в закрытое окно; служебный Meta → 422 `template_service` |
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
-| `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике (Skrezo); `phoneNumberId` уникален → 409 |
+| `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике вручную (Skrezo, общий токен платформы); `phoneNumberId` уникален → 409 |
+| `GET` | `/clinic/whatsapp` | Номер клиники (имя, качество, режим, «нужно переподключить», ход переноса истории) и параметры окна Meta `signup` (`whatsapp.manage` или `conversations.manage`) |
+| `POST` | `/clinic/whatsapp/embedded-signup` | Завершить подключение после окна Meta: `{code, wabaId, phoneNumberId?}` — сразу, код живёт 30 с (`whatsapp.manage`) |
+| `POST` | `/clinic/whatsapp/refresh` | Перечитать имя, качество и доступ к номеру у Meta |
+| `DELETE` | `/clinic/whatsapp` | Отключить номер от Skrezo: отписка от WABA, токен стирается; переписка и архив остаются |
+| `GET` | `/clinic/conversations/{id}/history?beforeId=&limit=` | Архив переписки из приложения WhatsApp Business до подключения — от свежих к старым, курсор `nextBeforeId` |
 | `GET` | `/admin/usage?period=YYYY-MM` | Skrezo: использование по всем клиникам за месяц — токены, диалоги, платные WhatsApp, смета по прайс-листу |
 | `GET` | `/admin/clients/{clinicId}/usage?dateFrom=&dateTo=` | Skrezo: дневные счётчики клиники за период |
+
+**Номер подключает сама клиника (Embedded Signup).** У каждой клиники свой
+аккаунт WhatsApp Business, и номер она подключает из кабинета через окно Meta,
+не передавая Skrezo паролей. Номер остаётся в приложении WhatsApp Business на
+телефоне (режим `coexistence`): отвечать можно и из приложения, и из чата
+Skrezo — сообщения из приложения приходят эхом и ложатся в диалог ролью
+`admin`. Номер, привязанный командой Skrezo вручную (`PUT
+/admin/clients/{id}/whatsapp`), по-прежнему работает общим токеном платформы.
+
+Сценарий кабинета:
+
+1. `GET /clinic/whatsapp` → `signup.available: true` — показать «Подключить
+   WhatsApp». Подключить JS SDK Meta, `FB.init({appId: signup.appId, version:
+   signup.graphApiVersion})`, слушать `message` от `facebook.com` с `type:
+   "WA_EMBEDDED_SIGNUP"` — в событии `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`
+   (номер из приложения) или `FINISH` (новый номер) лежат `waba_id` и, у нового
+   номера, `phone_number_id`.
+2. `FB.login(cb, {config_id: signup.configId, response_type: "code",
+   override_default_response_type: true, extras: {setup: {}, featureType:
+   signup.featureType, sessionInfoVersion: signup.sessionInfoVersion}})`.
+3. В колбэке — **сразу** `POST /clinic/whatsapp/embedded-signup` с
+   `response.authResponse.code` и `wabaId`: код живёт 30 секунд. Бэкенд
+   меняет его на бизнес-токен клиники (в базе только зашифрованным,
+   `DATA_ENCRYPTION_KEY`), находит номер в WABA, новый номер регистрирует с
+   PIN, подписывает Skrezo на вебхуки WABA и запрашивает контакты и историю
+   переписки приложения (Meta разрешает это раз за подключение и только сутки
+   после него; не прошедшее дозапрашивает ежечасная проверка).
+4. Ошибки — понятными кодами: `signup_code_invalid` (код истёк — пройти окно
+   заново), `phone_number_required` (в WABA несколько номеров, список в
+   `phoneNumbers`), `phone_number_taken`, `whatsapp_already_connected`
+   (сначала `DELETE /clinic/whatsapp`), `meta_unavailable` / `meta_step_failed`.
+   До сохранения ничего не меняется — окно можно пройти ещё раз.
+
+Вся отправка по номеру клиники — ответы, шаблоны, кнопки, напоминания,
+ассистент, скачивание медиа, синхронизация шаблонов — идёт **её** токеном.
+Архив из приложения (вебхук `history`) лежит отдельно от живой ленты
+(`GET /clinic/conversations/{id}/history`): Meta присылает его пачками не по
+порядку, и смешивание поставило бы прошлогоднее сообщение ниже вчерашнего, а
+ассистент принял бы его за свежую реплику. Диалог, известный только по архиву,
+заводится закрытым и в непрочитанное не попадает. Адресная книга приложения
+(вебхук `smb_app_state_sync`) даёт `contactName` в списке диалогов. Отзыв
+доступа, перерегистрация номера на другом телефоне или удаление аккаунта
+(вебхук `account_update`) и отказ Meta принимать токен клиники ставят
+`needsReconnect` — кабинет предлагает пройти окно снова, команде Skrezo
+ежечасная проверка пишет в чат один раз на случай. Право на подключение и
+отключение — `whatsapp.manage` (по умолчанию только владелец).
 
 **Кабинет ассистента (Ф5, инкремент 1): список чатов.** Всё, чем живёт
 левая колонка экрана «Чат»: `GET /clinic/conversations` принимает вкладку

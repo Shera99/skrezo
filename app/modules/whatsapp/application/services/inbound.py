@@ -11,8 +11,13 @@
   (режим Coexistence, §2.3 ТЗ): код не предполагает, что мы единственный
   отправитель. Такие сообщения ложатся с ролью ``admin`` — в Ф2 это же
   событие ставит ассистента на паузу (§8.4);
-* ``statuses`` (доставлено/прочитано) — игнорируются: телеметрия доставки
-  пациенту в Ф1 не ведётся.
+* ``statuses`` (доставлено/прочитано) — галочки исходящих и платность;
+* ``history``, ``smb_app_state_sync``, ``account_update`` — номер, подключённый
+  клиникой через Embedded Signup: архив переписки и адресная книга приложения,
+  отзыв доступа (см. ``app_webhooks``).
+
+Медиа скачивается и ответ на кнопку уходит токеном номера: у клиники, которая
+подключилась сама, — её собственным (``credentials.client_for``).
 """
 
 from __future__ import annotations
@@ -28,6 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.modules.push.application.outbox import emit_event
 from app.modules.usage.application.services.usage_meter import UsageMeter
+from app.modules.whatsapp.application.services.app_webhooks import AppWebhooks
+from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.services.media import media_duration_seconds, save_media
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -157,10 +164,19 @@ class InboundProcessor:
         задачей, симулятор — на месте. Эхо и статусы ссылок не порождают.
         """
         refs: list[InboundRef] = []
+        app_webhooks = AppWebhooks(self._session, self._repository)
         for entry in payload.get("entry") or []:
             for change in entry.get("changes") or []:
+                field = change.get("field")
                 value = change.get("value") or {}
-                refs.extend(await self._process_value(value))
+                if field == "account_update":
+                    await app_webhooks.account_update(str(entry.get("id") or ""), value)
+                elif field == "history":
+                    await app_webhooks.history(value)
+                elif field == "smb_app_state_sync":
+                    await app_webhooks.contacts(value)
+                else:
+                    refs.extend(await self._process_value(value))
         await self._session.commit()
         return refs
 
@@ -176,8 +192,9 @@ class InboundProcessor:
             return []
 
         refs: list[InboundRef] = []
+        client = client_for(self._client, binding)
         for msg in value.get("messages") or []:
-            ref = await self._save_inbound(binding.clinic_id, msg, AiMessageRole.PATIENT)
+            ref = await self._save_inbound(binding.clinic_id, msg, AiMessageRole.PATIENT, client)
             if ref is not None:
                 refs.append(ref)
         # Coexistence: исходящие человека из приложения WhatsApp Business.
@@ -245,7 +262,11 @@ class InboundProcessor:
         return conversation
 
     async def _save_inbound(
-        self, clinic_id: Any, msg: dict[str, Any], role: AiMessageRole
+        self,
+        clinic_id: Any,
+        msg: dict[str, Any],
+        role: AiMessageRole,
+        client: WhatsAppCloudClient,
     ) -> InboundRef | None:
         wa_message_id = msg.get("id")
         sender = msg.get("from")
@@ -299,7 +320,7 @@ class InboundProcessor:
             conversation.last_patient_msg_at = ts if last is None else max(last, ts)
 
         if media_id:
-            await self._fetch_media(message_id, str(media_id), media_type)
+            await self._fetch_media(client, message_id, str(media_id), media_type)
         # Сигнал открытым экранам: чат перечитает диалог (Ф4, contract §9).
         await publish_realtime(
             self._session,
@@ -385,7 +406,7 @@ class InboundProcessor:
         sent_at = None
         if binding is not None and binding.active:
             try:
-                sent = await self._client.send_text(
+                sent = await client_for(self._client, binding).send_text(
                     binding.phone_number_id, conversation.wa_phone, reply_text
                 )
                 wa_message_id = sent.wa_message_id
@@ -406,9 +427,15 @@ class InboundProcessor:
             {"conversationId": str(conversation.id), "direction": "out"},
         )
 
-    async def _fetch_media(self, message_id: int, media_id: str, media_type: str | None) -> None:
+    async def _fetch_media(
+        self,
+        client: WhatsAppCloudClient,
+        message_id: int,
+        media_id: str,
+        media_type: str | None,
+    ) -> None:
         """Скачать медиа сразу: ссылка Meta живёт минуты, потом только id."""
-        media = await self._client.fetch_media(media_id)
+        media = await client.fetch_media(media_id)
         if media is None:
             return
         path = await save_media(media.content, media.mime)
