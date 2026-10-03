@@ -311,7 +311,7 @@ rsync -a ./storage/ skrezouser@НОВЫЙ:~/skrezo-storage/
 На **новом** от root:
 
 ```bash
-mv /home/skrezouser/skrezo.dump /tmp/skrezo.dump
+install -o postgres -m 600 /home/skrezouser/skrezo.dump /tmp/skrezo.dump && rm /home/skrezouser/skrezo.dump
 sudo -u postgres pg_restore --dbname=skrezo --no-owner --role=skrezo --jobs=4 /tmp/skrezo.dump
 # «extension already exists» / «must be owner of extension» — ожидаемо, данные восстановлены.
 rsync -a /home/skrezouser/skrezo-storage/ /opt/skrezo/app/storage/ && rm -r /home/skrezouser/skrezo-storage
@@ -435,7 +435,10 @@ Postgres — `/var/log/postgresql/postgresql-16-main.log` (медленные з
 **Бэкапы**: таймер `skrezo-backup.timer` в 01:30 UTC кладёт дамп и зеркало
 `storage/` в `/var/backups/skrezo` (14 дней). Вручную —
 `/opt/skrezo/app/deploy/bin/backup.sh`. Восстановление:
-`sudo -u postgres pg_restore --clean --if-exists --dbname=skrezo --no-owner --role=skrezo ФАЙЛ.dump`.
+каталог бэкапов закрыт для `postgres`, поэтому дамп сначала копируется ему:
+`sudo install -o postgres -m 600 /var/backups/skrezo/db/ФАЙЛ.dump /tmp/restore.dump`, затем
+`sudo -u postgres pg_restore --clean --if-exists --dbname=skrezo --no-owner --role=skrezo /tmp/restore.dump`
+при остановленном `skrezo.target`.
 Копия лежит на том же диске — каталог стоит зеркалить на другой хост (rclone/rsync).
 
 **Масштабирование**: ещё один API — `systemctl enable --now skrezo-api@8003` и

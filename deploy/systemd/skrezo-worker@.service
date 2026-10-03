@@ -18,8 +18,10 @@ Environment=PYTHONUNBUFFERED=1 TZ=UTC
 ExecStart=/opt/skrezo/app/.venv/bin/arq app.jobs.worker.WorkerSettings
 Restart=always
 RestartSec=5
-# Дать доделать задание ответа ассистента (AI_REPLY_JOB_TIMEOUT) — arq по SIGTERM
-# ждёт текущие задания, новые не берёт.
+# arq по SIGTERM не ждёт текущие задания: отменяет их и возвращает в очередь
+# («cancelled, will be run again») — доделает другой воркер или этот после старта;
+# повтор безопасен (дедуп вебхуков, координатор ответа ассистента). 120 с — запас
+# на закрытие соединений, обычно остановка занимает секунды.
 TimeoutStopSec=120
 LimitNOFILE=65536
 NoNewPrivileges=true
