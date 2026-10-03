@@ -111,7 +111,8 @@ make run           # uvicorn с автоперезагрузкой
 Пошаговая инструкция — [docs/DEPLOY.md](docs/DEPLOY.md), готовые конфиги — каталог
 [`deploy/`](deploy/): юниты systemd, nginx, PgBouncer, PostgreSQL, Redis, скрипты
 деплоя без простоя и ночного бэкапа. Все команды эксплуатации и проверок с описанием и
-ожидаемым результатом собраны в [docs/SERVER_OPS.html](docs/SERVER_OPS.html): откройте файл в браузере.
+ожидаемым результатом собраны в [docs/SERVER_OPS.html](docs/SERVER_OPS.html): откройте файл в браузере. Страница
+генерируется: команды правятся в `scripts/server_ops/content.py`, сборка — `make server-ops`.
 
 > Через PgBouncer в transaction-режиме не работает `LISTEN`, поэтому слушатели
 > `pg_notify` (сокет, диспетчер событий) и миграции Alembic ходят по
@@ -1624,8 +1625,8 @@ app/
   jobs/                 # arq-воркер: расписание и запуск задач (работа — в модулях)
 alembic/                # миграции
 storage/                # загруженные снимки и документы (в git не попадает)
-docs/                   # ARCHITECTURE.md, openapi.json (make openapi), Postman-коллекция
-scripts/                # выгрузка OpenAPI и Postman, регрессия ассистента
+docs/                   # ARCHITECTURE.md, DEPLOY.md, SERVER_OPS.html (make server-ops), openapi.json (make openapi), Postman-коллекция
+scripts/                # выгрузка OpenAPI и Postman, регрессия ассистента, пульт сервера (server_ops/)
 ```
 
 Реализованные модули: `catalog` (справочники, i18n), `access` (RBAC),

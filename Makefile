@@ -1,4 +1,4 @@
-.PHONY: install up down infra logs migrate revision seed run worker create-admin openapi postman ai-regression lint fmt typecheck test check
+.PHONY: install up down infra logs migrate revision seed run worker create-admin openapi postman server-ops ai-regression lint fmt typecheck test check
 
 install:            ## Установить зависимости (uv)
 	uv sync
@@ -35,6 +35,9 @@ openapi:            ## Выгрузить схему OpenAPI → docs/openapi.js
 
 postman:            ## Сгенерировать Postman-коллекцию из OpenAPI → docs/
 	uv run python scripts/gen_postman_collection.py
+
+server-ops:         ## Пересобрать пульт сервера → docs/SERVER_OPS.html (команды — scripts/server_ops/content.py)
+	uv run python scripts/server_ops/build.py
 
 ai-regression:      ## Регрессия ассистента — ОБЯЗАТЕЛЬНО перед правкой промпта
 	uv run python scripts/run_ai_regression.py
