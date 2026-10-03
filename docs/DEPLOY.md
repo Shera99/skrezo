@@ -340,26 +340,64 @@ journalctl -u skrezo-api@8001 -n 30 --no-pager       # realtime_listener_connect
 
 ## 10. nginx и TLS
 
+Домен API и почту для писем Let's Encrypt задайте один раз в сессии — команды ниже
+берут их из переменных:
+
+```bash
+DOMAIN=api.skrezo.com                  # ваш домен API
+EMAIL=admin@skrezo.com                 # сюда Let's Encrypt пишет об истечении сертификата
+getent ahostsv4 "$DOMAIN" | head -1    # должен быть IP этого сервера
+```
+
+Другой адрес — DNS ещё не обновился (подождать) либо домен за прокси Cloudflare
+(см. ниже).
+
 ```bash
 cp /opt/skrezo/app/deploy/nginx/skrezo.conf /etc/nginx/sites-available/skrezo
-sed -i 's/api\.skrezo\.com/api.ВАШ-ДОМЕН/g' /etc/nginx/sites-available/skrezo
-ln -s /etc/nginx/sites-available/skrezo /etc/nginx/sites-enabled/skrezo
+sed -i "s/api\.skrezo\.com/$DOMAIN/g" /etc/nginx/sites-available/skrezo
+ln -sf /etc/nginx/sites-available/skrezo /etc/nginx/sites-enabled/skrezo
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
+curl -s "http://$DOMAIN/health"        # {"status":"ok"} — nginx уже проксирует в API
 
-# DNS уже должен указывать на сервер (проверка HTTP-01). certbot допишет TLS и редирект 80→443.
-certbot --nginx -d api.ВАШ-ДОМЕН --redirect --agree-tos -m admin@ВАШ-ДОМЕН
-systemctl list-timers certbot.timer     # автопродление сертификата
+# Проверка HTTP-01 идёт на этот сервер; certbot допишет TLS и редирект 80→443.
+certbot --nginx -d "$DOMAIN" --redirect --agree-tos --no-eff-email -m "$EMAIL"
+systemctl list-timers certbot.timer    # автопродление; nginx перечитывается сам
 ```
+
+### Если домен за Cloudflare
+
+Проще всего — запись в режиме **DNS only** (серое облако): всё работает как описано.
+Если нужен прокси (оранжевое облако), сертификат выпускайте при сером облаке, затем
+включите оранжевое с режимом SSL **Full (strict)** и научите nginx брать реальный IP
+клиента из `CF-Connecting-IP`. Без этого все запросы приходят с адресов Cloudflare:
+лимиты по IP (OTP, форма заявки) превращаются в один общий счётчик, а `ip_hash`
+раскидывает запросы одного клиента Socket.IO по разным процессам.
+
+```bash
+{ curl -fsS https://www.cloudflare.com/ips-v4; echo; curl -fsS https://www.cloudflare.com/ips-v6; echo; } \
+    | grep -E '^[0-9a-f:.]+/[0-9]+$' | sed 's/^/set_real_ip_from /; s/$/;/' \
+    > /etc/nginx/conf.d/cloudflare-realip.conf
+echo 'real_ip_header CF-Connecting-IP;' >> /etc/nginx/conf.d/cloudflare-realip.conf
+nginx -t && systemctl reload nginx
+```
+
+Список адресов Cloudflare меняется редко — команду стоит повторять раз в несколько месяцев.
 
 ## 11. Проверка
 
 ```bash
-curl -s https://api.ВАШ-ДОМЕН/health                              # {"status":"ok"}
-curl -sI https://api.ВАШ-ДОМЕН/docs | head -1                     # HTTP/2 200
-curl -s 'https://api.ВАШ-ДОМЕН/socket.io/?EIO=4&transport=polling' # 0{"sid":...} — сокет за nginx жив
+curl -s "https://$DOMAIN/health"                                    # {"status":"ok"}
+curl -sI "https://$DOMAIN/docs" | head -1                           # … 200
+curl -s "https://$DOMAIN/socket.io/?EIO=4&transport=polling"; echo  # 0{"sid":…} — сокет за nginx жив
+curl -si --http1.1 --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" \
+    -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+    "https://$DOMAIN/socket.io/?EIO=4&transport=websocket" | head -1   # HTTP/1.1 101 Switching Protocols
 psql "postgresql://skrezo:$PG_PASS@127.0.0.1:6432/pgbouncer" -c 'SHOW POOLS;'
 ```
+
+Затем сверьте в `.env` адреса под новый домен — `PUBLIC_API_URL`, `CABINET_URL`,
+`CORS_ORIGINS`; если что-то правили, `systemctl restart skrezo.target`.
 
 ## 12. Внешние системы после переезда
 
