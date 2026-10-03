@@ -12,7 +12,9 @@ Type=simple
 User=skrezo
 Group=skrezo
 WorkingDirectory=/opt/skrezo/app
-Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC
+# Без PYTHONDONTWRITEBYTECODE: uv не компилирует .pyc, и с запретом кэша каждый старт
+# заново компилировал все библиотеки — ~13 с CPU и ~15 с до готовности процесса.
+Environment=PYTHONUNBUFFERED=1 TZ=UTC
 ExecStart=/opt/skrezo/app/.venv/bin/arq app.jobs.worker.WorkerSettings
 Restart=always
 RestartSec=5

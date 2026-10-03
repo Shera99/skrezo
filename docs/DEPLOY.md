@@ -169,8 +169,9 @@ uv ставится в `/usr/local/bin`; Python 3.14 (в Ubuntu 24.04 его н�
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
 uv --version
-sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && uv python install 3.14 && uv sync --frozen --no-dev'
-/opt/skrezo/app/.venv/bin/python --version      # Python 3.14.x
+sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && uv python install 3.14 --compile-bytecode && \
+    uv sync --frozen --no-dev --compile-bytecode'
+sudo -u skrezo /opt/skrezo/app/.venv/bin/python --version      # Python 3.14.x
 
 cp /opt/skrezo/app/deploy/sysctl/99-skrezo.conf /etc/sysctl.d/99-skrezo.conf
 sysctl --system
@@ -244,8 +245,14 @@ scp -r secrets skrezouser@НОВЫЙ:~/skrezo-secrets
 mv /home/skrezouser/skrezo.env /opt/skrezo/app/.env
 mv /home/skrezouser/skrezo-secrets/* /opt/skrezo/app/secrets/ && rmdir /home/skrezouser/skrezo-secrets
 chown -R skrezo:skrezo /opt/skrezo/app/.env /opt/skrezo/app/secrets
-chmod 600 /opt/skrezo/app/.env && chmod 700 /opt/skrezo/app/secrets
+chmod 600 /opt/skrezo/app/.env /opt/skrezo/app/secrets/* && chmod 700 /opt/skrezo/app/secrets
+sudo -u skrezo cat /opt/skrezo/app/.env /opt/skrezo/app/secrets/* > /dev/null && echo "ключи читаются"
 ```
+
+`chown` — строго после `mv`: перенесённый файл сохраняет владельца (`skrezouser`), и
+воркер получит «Permission denied». Пуши при этом не падают громко — в логе
+`fcm_channel_init_failed` и `push_transport_built android=log ios=log`, то есть
+уведомления пишутся в журнал вместо отправки.
 
 Что меняется в `.env` под этот сервер (остальное — как на старом проде):
 
@@ -323,7 +330,8 @@ systemctl start skrezo.target skrezo-backup.timer
 
 systemctl status 'skrezo-*' --no-pager
 curl -s http://127.0.0.1:8001/health && curl -s http://127.0.0.1:8002/health
-journalctl -u skrezo-worker@1 -n 30 --no-pager       # event_listener_connected, cron'ы
+journalctl -u skrezo-worker@1 -n 30 --no-pager       # event_listener_connected, cron'ы;
+                                                     # при PUSH_ENABLED=true — push_transport_built android=fcm ios=apns
 journalctl -u skrezo-api@8001 -n 30 --no-pager       # realtime_listener_connected
 ```
 
@@ -369,7 +377,10 @@ psql "postgresql://skrezo:$PG_PASS@127.0.0.1:6432/pgbouncer" -c 'SHOW POOLS;'
 Всё ниже выполняется из-под своего пользователя с `sudo`; `sudo -i` и переходы в каталог
 проекта нужны были только при установке.
 
-**Деплой без простоя** (код → зависимости → миграции → API по одному → воркеры):
+**Деплой без простоя** (код → юниты systemd → зависимости → миграции → API по одному →
+воркеры). Изменённые файлы `deploy/systemd/*` скрипт копирует в `/etc/systemd/system` сам;
+свои правки юнитов на сервере — только через `systemctl edit …` (drop-in), иначе деплой
+их перезапишет:
 
 ```bash
 sudo /opt/skrezo/app/deploy/bin/deploy.sh            # ветка main

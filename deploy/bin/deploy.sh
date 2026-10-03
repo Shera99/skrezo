@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Деплой Skrezo без простоя: код → зависимости → миграции → API по одному → воркеры.
+# Деплой Skrezo без простоя: код → юниты systemd → зависимости → миграции → API по одному → воркеры.
 #   sudo /opt/skrezo/app/deploy/bin/deploy.sh            # ветка main
 #   sudo /opt/skrezo/app/deploy/bin/deploy.sh v1.4.0     # тег или коммит
 # Миграции идут по DATABASE_DIRECT_URL (мимо PgBouncer) и ровно один раз — не в
@@ -23,8 +23,28 @@ else
     as_app git checkout -q "$REF"                    # тег или коммит
 fi
 
-echo "→ зависимости (uv sync --frozen --no-dev)"
-as_app uv sync --frozen --no-dev
+echo "→ юниты systemd"
+# Источник истины — deploy/systemd в репозитории: изменённые файлы копируются сами.
+# Свои правки на сервере — только через drop-in (`systemctl edit skrezo-api@.service`),
+# иначе следующий деплой их перезапишет.
+units_changed=0
+for unit in deploy/systemd/*; do
+    target="/etc/systemd/system/$(basename "$unit")"
+    if ! cmp -s "$unit" "$target"; then
+        install -m 644 "$unit" "$target"
+        echo "  обновлён $(basename "$unit")"
+        units_changed=1
+    fi
+done
+if [ "$units_changed" -eq 1 ]; then
+    systemctl daemon-reload
+    systemctl try-restart 'skrezo-*.timer' || true   # таймер — не повод срывать деплой
+fi
+
+echo "→ зависимости (uv sync --frozen --no-dev --compile-bytecode)"
+# Байткод — сразу при установке: иначе первый старт после деплоя компилирует
+# библиотеки на ходу, и окно перезапуска API растягивается.
+as_app uv sync --frozen --no-dev --compile-bytecode
 
 echo "→ миграции"
 as_app .venv/bin/alembic upgrade head
