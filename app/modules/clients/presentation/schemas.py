@@ -230,6 +230,25 @@ class ClientWhatsApp(CamelModel):
         )
 
 
+class ClientCustomPlan(CamelModel):
+    """Спецплан клиента (`PUT /admin/clients/{id}/custom-plan`)."""
+
+    title: str = Field(examples=["Клиника+ 14 мест"])
+    seats: int = Field(examples=[14])
+    price_tiyin: int = Field(description="Цена в месяц, тыйыны", examples=[1100000])
+    note: str | None = Field(default=None, description="Внутренняя заметка Skrezo")
+    updated_at: datetime
+
+
+class ClientPlanRequest(CamelModel):
+    """Открытая заявка клиента на условия сверх тарифов."""
+
+    id: uuid.UUID
+    seats: int = Field(description="Сколько мест хочет", examples=[14])
+    comment: str | None = None
+    submitted_at: datetime
+
+
 class ClientDetailResponse(ClientListItem):
     address: str | None = None
     business_phone: str | None = None
@@ -260,6 +279,14 @@ class ClientDetailResponse(ClientListItem):
     )
     ai_mode_changed_at: datetime | None = Field(
         default=None, description="Когда режим меняли в последний раз"
+    )
+    custom_plan: ClientCustomPlan | None = Field(
+        default=None,
+        description="Спецплан: свои места и цена вместо пакетов; `null` — публичные пакеты",
+    )
+    open_plan_request: ClientPlanRequest | None = Field(
+        default=None,
+        description="Открытая заявка клиента «нужно больше мест» (`/admin/plan-requests`)",
     )
 
     @classmethod
@@ -303,6 +330,27 @@ class ClientDetailResponse(ClientListItem):
             ai_mode=clinic.ai_mode,
             ai_mode_reason=clinic.ai_mode_reason,
             ai_mode_changed_at=clinic.ai_mode_changed_at,
+            custom_plan=(
+                ClientCustomPlan(
+                    title=detail.custom_plan.title,
+                    seats=detail.custom_plan.seats,
+                    price_tiyin=detail.custom_plan.price_tiyin,
+                    note=detail.custom_plan.note,
+                    updated_at=detail.custom_plan.updated_at,
+                )
+                if detail.custom_plan is not None
+                else None
+            ),
+            open_plan_request=(
+                ClientPlanRequest(
+                    id=detail.open_plan_request.id,
+                    seats=detail.open_plan_request.seats,
+                    comment=detail.open_plan_request.comment,
+                    submitted_at=detail.open_plan_request.submitted_at,
+                )
+                if detail.open_plan_request is not None
+                else None
+            ),
         )
 
 

@@ -1,4 +1,8 @@
-"""Цена подписки по действующему тарифу — одна для оплаты, баланса и автопродления."""
+"""Цена подписки по действующему тарифу — одна для оплаты, баланса и автопродления.
+
+Спецплан Skrezo (``clinic_custom_plan``), если он есть, заменяет пакеты целиком:
+цена и места — из него, и это видят оплата, списание с баланса и автопродление.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.modules.payments.domain.periods import MAX_MONTHS, MIN_MONTHS
+from app.modules.payments.infrastructure.repositories.plan_repository import PlanRepository
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
@@ -16,6 +21,7 @@ from app.modules.tariffs.domain.pricing import PackageDef, compute_clinic_price,
 from app.modules.tariffs.infrastructure.repositories.tariff_repository import TariffRepository
 from app.shared.db.enums import ClinicType
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.tariff_version import TariffVersion
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +38,15 @@ class PriceQuote:
 
 
 @dataclass(frozen=True, slots=True)
+class CustomPlanTerms:
+    """Спецплан клиники так, как его видит кабинет."""
+
+    title: str
+    seats: int
+    monthly_tiyin: int
+
+
+@dataclass(frozen=True, slots=True)
 class TariffCard:
     """Тариф клиники для кабинета: из чего складывается её цена."""
 
@@ -45,6 +60,8 @@ class TariffCard:
     monthly_tiyin: int
     #: Пакет, в который попадает клиника; ``None`` — соло или мест больше пакетов.
     current_package: str | None
+    #: Спецплан Skrezo: заполнен — цена и места из него, пакеты только для справки.
+    custom_plan: CustomPlanTerms | None = None
 
 
 class SubscriptionPricing:
@@ -74,6 +91,24 @@ class SubscriptionPricing:
         if clinic is None:
             raise NotFoundError("Клиника не найдена", code="clinic_not_found")
         version = await self._tariffs.get_current(clinic.type)
+        custom = await PlanRepository(self._session).custom_plan(clinic_id)
+        if custom is not None:
+            # Спецплан не зависит от того, настроены ли публичные пакеты.
+            return TariffCard(
+                clinic_type=clinic.type,
+                packages=await self._packages(version) if version is not None else [],
+                over_price_tiyin=(
+                    int(version.over_price_tiyin)
+                    if version is not None and version.over_price_tiyin
+                    else None
+                ),
+                seats=custom.seats,
+                monthly_tiyin=custom.price_tiyin,
+                current_package=None,
+                custom_plan=CustomPlanTerms(
+                    title=custom.title, seats=custom.seats, monthly_tiyin=custom.price_tiyin
+                ),
+            )
         not_configured = ConflictError(
             "Тариф ещё не настроен — напишите в Skrezo", code="tariff_not_configured"
         )
@@ -90,13 +125,7 @@ class SubscriptionPricing:
                 monthly_tiyin=int(version.price_tiyin),
                 current_package=None,
             )
-        packages = sorted(
-            (
-                PackageDef(name=p.name, up_to=p.up_to, price=p.price_tiyin)
-                for p in await self._tariffs.list_packages(version.id)
-            ),
-            key=lambda p: p.up_to,
-        )
+        packages = await self._packages(version)
         if not packages or not version.over_price_tiyin:
             raise not_configured
         used, limit = await self._subscriptions.seats(clinic_id)
@@ -109,4 +138,14 @@ class SubscriptionPricing:
             seats=seats,
             monthly_tiyin=compute_clinic_price(packages, int(version.over_price_tiyin), seats),
             current_package=current.name if current else None,
+        )
+
+    async def _packages(self, version: TariffVersion) -> list[PackageDef]:
+        """Пакеты версии тарифа по возрастанию мест."""
+        return sorted(
+            (
+                PackageDef(name=p.name, up_to=p.up_to, price=p.price_tiyin)
+                for p in await self._tariffs.list_packages(version.id)
+            ),
+            key=lambda p: p.up_to,
         )

@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
 from app.modules.payments.application.services.pricing import TariffCard
+from app.modules.payments.application.use_cases.change_package import PackageChange
+from app.modules.payments.application.use_cases.plan_options import PlanOptions
 from app.modules.payments.domain.checkout import ReturnMode
+from app.modules.payments.infrastructure.repositories.plan_repository import PlanRequestRow
 from app.shared.api.schemas import CamelModel
 from app.shared.db.enums import ClinicType
+from app.shared.db.models.clinic_custom_plan import ClinicCustomPlan
+from app.shared.db.models.plan_request import PlanRequest
 
 
 class PaymentSummary(CamelModel):
@@ -163,6 +168,64 @@ class TariffPackageOut(CamelModel):
     )
     price_tiyin: int = Field(description="Цена пакета в месяц, тыйыны", examples=[500000])
     current: bool = Field(description="Клиника сейчас в этом пакете (по числу мест)")
+    available: bool = Field(
+        default=False,
+        description=(
+            "Можно перейти на пакет самой (`PUT /clinic/subscription/package`). У текущего "
+            "пакета `true`, если лимит мест ниже его границы: переход откроет места пакета "
+            "без доплаты"
+        ),
+    )
+    unavailable_reason: str | None = Field(
+        default=None,
+        description=(
+            "Почему перейти нельзя: `current` — уже на нём, `seats_in_use` — сотрудников "
+            "больше мест пакета, либо причина закрытой смены (`changeBlockedReason`)"
+        ),
+        examples=["seats_in_use"],
+    )
+    change_cost_tiyin: int = Field(
+        default=0,
+        description=(
+            "Доплата сейчас, если перейти: разница цен за остаток оплаченного периода; "
+            "0 — без доплаты (пакет дешевле, триал, период не оплачен)"
+        ),
+        examples=[133334],
+    )
+
+
+class CustomPlanOut(CamelModel):
+    """Индивидуальный план клиники от Skrezo."""
+
+    title: str = Field(examples=["Клиника+ 14 мест"])
+    seats: int = Field(description="Мест по плану — лимит сотрудников", examples=[14])
+    monthly_tiyin: int = Field(description="Цена в месяц, тыйыны", examples=[1100000])
+
+
+class PlanRequestOut(CamelModel):
+    """Заявка клиники на условия сверх публичных тарифов."""
+
+    id: uuid.UUID
+    seats: int = Field(description="Сколько мест нужно", examples=[14])
+    comment: str | None = None
+    status: Literal["new", "done", "declined"] = Field(
+        description="`new` — ждёт Skrezo, `done` — договорились, `declined` — отказ"
+    )
+    submitted_at: datetime
+    resolution_note: str | None = None
+    resolved_at: datetime | None = None
+
+    @classmethod
+    def from_model(cls, r: PlanRequest) -> PlanRequestOut:
+        return cls(
+            id=r.id,
+            seats=r.seats,
+            comment=r.comment,
+            status=r.status,
+            submitted_at=r.submitted_at,
+            resolution_note=r.resolution_note,
+            resolved_at=r.resolved_at,
+        )
 
 
 class TariffPackagesOut(CamelModel):
@@ -207,6 +270,70 @@ class TariffPackagesOut(CamelModel):
         examples=["Практика"],
     )
     currency: str = Field(default="KGS")
+    seats_used: int | None = Field(
+        default=None, description="Занято мест: активные сотрудники кроме владельца", examples=[4]
+    )
+    seats_limit: int | None = Field(
+        default=None, description="Лимит мест клиники сейчас", examples=[6]
+    )
+    custom_plan: CustomPlanOut | None = Field(
+        default=None,
+        description=(
+            "Индивидуальный план от Skrezo: заполнен — цена и места из него, пакеты только "
+            "для справки, сменить план можно через Skrezo"
+        ),
+    )
+    can_change: bool = Field(
+        default=False, description="Может ли клиника сама перейти на другой пакет"
+    )
+    change_blocked_reason: str | None = Field(
+        default=None,
+        description=(
+            "Почему смена закрыта: `solo`, `custom_plan_active`, `subscription_blocked`, "
+            "`subscription_cancelled`"
+        ),
+    )
+    open_request: PlanRequestOut | None = Field(
+        default=None,
+        description="Открытая заявка на условия сверх тарифов (`POST …/plan-request`)",
+    )
+
+    @classmethod
+    def from_options(cls, options: PlanOptions) -> TariffPackagesOut:
+        base = cls.from_card(options.card)
+        by_name = {o.package.name: o for o in options.options}
+        packages = [
+            p.model_copy(
+                update={
+                    "available": by_name[p.name].available,
+                    "unavailable_reason": by_name[p.name].unavailable_reason,
+                    "change_cost_tiyin": by_name[p.name].change_cost_tiyin,
+                }
+            )
+            for p in base.packages
+        ]
+        custom = options.card.custom_plan
+        return base.model_copy(
+            update={
+                "packages": packages,
+                "seats_used": options.seats_used,
+                "seats_limit": options.seats_limit,
+                "custom_plan": (
+                    CustomPlanOut(
+                        title=custom.title, seats=custom.seats, monthly_tiyin=custom.monthly_tiyin
+                    )
+                    if custom is not None
+                    else None
+                ),
+                "can_change": options.change_blocked_reason is None,
+                "change_blocked_reason": options.change_blocked_reason,
+                "open_request": (
+                    PlanRequestOut.from_model(options.open_request)
+                    if options.open_request is not None
+                    else None
+                ),
+            }
+        )
 
     @classmethod
     def from_card(cls, card: TariffCard) -> TariffPackagesOut:
@@ -273,3 +400,136 @@ class ClinicPaymentsResponse(CamelModel):
     current_page: int
     page_size: int = 25
     total_count: int
+
+
+# ── Смена пакета и заявки клиники ───────────────────────────────────────────
+
+
+class ChangePackageRequest(CamelModel):
+    """Перейти на публичный пакет: какой — по его границе мест."""
+
+    model_config = ConfigDict(json_schema_extra={"example": {"upTo": 10}})
+
+    up_to: int = Field(
+        ge=1, description="`upTo` пакета из `GET /clinic/subscription/packages`", examples=[10]
+    )
+
+
+class PackageChangeOut(CamelModel):
+    """Итог перехода и тариф после него."""
+
+    from_package: str | None = Field(default=None, examples=["Практика"])
+    to_package: str = Field(examples=["Клиника"])
+    seats_limit: int = Field(description="Новый лимит мест", examples=[10])
+    monthly_tiyin: int = Field(description="Цена в месяц со следующей оплаты", examples=[800000])
+    charged_tiyin: int = Field(
+        description="Списано с баланса сейчас: доплата за остаток периода", examples=[600000]
+    )
+    charged_days: int = Field(description="За сколько дней остатка взята доплата", examples=[18])
+    balance_tiyin: int = Field(description="Баланс после перехода", examples=[400000])
+    plan: TariffPackagesOut = Field(description="Тариф клиники после перехода")
+
+    @classmethod
+    def build(cls, change: PackageChange, plan: TariffPackagesOut) -> PackageChangeOut:
+        return cls(
+            from_package=change.from_package,
+            to_package=change.to_package,
+            seats_limit=change.seats_limit,
+            monthly_tiyin=change.monthly_tiyin,
+            charged_tiyin=change.charged_tiyin,
+            charged_days=change.charged_days,
+            balance_tiyin=change.balance_tiyin,
+            plan=plan,
+        )
+
+
+class PlanRequestCreate(CamelModel):
+    """Нужно больше мест, чем в самом большом пакете, — или другие условия."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"seats": 14, "comment": "Открываем второй филиал"}}
+    )
+
+    seats: int = Field(ge=1, le=1000, description="Сколько мест нужно", examples=[14])
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+# ── Спецплан и заявки: админка Skrezo ──────────────────────────────────────
+
+
+class CustomPlanRequest(CamelModel):
+    """Индивидуальные условия клиники: мест и цена в месяц."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "title": "Клиника+ 14 мест",
+                "seats": 14,
+                "priceTiyin": 1100000,
+                "note": "Договорились 06.10: 2 филиала, цена на год",
+            }
+        }
+    )
+
+    title: str = Field(min_length=1, max_length=120, description="Название плана для клиники")
+    seats: int = Field(ge=1, le=1000, description="Мест — станет лимитом сотрудников")
+    price_tiyin: int = Field(gt=0, description="Цена в месяц, тыйыны")
+    note: str | None = Field(
+        default=None, max_length=2000, description="Внутренняя заметка Skrezo; клиника не видит"
+    )
+
+
+class AdminCustomPlanOut(CamelModel):
+    """Спецплан клиники в админке."""
+
+    title: str
+    seats: int
+    price_tiyin: int
+    note: str | None = None
+    set_by: uuid.UUID | None = None
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, plan: ClinicCustomPlan) -> AdminCustomPlanOut:
+        return cls(
+            title=plan.title,
+            seats=plan.seats,
+            price_tiyin=plan.price_tiyin,
+            note=plan.note,
+            set_by=plan.set_by,
+            updated_at=plan.updated_at,
+        )
+
+
+class AdminPlanRequestOut(PlanRequestOut):
+    """Заявка в очереди админки: чья и от кого."""
+
+    clinic_id: uuid.UUID
+    clinic_name: str = Field(examples=["Стоматология Улыбка"])
+    requested_by: uuid.UUID | None = None
+
+    @classmethod
+    def from_row(cls, row: PlanRequestRow) -> AdminPlanRequestOut:
+        base = PlanRequestOut.from_model(row.request)
+        return cls(
+            **base.model_dump(),
+            clinic_id=row.request.clinic_id,
+            clinic_name=row.clinic_name,
+            requested_by=row.request.requested_by,
+        )
+
+
+class AdminPlanRequestsResponse(CamelModel):
+    list: list[AdminPlanRequestOut]
+    current_page: int
+    page_size: int = 25
+    total_count: int
+
+
+class ResolvePlanRequest(CamelModel):
+    """Закрыть заявку: договорились или отказ."""
+
+    model_config = ConfigDict(json_schema_extra={"example": {"status": "declined"}})
+
+    status: Literal["done", "declined"]
+    note: str | None = Field(default=None, max_length=2000)

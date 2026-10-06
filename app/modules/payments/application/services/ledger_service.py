@@ -194,6 +194,12 @@ class LedgerService:
         )
         return entry, quote
 
+    async def lock_for_change(
+        self, clinic_id: uuid.UUID
+    ) -> tuple[ClinicWallet, Subscription | None]:
+        """Встать в общую очередь денежных изменений клиники (смена тарифа и т.п.)."""
+        return await self._lock_for_charge(clinic_id)
+
     async def _lock_for_charge(
         self, clinic_id: uuid.UUID
     ) -> tuple[ClinicWallet, Subscription | None]:

@@ -8,7 +8,9 @@ from datetime import datetime
 
 from app.shared.db.enums import ClinicType, SubscriptionStatus
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_custom_plan import ClinicCustomPlan
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+from app.shared.db.models.plan_request import PlanRequest
 from app.shared.db.models.subscription import Subscription
 
 
@@ -63,3 +65,7 @@ class ClientDetail:
     revenue_tiyin: int = 0
     #: Привязка номера WhatsApp Cloud API; ``None`` — номер не подключён.
     whatsapp: ClinicWhatsApp | None = None
+    #: Спецплан Skrezo; ``None`` — клиника на публичных пакетах.
+    custom_plan: ClinicCustomPlan | None = None
+    #: Открытая заявка клиники на условия сверх тарифов.
+    open_plan_request: PlanRequest | None = None

@@ -22,7 +22,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Справочники (i18n) | `city`, `city_translation`, `specialization`, `specialization_translation` |
 | Аккаунты и клиники | `account`, `clinic`, `membership` |
 | RBAC (права/роли) | `permission`, `role`, `role_permission` |
-| Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package` |
+| Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package`, `clinic_custom_plan` — спецплан клиники от Skrezo (свои места и цена вместо пакетов, строка на клинику), `plan_request` — заявки «нужно больше мест» (открытая одна на клинику) |
 | Аудит | `audit_log` |
 | Фоновые задачи | `job_run` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `patient_file`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |

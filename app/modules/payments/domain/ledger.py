@@ -13,7 +13,16 @@ SOURCE_TOPUP = "manual_topup"
 SOURCE_CHARGE = "subscription_charge"
 SOURCE_REFUND = "refund"
 SOURCE_ADJUSTMENT = "adjustment"
-SOURCES = (SOURCE_PROVIDER, SOURCE_TOPUP, SOURCE_CHARGE, SOURCE_REFUND, SOURCE_ADJUSTMENT)
+#: Доплата за остаток оплаченного периода при переходе на пакет дороже.
+SOURCE_PLAN_CHANGE = "plan_change"
+SOURCES = (
+    SOURCE_PROVIDER,
+    SOURCE_TOPUP,
+    SOURCE_CHARGE,
+    SOURCE_REFUND,
+    SOURCE_ADJUSTMENT,
+    SOURCE_PLAN_CHANGE,
+)
 
 #: Расходы, которым можно увести остаток в минус: возврат денег клинике и
 #: корректировка Skrezo — это исправление факта, а не покупка.

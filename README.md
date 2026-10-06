@@ -341,7 +341,9 @@ make run           # uvicorn с автоперезагрузкой
 | `GET` | `/admin/dashboard/trends?months=6` | Ряды по месяцам: MRR (0), активные (solo/clinic), заявки→клиенты, срез solo/clinic |
 | `POST` | `/admin/clients/{id}/subscription/activate` | Отметить оплату: доступ до даты (`paidUntil`) |
 | `GET` | `/clinic/subscription/price?months=` | Цена подписки по тарифу за N месяцев (`billing.view`); `available` — подключена ли онлайн-оплата |
-| `GET` | `/clinic/subscription/packages` | Тариф клиники только на чтение (`billing.view`): пакеты с отметкой текущего по числу мест, доплата за место сверх последнего, текущая цена; у соло — фиксированная цена; тариф не заведён — 409 `tariff_not_configured` |
+| `GET` | `/clinic/subscription/packages` | Тариф клиники и варианты перехода (`billing.view`): пакеты с отметкой текущего, у каждого `available` и `changeCostTiyin` (доплата сейчас), `canChange`/`changeBlockedReason`, `seatsUsed`/`seatsLimit`, спецплан `customPlan`, открытая заявка `openRequest`; у соло — фиксированная цена; тариф не заведён — 409 `tariff_not_configured` |
+| `PUT` | `/clinic/subscription/package` | Перейти на другой публичный пакет `{upTo}` (`billing.manage`): дороже — сразу, с доплатой за остаток оплаченного периода с баланса (402 `insufficient_balance` с суммами), дешевле — сразу без возврата, если сотрудники помещаются (409 `seats_in_use`); спецплан — 409 `custom_plan_active`; новая цена — со следующей оплаты |
+| `POST` | `/clinic/subscription/plan-request` | Заявка «нужно больше мест» `{seats, comment}`: команде Skrezo в чат и в очередь админки; открытая заявка одна, повтор обновляет её |
 | `POST` | `/clinic/subscription/payments` | Начать оплату через FreedomPay: `{months}` — подписка, `{amountTiyin}` — пополнение баланса; платёж `pending` + `redirectUrl` (`billing.manage`); 409 `payments_not_configured` / `tariff_not_configured`, 422 `topup_too_small`, 502 `payment_init_failed` |
 | `GET` | `/clinic/subscription/payments` | Платежи клиники за подписку |
 | `GET` | `/clinic/subscription/payments/{id}` | Состояние платежа — опрашивать после возврата со страницы оплаты |
@@ -350,6 +352,10 @@ make run           # uvicorn с автоперезагрузкой
 | `PATCH` | `/clinic/subscription/autopay` | Включить/выключить автопродление с баланса |
 | `GET` | `/admin/clients/{id}/ledger` | Skrezo: баланс и выписка клиента |
 | `POST` | `/admin/clients/{id}/ledger/entries` | Skrezo: `credit` — перевод на счёт (продлит ждущую подписку), `debit` — корректировка |
+| `PUT` | `/admin/clients/{id}/custom-plan` | Skrezo: спецплан `{title, seats, priceTiyin, note}` — свои места и цена в месяц вместо пакетов, видит только эта клиника; места сразу, цена со следующей оплаты; закрывает её открытую заявку |
+| `DELETE` | `/admin/clients/{id}/custom-plan` | Skrezo: снять спецплан — лимит мест прежний, цена снова по пакетам |
+| `GET` | `/admin/plan-requests?status=&page=&pageSize=` | Skrezo: очередь заявок клиник на условия сверх тарифов, открытые сверху |
+| `PATCH` | `/admin/plan-requests/{id}` | Skrezo: закрыть заявку `{status: done \| declined, note}`; повтор — 409 `plan_request_closed` |
 | `POST` | `/payments/freedompay/result` | **Публичный** серверный колбэк FreedomPay (`result_url`): подпись `pg_sig` обязательна; XML-ответ ok / rejected / error |
 | `GET` | `/admin/payments?from&to&query&status` | Skrezo: журнал платежей за подписку и сводка (успешно, отказы, возвраты, нетто) |
 | `POST` | `/admin/payments/{id}/refund` | Skrezo: отметить возврат оплаченного платежа (деньги возвращаются в кабинете провайдера) |
@@ -1189,6 +1195,22 @@ WhatsApp → воркер → контекст (промпт + карточка 
 > (не хватает — 402 `insufficient_balance` с недостачей); перевод на счёт и
 > корректировки — `POST /admin/clients/{id}/ledger/entries`; возврат платежа
 > кладёт расход (остаток может уйти в минус — это факт, а не запрет).
+> **Смена тарифа и спецплан.** Пакет клиники — её лимит мест: «Практика» это
+> `seats_limit = 6`. Клиника сама переходит только между публичными пакетами
+> (`PUT /clinic/subscription/package {upTo}`). **Дороже** — сразу: разница цен
+> за остаток оплаченного периода списывается с баланса строкой журнала
+> `plan_change` (месяц — 30 дней, неполный день целиком, округление вверх);
+> не хватает — 402 и ничего не меняется. На триале и без оплаченного периода —
+> без доплаты. **Дешевле** — сразу и без возврата, только если сотрудники
+> помещаются. Новая цена в обоих случаях — со следующей оплаты и
+> автопродления. Переход идёт под той же блокировкой кошелька, что и
+> списания: двойной клик не спишет доплату дважды. Мест больше последнего
+> пакета кабинет не продаёт — заявка, разговор со Skrezo и **спецплан**
+> (`clinic_custom_plan`): своё число мест и цена в месяц, видны только этой
+> клинике и заменяют пакеты во всём, что считает цену (`SubscriptionPricing`).
+> Пока он есть, переход в кабинете закрыт; снятие возвращает цену по пакетам
+> при прежнем лимите мест.
+>
 > **Автопродление** (`autopay_subscriptions`, 09:12 по Бишкеку — раньше
 > предупреждений о конце триала и периода, чтобы продлённым не уходила ссылка
 > «оплатите сейчас»): за

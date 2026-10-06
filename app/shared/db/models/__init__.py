@@ -26,6 +26,7 @@ from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_application import ClinicApplication
+from app.shared.db.models.clinic_custom_plan import ClinicCustomPlan
 from app.shared.db.models.clinic_ledger_entry import ClinicLedgerEntry
 from app.shared.db.models.clinic_usage_day import ClinicUsageDay
 from app.shared.db.models.clinic_wallet import ClinicWallet
@@ -49,6 +50,7 @@ from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_reminder import PatientReminder
 from app.shared.db.models.patient_tooth import PatientTooth
 from app.shared.db.models.permission import Permission
+from app.shared.db.models.plan_request import PlanRequest
 from app.shared.db.models.platform_payment import PlatformPayment
 from app.shared.db.models.push_event import PushEvent
 from app.shared.db.models.push_job import PushJob
@@ -89,6 +91,7 @@ __all__ = [
     "CityTranslation",
     "Clinic",
     "ClinicApplication",
+    "ClinicCustomPlan",
     "ClinicLedgerEntry",
     "ClinicUsageDay",
     "ClinicWallet",
@@ -112,6 +115,7 @@ __all__ = [
     "PatientReminder",
     "PatientTooth",
     "Permission",
+    "PlanRequest",
     "PlatformPayment",
     "PushEvent",
     "PushJob",

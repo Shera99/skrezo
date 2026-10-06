@@ -8,8 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.modules.payments.application.services.ledger_service import LedgerService
 from app.modules.payments.application.services.pricing import SubscriptionPricing
+from app.modules.payments.application.use_cases.change_package import ChangePackageUseCase
+from app.modules.payments.application.use_cases.custom_plan import (
+    RemoveCustomPlanUseCase,
+    SetCustomPlanUseCase,
+)
 from app.modules.payments.application.use_cases.handle_freedompay_result import (
     HandleFreedomPayResultUseCase,
+)
+from app.modules.payments.application.use_cases.plan_options import GetPlanOptionsUseCase
+from app.modules.payments.application.use_cases.plan_requests import (
+    ListPlanRequestsUseCase,
+    ResolvePlanRequestUseCase,
+    SubmitPlanRequestUseCase,
 )
 from app.modules.payments.application.use_cases.start_subscription_payment import (
     StartSubscriptionPaymentUseCase,
@@ -22,6 +33,8 @@ from app.modules.subscriptions.application.use_cases.manage_subscription import 
 )
 from app.modules.subscriptions.presentation.deps import get_manage_subscription_use_case
 from app.shared.freedompay import FreedomPayClient, build_freedompay_client
+from app.shared.notifications.deps import get_notifier
+from app.shared.notifications.notifier import Notifier
 
 
 def get_payment_repository(
@@ -60,3 +73,50 @@ def get_result_use_case(
     manage: ManageSubscriptionUseCase = Depends(get_manage_subscription_use_case),
 ) -> HandleFreedomPayResultUseCase:
     return HandleFreedomPayResultUseCase(session, payments, ledger, manage)
+
+
+# ── Смена тарифа и спецплан ────────────────────────────────────────────────
+
+
+def get_plan_options_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> GetPlanOptionsUseCase:
+    return GetPlanOptionsUseCase(session)
+
+
+def get_change_package_use_case(
+    session: AsyncSession = Depends(get_session),
+    notifier: Notifier = Depends(get_notifier),
+) -> ChangePackageUseCase:
+    return ChangePackageUseCase(session, notifier)
+
+
+def get_submit_plan_request_use_case(
+    session: AsyncSession = Depends(get_session),
+    notifier: Notifier = Depends(get_notifier),
+) -> SubmitPlanRequestUseCase:
+    return SubmitPlanRequestUseCase(session, notifier)
+
+
+def get_set_custom_plan_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> SetCustomPlanUseCase:
+    return SetCustomPlanUseCase(session)
+
+
+def get_remove_custom_plan_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> RemoveCustomPlanUseCase:
+    return RemoveCustomPlanUseCase(session)
+
+
+def get_list_plan_requests_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> ListPlanRequestsUseCase:
+    return ListPlanRequestsUseCase(session)
+
+
+def get_resolve_plan_request_use_case(
+    session: AsyncSession = Depends(get_session),
+) -> ResolvePlanRequestUseCase:
+    return ResolvePlanRequestUseCase(session)

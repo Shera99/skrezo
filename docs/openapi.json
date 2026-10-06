@@ -8506,7 +8506,7 @@
           "subscription"
         ],
         "summary": "Тариф клиники: пакеты и текущая цена",
-        "description": "Из чего складывается цена подписки клиники — для экрана «Подписка».\n\nРаньше пакеты отдавала только админка (`/admin/tariffs`). Здесь — действующая\nверсия тарифа для типа этой клиники, только на чтение: у клиники — пакеты с\nотметкой текущего и доплата за место сверх последнего, у соло — фиксированная\nцена. Число мест и цена — по тому же правилу, что и оплата.",
+        "description": "Тариф клиники для экрана «Подписка»: из чего складывается цена и куда можно перейти.\n\nДействующая версия тарифа для типа клиники: пакеты с отметкой текущего,\nдоплата за место сверх последнего, у соло — фиксированная цена. Число мест и\nцена — по тому же правилу, что и оплата.\n\nДля смены тарифа у каждого пакета — `available` и `changeCostTiyin` (сколько\nспишется с баланса сейчас, если перейти), у тарифа — `canChange` и причина\nзакрытой смены. Спецплан Skrezo (`customPlan`) заменяет пакеты: цена и места\nиз него, переход закрыт. Мест больше последнего пакета кабинет не продаёт —\nдля этого заявка (`POST /clinic/subscription/plan-request`, `openRequest`).",
         "operationId": "subscription_packages_api_v1_clinic_subscription_packages_get",
         "responses": {
           "200": {
@@ -8526,6 +8526,128 @@
                 "example": {
                   "error": "tariff_not_configured",
                   "message": "Тариф ещё не настроен — напишите в Skrezo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/clinic/subscription/package": {
+      "put": {
+        "tags": [
+          "subscription"
+        ],
+        "summary": "Перейти на другой пакет тарифа",
+        "description": "Сменить пакет самостоятельно — только между публичными пакетами тарифа.\n\n**Дороже** — сразу: лимит мест растёт, разница цен за остаток оплаченного\nпериода списывается с баланса (месяц — 30 дней). Денег не хватает — 402 с\nсуммами, ничего не меняется: пополните баланс и повторите. На триале и без\nоплаченного периода — без доплаты. **Дешевле** — сразу и без возврата, если\nсотрудников не больше мест нового пакета. Новая цена — со следующей оплаты\nи автопродления. Больше мест, чем в последнем пакете, — через заявку.",
+        "operationId": "change_package_api_v1_clinic_subscription_package_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePackageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Итог перехода и тариф после него",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageChangeOut"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Не хватает на доплату за остаток периода; ничего не изменилось",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "insufficient_balance",
+                  "message": "На балансе не хватает на доплату за переход — пополните баланс",
+                  "balanceTiyin": 200000,
+                  "amountTiyin": 600000,
+                  "shortfallTiyin": 400000
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Сотрудников больше мест пакета (`seatsUsed`, `upTo`); уже на пакете (`package_already_current`); спецплан (`custom_plan_active`); соло (`plan_change_not_available`); подписка закрыта Skrezo (`subscription_blocked`, `subscription_cancelled`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "seats_in_use",
+                  "message": "В пакете «Старт» мест 3, а сотрудников 4 — сначала отключите лишних",
+                  "seatsUsed": 4,
+                  "upTo": 3
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Нет пакета с таким `upTo`",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "package_not_found",
+                  "message": "Такого пакета нет в действующем тарифе"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/clinic/subscription/plan-request": {
+      "post": {
+        "tags": [
+          "subscription"
+        ],
+        "summary": "Заявка на условия сверх тарифов",
+        "description": "Нужно больше мест, чем в самом большом пакете, или другие условия.\n\nКоманда Skrezo получает сообщение в чат и заявку в очереди админки, итог\nразговора — спецплан клиники. Открытая заявка одна: повторная отправка\nобновляет её. Закрывается решением Skrezo или сама, когда ставят спецплан.",
+        "operationId": "request_plan_api_v1_clinic_subscription_plan_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Открытая заявка клиники",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanRequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -8842,6 +8964,304 @@
           },
           "404": {
             "description": "Клиент не найден"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clients/{clinic_id}/custom-plan": {
+      "put": {
+        "tags": [
+          "subscription-admin"
+        ],
+        "summary": "Поставить клинике спецплан",
+        "description": "Индивидуальные условия клиники: своё число мест и своя цена в месяц.\n\nВиден только этой клинике (`customPlan` в её тарифе) и заменяет пакеты во\nвсём: оплата, списание с баланса, автопродление. Места — сразу (лимит\nсотрудников), цена — со следующей оплаты; доплату или возврат за текущий\nпериод, если договорились, проведите операцией журнала. Открытая заявка\nклиники закрывается как выполненная. Повторный PUT заменяет план.",
+        "operationId": "set_custom_plan_api_v1_admin_clients__clinic_id__custom_plan_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clinic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Clinic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Спецплан после сохранения",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCustomPlanOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Клиент не найден",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "client_not_found",
+                  "message": "Клиент не найден"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Мест меньше, чем сотрудников (`seatsUsed`); соло (`custom_plan_clinic_only`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "seats_in_use",
+                  "message": "Сотрудников уже 12 — мест в плане должно быть не меньше"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "subscription-admin"
+        ],
+        "summary": "Снять спецплан",
+        "description": "Вернуть клинику к публичным пакетам: лимит мест прежний, цена — по пакетам.",
+        "operationId": "remove_custom_plan_api_v1_admin_clients__clinic_id__custom_plan_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clinic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Clinic Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Спецплан снят; цена снова по пакетам"
+          },
+          "404": {
+            "description": "Спецплана нет",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "custom_plan_not_found",
+                  "message": "Спецплана у клиента нет"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/plan-requests": {
+      "get": {
+        "tags": [
+          "subscription-admin"
+        ],
+        "summary": "Заявки клиник на условия сверх тарифов",
+        "description": "Очередь заявок «нужно больше мест»: кто, сколько мест, комментарий, статус.",
+        "operationId": "list_plan_requests_api_v1_admin_plan_requests_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "new",
+                    "done",
+                    "declined"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Фильтр по статусу; без него — все",
+              "title": "Status"
+            },
+            "description": "Фильтр по статусу; без него — все"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Pagesize"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Открытые сверху, внутри — свежие первыми",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPlanRequestsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/plan-requests/{request_id}": {
+      "patch": {
+        "tags": [
+          "subscription-admin"
+        ],
+        "summary": "Закрыть заявку клиники",
+        "description": "`done` — договорились, `declined` — отказ. Спецплан закрывает заявку сам.",
+        "operationId": "resolve_plan_request_api_v1_admin_plan_requests__request_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolvePlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Заявка после решения",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPlanRequestOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Заявка не найдена",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "plan_request_not_found",
+                  "message": "Заявка не найдена"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Заявка уже закрыта",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "plan_request_closed",
+                  "message": "Заявка уже закрыта"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -13510,6 +13930,59 @@
         ],
         "title": "AddStaffRequest"
       },
+      "AdminCustomPlanOut": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats"
+          },
+          "priceTiyin": {
+            "type": "integer",
+            "title": "Pricetiyin"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "setBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setby"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "seats",
+          "priceTiyin",
+          "updatedAt"
+        ],
+        "title": "AdminCustomPlanOut",
+        "description": "Спецплан клиники в админке."
+      },
       "AdminLedgerEntryRequest": {
         "properties": {
           "kind": {
@@ -13546,6 +14019,138 @@
         ],
         "title": "AdminLedgerEntryRequest",
         "description": "Ручная операция Skrezo: приход (перевод на счёт) или корректировка."
+      },
+      "AdminPlanRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats",
+            "description": "Сколько мест нужно",
+            "examples": [
+              14
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "done",
+              "declined"
+            ],
+            "title": "Status",
+            "description": "`new` — ждёт Skrezo, `done` — договорились, `declined` — отказ"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submittedat"
+          },
+          "resolutionNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolutionnote"
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolvedat"
+          },
+          "clinicId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Clinicid"
+          },
+          "clinicName": {
+            "type": "string",
+            "title": "Clinicname",
+            "examples": [
+              "Стоматология Улыбка"
+            ]
+          },
+          "requestedBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seats",
+          "status",
+          "submittedAt",
+          "clinicId",
+          "clinicName"
+        ],
+        "title": "AdminPlanRequestOut",
+        "description": "Заявка в очереди админки: чья и от кого."
+      },
+      "AdminPlanRequestsResponse": {
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/AdminPlanRequestOut"
+            },
+            "type": "array",
+            "title": "List"
+          },
+          "currentPage": {
+            "type": "integer",
+            "title": "Currentpage"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize",
+            "default": 25
+          },
+          "totalCount": {
+            "type": "integer",
+            "title": "Totalcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "list",
+          "currentPage",
+          "totalCount"
+        ],
+        "title": "AdminPlanRequestsResponse"
       },
       "AdminSubscriptionResponse": {
         "properties": {
@@ -15034,6 +15639,28 @@
         ],
         "title": "ChangeAdminPhoneResponse"
       },
+      "ChangePackageRequest": {
+        "properties": {
+          "upTo": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Upto",
+            "description": "`upTo` пакета из `GET /clinic/subscription/packages`",
+            "examples": [
+              10
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "upTo"
+        ],
+        "title": "ChangePackageRequest",
+        "description": "Перейти на публичный пакет: какой — по его границе мест.",
+        "example": {
+          "upTo": 10
+        }
+      },
       "ChangePasswordRequest": {
         "properties": {
           "currentPassword": {
@@ -15083,6 +15710,58 @@
         ],
         "title": "ClientActivity",
         "description": "Активность клиники: сколько людей она принимала и сколько раз."
+      },
+      "ClientCustomPlan": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "examples": [
+              "Клиника+ 14 мест"
+            ]
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats",
+            "examples": [
+              14
+            ]
+          },
+          "priceTiyin": {
+            "type": "integer",
+            "title": "Pricetiyin",
+            "description": "Цена в месяц, тыйыны",
+            "examples": [
+              1100000
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Внутренняя заметка Skrezo"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "seats",
+          "priceTiyin",
+          "updatedAt"
+        ],
+        "title": "ClientCustomPlan",
+        "description": "Спецплан клиента (`PUT /admin/clients/{id}/custom-plan`)."
       },
       "ClientDetailResponse": {
         "properties": {
@@ -15349,6 +16028,28 @@
             ],
             "title": "Aimodechangedat",
             "description": "Когда режим меняли в последний раз"
+          },
+          "customPlan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClientCustomPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Спецплан: свои места и цена вместо пакетов; `null` — публичные пакеты"
+          },
+          "openPlanRequest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClientPlanRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Открытая заявка клиента «нужно больше мест» (`/admin/plan-requests`)"
           }
         },
         "type": "object",
@@ -15565,6 +16266,47 @@
           "status"
         ],
         "title": "ClientPayment"
+      },
+      "ClientPlanRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats",
+            "description": "Сколько мест хочет",
+            "examples": [
+              14
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submittedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seats",
+          "submittedAt"
+        ],
+        "title": "ClientPlanRequest",
+        "description": "Открытая заявка клиента на условия сверх тарифов."
       },
       "ClientTokenResponse": {
         "properties": {
@@ -17644,6 +18386,92 @@
         ],
         "title": "CreateTimeOffRequest",
         "description": "Новое отсутствие врача (отпуск, больничный, разовая недоступность).\n\nИнтервал абсолютный и aware: с явным смещением таймзоны, как ``scheduledAt``\nу приёма. Полуоткрытый ``[startsAt, endsAt)``, конец строго позже начала."
+      },
+      "CustomPlanOut": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "examples": [
+              "Клиника+ 14 мест"
+            ]
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats",
+            "description": "Мест по плану — лимит сотрудников",
+            "examples": [
+              14
+            ]
+          },
+          "monthlyTiyin": {
+            "type": "integer",
+            "title": "Monthlytiyin",
+            "description": "Цена в месяц, тыйыны",
+            "examples": [
+              1100000
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "seats",
+          "monthlyTiyin"
+        ],
+        "title": "CustomPlanOut",
+        "description": "Индивидуальный план клиники от Skrezo."
+      },
+      "CustomPlanRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "description": "Название плана для клиники"
+          },
+          "seats": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Seats",
+            "description": "Мест — станет лимитом сотрудников"
+          },
+          "priceTiyin": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Pricetiyin",
+            "description": "Цена в месяц, тыйыны"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Внутренняя заметка Skrezo; клиника не видит"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "seats",
+          "priceTiyin"
+        ],
+        "title": "CustomPlanRequest",
+        "description": "Индивидуальные условия клиники: мест и цена в месяц.",
+        "example": {
+          "note": "Договорились 06.10: 2 филиала, цена на год",
+          "priceTiyin": 1100000,
+          "seats": 14,
+          "title": "Клиника+ 14 мест"
+        }
       },
       "DashboardSummary": {
         "properties": {
@@ -20867,6 +21695,87 @@
         "title": "OtpVerifyResponse",
         "description": "Итог проверки кода: вход (``auth``) либо переход к анкете (``registrationToken``)."
       },
+      "PackageChangeOut": {
+        "properties": {
+          "fromPackage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frompackage",
+            "examples": [
+              "Практика"
+            ]
+          },
+          "toPackage": {
+            "type": "string",
+            "title": "Topackage",
+            "examples": [
+              "Клиника"
+            ]
+          },
+          "seatsLimit": {
+            "type": "integer",
+            "title": "Seatslimit",
+            "description": "Новый лимит мест",
+            "examples": [
+              10
+            ]
+          },
+          "monthlyTiyin": {
+            "type": "integer",
+            "title": "Monthlytiyin",
+            "description": "Цена в месяц со следующей оплаты",
+            "examples": [
+              800000
+            ]
+          },
+          "chargedTiyin": {
+            "type": "integer",
+            "title": "Chargedtiyin",
+            "description": "Списано с баланса сейчас: доплата за остаток периода",
+            "examples": [
+              600000
+            ]
+          },
+          "chargedDays": {
+            "type": "integer",
+            "title": "Chargeddays",
+            "description": "За сколько дней остатка взята доплата",
+            "examples": [
+              18
+            ]
+          },
+          "balanceTiyin": {
+            "type": "integer",
+            "title": "Balancetiyin",
+            "description": "Баланс после перехода",
+            "examples": [
+              400000
+            ]
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TariffPackagesOut",
+            "description": "Тариф клиники после перехода"
+          }
+        },
+        "type": "object",
+        "required": [
+          "toPackage",
+          "seatsLimit",
+          "monthlyTiyin",
+          "chargedTiyin",
+          "chargedDays",
+          "balanceTiyin",
+          "plan"
+        ],
+        "title": "PackageChangeOut",
+        "description": "Итог перехода и тариф после него."
+      },
       "PackageSchema": {
         "properties": {
           "name": {
@@ -21865,6 +22774,117 @@
         ],
         "title": "PlanItemOut",
         "description": "Одно локальное уведомление серверного плана (контракт PlannedNotify)."
+      },
+      "PlanRequestCreate": {
+        "properties": {
+          "seats": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Seats",
+            "description": "Сколько мест нужно",
+            "examples": [
+              14
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seats"
+        ],
+        "title": "PlanRequestCreate",
+        "description": "Нужно больше мест, чем в самом большом пакете, — или другие условия.",
+        "example": {
+          "comment": "Открываем второй филиал",
+          "seats": 14
+        }
+      },
+      "PlanRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seats": {
+            "type": "integer",
+            "title": "Seats",
+            "description": "Сколько мест нужно",
+            "examples": [
+              14
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "done",
+              "declined"
+            ],
+            "title": "Status",
+            "description": "`new` — ждёт Skrezo, `done` — договорились, `declined` — отказ"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submittedat"
+          },
+          "resolutionNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolutionnote"
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolvedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seats",
+          "status",
+          "submittedAt"
+        ],
+        "title": "PlanRequestOut",
+        "description": "Заявка клиники на условия сверх публичных тарифов."
       },
       "PlatformClinicUsageOut": {
         "properties": {
@@ -23134,6 +24154,39 @@
         ],
         "title": "ResetPasswordRequest",
         "description": "Шаг 2 восстановления доступа: код из сообщения + новый пароль."
+      },
+      "ResolvePlanRequest": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "declined"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ResolvePlanRequest",
+        "description": "Закрыть заявку: договорились или отказ.",
+        "example": {
+          "status": "declined"
+        }
       },
       "RevenueBlockOut": {
         "properties": {
@@ -24694,6 +25747,36 @@
             "type": "boolean",
             "title": "Current",
             "description": "Клиника сейчас в этом пакете (по числу мест)"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "description": "Можно перейти на пакет самой (`PUT /clinic/subscription/package`). У текущего пакета `true`, если лимит мест ниже его границы: переход откроет места пакета без доплаты",
+            "default": false
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailablereason",
+            "description": "Почему перейти нельзя: `current` — уже на нём, `seats_in_use` — сотрудников больше мест пакета, либо причина закрытой смены (`changeBlockedReason`)",
+            "examples": [
+              "seats_in_use"
+            ]
+          },
+          "changeCostTiyin": {
+            "type": "integer",
+            "title": "Changecosttiyin",
+            "description": "Доплата сейчас, если перейти: разница цен за остаток оплаченного периода; 0 — без доплаты (пакет дешевле, триал, период не оплачен)",
+            "default": 0,
+            "examples": [
+              133334
+            ]
           }
         },
         "type": "object",
@@ -24777,6 +25860,76 @@
             "type": "string",
             "title": "Currency",
             "default": "KGS"
+          },
+          "seatsUsed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seatsused",
+            "description": "Занято мест: активные сотрудники кроме владельца",
+            "examples": [
+              4
+            ]
+          },
+          "seatsLimit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seatslimit",
+            "description": "Лимит мест клиники сейчас",
+            "examples": [
+              6
+            ]
+          },
+          "customPlan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomPlanOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Индивидуальный план от Skrezo: заполнен — цена и места из него, пакеты только для справки, сменить план можно через Skrezo"
+          },
+          "canChange": {
+            "type": "boolean",
+            "title": "Canchange",
+            "description": "Может ли клиника сама перейти на другой пакет",
+            "default": false
+          },
+          "changeBlockedReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeblockedreason",
+            "description": "Почему смена закрыта: `solo`, `custom_plan_active`, `subscription_blocked`, `subscription_cancelled`"
+          },
+          "openRequest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanRequestOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Открытая заявка на условия сверх тарифов (`POST …/plan-request`)"
           }
         },
         "type": "object",

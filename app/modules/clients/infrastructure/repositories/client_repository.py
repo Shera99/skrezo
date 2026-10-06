@@ -25,8 +25,10 @@ from app.shared.db.models.cash_payment import CashPayment
 from app.shared.db.models.city import City
 from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
+from app.shared.db.models.clinic_custom_plan import ClinicCustomPlan
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.membership import Membership
+from app.shared.db.models.plan_request import PlanRequest
 from app.shared.db.models.role import Role
 from app.shared.db.models.specialization import Specialization
 from app.shared.db.models.specialization_translation import SpecializationTranslation
@@ -280,6 +282,18 @@ class ClientRepository:
             whatsapp=(
                 await self._session.execute(
                     select(ClinicWhatsApp).where(ClinicWhatsApp.clinic_id == clinic_id)
+                )
+            ).scalar_one_or_none(),
+            custom_plan=(
+                await self._session.execute(
+                    select(ClinicCustomPlan).where(ClinicCustomPlan.clinic_id == clinic_id)
+                )
+            ).scalar_one_or_none(),
+            open_plan_request=(
+                await self._session.execute(
+                    select(PlanRequest).where(
+                        PlanRequest.clinic_id == clinic_id, PlanRequest.status == "new"
+                    )
                 )
             ).scalar_one_or_none(),
         )

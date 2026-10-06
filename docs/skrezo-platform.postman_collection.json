@@ -2007,6 +2007,143 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Поставить клинике спецплан",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/custom-plan",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "custom-plan"
+                  ]
+                },
+                "description": "Индивидуальные условия клиники: своё число мест и своя цена в месяц.\n\nВиден только этой клинике (`customPlan` в её тарифе) и заменяет пакеты во\nвсём: оплата, списание с баланса, автопродление. Места — сразу (лимит\nсотрудников), цена — со следующей оплаты; доплату или возврат за текущий\nпериод, если договорились, проведите операцией журнала. Открытая заявка\nклиники закрывается как выполненная. Повторный PUT заменяет план.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"note\": \"Договорились 06.10: 2 филиала, цена на год\",\n  \"priceTiyin\": 1100000,\n  \"seats\": 14,\n  \"title\": \"Клиника+ 14 мест\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Снять спецплан",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/clients/{{clinic_id}}/custom-plan",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "clients",
+                    "{{clinic_id}}",
+                    "custom-plan"
+                  ]
+                },
+                "description": "Вернуть клинику к публичным пакетам: лимит мест прежний, цена — по пакетам."
+              },
+              "response": []
+            },
+            {
+              "name": "Заявки клиник на условия сверх тарифов",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/plan-requests?status=new&page=1&pageSize=25",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "plan-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "new",
+                      "disabled": true,
+                      "description": "Фильтр по статусу; без него — все"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "25",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Очередь заявок «нужно больше мест»: кто, сколько мест, комментарий, статус."
+              },
+              "response": []
+            },
+            {
+              "name": "Закрыть заявку клиники",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/plan-requests/{{request_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "plan-requests",
+                    "{{request_id}}"
+                  ]
+                },
+                "description": "`done` — договорились, `declined` — отказ. Спецплан закрывает заявку сам.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"declined\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
             }
           ]
         },
@@ -5721,7 +5858,79 @@
                     "packages"
                   ]
                 },
-                "description": "Из чего складывается цена подписки клиники — для экрана «Подписка».\n\nРаньше пакеты отдавала только админка (`/admin/tariffs`). Здесь — действующая\nверсия тарифа для типа этой клиники, только на чтение: у клиники — пакеты с\nотметкой текущего и доплата за место сверх последнего, у соло — фиксированная\nцена. Число мест и цена — по тому же правилу, что и оплата."
+                "description": "Тариф клиники для экрана «Подписка»: из чего складывается цена и куда можно перейти.\n\nДействующая версия тарифа для типа клиники: пакеты с отметкой текущего,\nдоплата за место сверх последнего, у соло — фиксированная цена. Число мест и\nцена — по тому же правилу, что и оплата.\n\nДля смены тарифа у каждого пакета — `available` и `changeCostTiyin` (сколько\nспишется с баланса сейчас, если перейти), у тарифа — `canChange` и причина\nзакрытой смены. Спецплан Skrezo (`customPlan`) заменяет пакеты: цена и места\nиз него, переход закрыт. Мест больше последнего пакета кабинет не продаёт —\nдля этого заявка (`POST /clinic/subscription/plan-request`, `openRequest`)."
+              },
+              "response": []
+            },
+            {
+              "name": "Перейти на другой пакет тарифа",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/package",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "package"
+                  ]
+                },
+                "description": "Сменить пакет самостоятельно — только между публичными пакетами тарифа.\n\n**Дороже** — сразу: лимит мест растёт, разница цен за остаток оплаченного\nпериода списывается с баланса (месяц — 30 дней). Денег не хватает — 402 с\nсуммами, ничего не меняется: пополните баланс и повторите. На триале и без\nоплаченного периода — без доплаты. **Дешевле** — сразу и без возврата, если\nсотрудников не больше мест нового пакета. Новая цена — со следующей оплаты\nи автопродления. Больше мест, чем в последнем пакете, — через заявку.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"upTo\": 10\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Заявка на условия сверх тарифов",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/subscription/plan-request",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "subscription",
+                    "plan-request"
+                  ]
+                },
+                "description": "Нужно больше мест, чем в самом большом пакете, или другие условия.\n\nКоманда Skrezo получает сообщение в чат и заявку в очереди админки, итог\nразговора — спецплан клиники. Открытая заявка одна: повторная отправка\nобновляет её. Закрывается решением Skrezo или сама, когда ставят спецплан.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"comment\": \"Открываем второй филиал\",\n  \"seats\": 14\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "response": []
             },
@@ -6628,6 +6837,11 @@
     },
     {
       "key": "payment_id",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string"
+    },
+    {
+      "key": "request_id",
       "value": "00000000-0000-0000-0000-000000000000",
       "type": "string"
     },
