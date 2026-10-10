@@ -41,6 +41,7 @@ from app.modules.clinic_applications.presentation.routes import (
 )
 from app.modules.clinics.presentation.routes import router as clinic_settings_router
 from app.modules.dashboard.presentation.routes import router as dashboard_router
+from app.modules.identity.presentation.routes import onboarding_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.jobs.presentation.routes import router as jobs_router
 from app.modules.leads.presentation.routes import router as leads_router
@@ -484,6 +485,7 @@ def create_app() -> FastAPI:
     # Роутеры модулей под /api/v1
     app.include_router(catalog_router, prefix=settings.api_v1_prefix)
     app.include_router(identity_router, prefix=settings.api_v1_prefix)
+    app.include_router(onboarding_router, prefix=settings.api_v1_prefix)
     app.include_router(leads_router, prefix=settings.api_v1_prefix)
     app.include_router(clinic_applications_router, prefix=settings.api_v1_prefix)
     app.include_router(clinic_applications_admin_router, prefix=settings.api_v1_prefix)

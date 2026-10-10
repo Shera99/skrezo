@@ -40,7 +40,13 @@ class AccountOut(CamelModel):
     full_name: str
     phone: str
     lang: str
-    onboarded: bool
+    onboarded: bool = Field(
+        description=(
+            "Мастер первичной настройки пройден. Ставится ручкой "
+            "`POST /onboarding/complete`; `false` — приложение показывает мастер"
+        ),
+        examples=[True],
+    )
     blocked: bool = Field(
         default=False, description="Аккаунт заблокирован командой Skrezo (доступ отобран целиком)"
     )

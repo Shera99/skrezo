@@ -20,6 +20,9 @@ from app.modules.identity.application.services.client_token_service import Clien
 from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
 from app.modules.identity.application.services.otp_service import OtpService
 from app.modules.identity.application.use_cases.change_password import ChangePasswordUseCase
+from app.modules.identity.application.use_cases.complete_onboarding import (
+    CompleteOnboardingUseCase,
+)
 from app.modules.identity.application.use_cases.get_me import GetMeUseCase
 from app.modules.identity.application.use_cases.login import LoginUseCase
 from app.modules.identity.application.use_cases.logout import LogoutUseCase
@@ -148,3 +151,10 @@ def get_update_profile_use_case(
     accounts: AccountRepository = Depends(get_account_repository),
 ) -> UpdateProfileUseCase:
     return UpdateProfileUseCase(session, accounts)
+
+
+def get_complete_onboarding_use_case(
+    session: AsyncSession = Depends(get_session),
+    accounts: AccountRepository = Depends(get_account_repository),
+) -> CompleteOnboardingUseCase:
+    return CompleteOnboardingUseCase(session, accounts)

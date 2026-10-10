@@ -9,6 +9,7 @@ from app.modules.identity.presentation.routes import (
     login,
     logout,
     me,
+    onboarding_complete,
     otp_request,
     otp_verify,
     password_forgot,
@@ -32,3 +33,7 @@ router.include_router(refresh.router)
 router.include_router(logout.router)
 router.include_router(me.router)
 router.include_router(update_profile.router)
+
+# Мастер настройки — не под /auth: путь зашит в выпущенные сборки приложения.
+onboarding_router = APIRouter(prefix="/onboarding", tags=["auth"])
+onboarding_router.include_router(onboarding_complete.router)
