@@ -11495,7 +11495,7 @@
           "usage"
         ],
         "summary": "Использование по всем клиникам за месяц",
-        "description": "Основа для цен и тарифных пакетов: сколько диалогов, токенов и платных\nсообщений WhatsApp съедает каждая клиника и во что это обходится по\nпрайс-листу из настроек (нули в ставках — смета не считается).",
+        "description": "Основа для цен и тарифных пакетов: сколько диалогов, токенов и платных\nсообщений WhatsApp съедает каждая клиника и во что это обходится.\n\nСмета считается по прайс-листу из настроек сервера (`rateCard` в ответе); если\nставки нулевые, смета равна 0. В список попадают только клиники, у которых за\nмесяц была хоть какая-то активность. Месяц берётся по UTC.\n\nТолько для команды Skrezo: клиникам этот отчёт не показывается.",
         "operationId": "platform_usage_api_v1_admin_usage_get",
         "security": [
           {
@@ -11517,13 +11517,13 @@
                   "type": "null"
                 }
               ],
-              "description": "Месяц `YYYY-MM`; пусто — текущий",
+              "description": "Месяц `YYYY-MM`; пусто — текущий месяц по UTC",
               "examples": [
                 "2026-09"
               ],
               "title": "Period"
             },
-            "description": "Месяц `YYYY-MM`; пусто — текущий"
+            "description": "Месяц `YYYY-MM`; пусто — текущий месяц по UTC"
           }
         ],
         "responses": {
@@ -11537,12 +11537,57 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "401": {
+            "description": "Нет access-токена (`unauthorized`) или он невалиден (`invalid_token`)",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "examples": {
+                  "no_token": {
+                    "summary": "Нет заголовка Authorization",
+                    "value": {
+                      "error": "unauthorized",
+                      "message": "Требуется авторизация"
+                    }
+                  },
+                  "invalid_token": {
+                    "summary": "Токен невалиден или истёк",
+                    "value": {
+                      "error": "invalid_token",
+                      "message": "Невалидный токен"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Токен не администратора Skrezo",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_platform_admin",
+                  "message": "Требуется доступ администратора Skrezo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Месяц не в формате `YYYY-MM`",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "validation_error",
+                  "message": "Тело запроса не прошло валидацию",
+                  "details": [
+                    {
+                      "type": "string_pattern_mismatch",
+                      "loc": [
+                        "query",
+                        "period"
+                      ],
+                      "msg": "String should match pattern '^\\d{4}-(0[1-9]|1[0-2])$'"
+                    }
+                  ]
                 }
               }
             }
@@ -11556,7 +11601,7 @@
           "usage"
         ],
         "summary": "Использование клиники по дням",
-        "description": "По умолчанию — текущий месяц. Дни без активности в списке отсутствуют.",
+        "description": "Счётчики одной клиники по дням и сумма за период, со сметой.\n\nПо умолчанию — текущий месяц по UTC; можно задать только одну границу, вторая\nвозьмётся из текущего месяца. Дни без активности в списке отсутствуют.\nДля неизвестной клиники ответ — пустой список и нули, не 404.\n\nТолько для команды Skrezo: клиникам этот отчёт не показывается.",
         "operationId": "clinic_usage_api_v1_admin_clients__clinic_id__usage_get",
         "security": [
           {
@@ -11571,8 +11616,10 @@
             "schema": {
               "type": "string",
               "format": "uuid",
+              "description": "Клиника из списка клиентов",
               "title": "Clinic Id"
-            }
+            },
+            "description": "Клиника из списка клиентов"
           },
           {
             "name": "dateFrom",
@@ -11588,10 +11635,13 @@
                   "type": "null"
                 }
               ],
-              "description": "Начало (UTC-день)",
+              "description": "Начало периода, UTC-день; пусто — первое число текущего месяца",
+              "examples": [
+                "2026-09-01"
+              ],
               "title": "Datefrom"
             },
-            "description": "Начало (UTC-день)"
+            "description": "Начало периода, UTC-день; пусто — первое число текущего месяца"
           },
           {
             "name": "dateTo",
@@ -11607,10 +11657,13 @@
                   "type": "null"
                 }
               ],
-              "description": "Конец включительно",
+              "description": "Конец периода включительно; пусто — последний день текущего месяца",
+              "examples": [
+                "2026-09-30"
+              ],
               "title": "Dateto"
             },
-            "description": "Конец включительно"
+            "description": "Конец периода включительно; пусто — последний день текущего месяца"
           }
         ],
         "responses": {
@@ -11624,12 +11677,69 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "401": {
+            "description": "Нет access-токена (`unauthorized`) или он невалиден (`invalid_token`)",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "examples": {
+                  "no_token": {
+                    "summary": "Нет заголовка Authorization",
+                    "value": {
+                      "error": "unauthorized",
+                      "message": "Требуется авторизация"
+                    }
+                  },
+                  "invalid_token": {
+                    "summary": "Токен невалиден или истёк",
+                    "value": {
+                      "error": "invalid_token",
+                      "message": "Невалидный токен"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Токен не администратора Skrezo",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_platform_admin",
+                  "message": "Требуется доступ администратора Skrezo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Конец периода раньше начала (`invalid_period`) или дата не по формату",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_period": {
+                    "summary": "dateTo раньше dateFrom",
+                    "value": {
+                      "error": "invalid_period",
+                      "message": "Конец периода раньше начала"
+                    }
+                  },
+                  "validation_error": {
+                    "summary": "Дата не в формате YYYY-MM-DD",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Тело запроса не прошло валидацию",
+                      "details": [
+                        {
+                          "type": "date_from_datetime_parsing",
+                          "loc": [
+                            "query",
+                            "dateFrom"
+                          ],
+                          "msg": "Input should be a valid date"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             }
@@ -17442,10 +17552,15 @@
           "day": {
             "type": "string",
             "format": "date",
-            "title": "Day"
+            "title": "Day",
+            "description": "День по UTC",
+            "examples": [
+              "2026-09-14"
+            ]
           },
           "totals": {
-            "$ref": "#/components/schemas/UsageTotalsOut"
+            "$ref": "#/components/schemas/UsageTotalsOut",
+            "description": "Счётчики за этот день"
           }
         },
         "type": "object",
@@ -17453,34 +17568,46 @@
           "day",
           "totals"
         ],
-        "title": "ClinicUsageDayOut"
+        "title": "ClinicUsageDayOut",
+        "description": "Счётчики клиники за один день (UTC)."
       },
       "ClinicUsageResponse": {
         "properties": {
           "clinicId": {
             "type": "string",
             "format": "uuid",
-            "title": "Clinicid"
+            "title": "Clinicid",
+            "description": "Клиника, по которой построен отчёт"
           },
           "dateFrom": {
             "type": "string",
             "format": "date",
-            "title": "Datefrom"
+            "title": "Datefrom",
+            "description": "Начало периода (UTC-день)",
+            "examples": [
+              "2026-09-01"
+            ]
           },
           "dateTo": {
             "type": "string",
             "format": "date",
-            "title": "Dateto"
+            "title": "Dateto",
+            "description": "Конец периода включительно",
+            "examples": [
+              "2026-09-30"
+            ]
           },
           "days": {
             "items": {
               "$ref": "#/components/schemas/ClinicUsageDayOut"
             },
             "type": "array",
-            "title": "Days"
+            "title": "Days",
+            "description": "По дням, от ранних к поздним; дни без активности пропущены"
           },
           "totals": {
-            "$ref": "#/components/schemas/UsageTotalsOut"
+            "$ref": "#/components/schemas/UsageTotalsOut",
+            "description": "Сумма за весь период"
           },
           "estimatedCostTiyin": {
             "type": "integer",
@@ -17491,7 +17618,8 @@
             ]
           },
           "rateCard": {
-            "$ref": "#/components/schemas/RateCardOut"
+            "$ref": "#/components/schemas/RateCardOut",
+            "description": "Ставки, по которым посчитана смета"
           }
         },
         "type": "object",
@@ -23307,18 +23435,28 @@
           "clinicId": {
             "type": "string",
             "format": "uuid",
-            "title": "Clinicid"
+            "title": "Clinicid",
+            "description": "Клиника"
           },
           "clinicName": {
             "type": "string",
-            "title": "Clinicname"
+            "title": "Clinicname",
+            "description": "Название клиники",
+            "examples": [
+              "Дента+"
+            ]
           },
           "totals": {
-            "$ref": "#/components/schemas/UsageTotalsOut"
+            "$ref": "#/components/schemas/UsageTotalsOut",
+            "description": "Счётчики клиники за месяц"
           },
           "estimatedCostTiyin": {
             "type": "integer",
-            "title": "Estimatedcosttiyin"
+            "title": "Estimatedcosttiyin",
+            "description": "Смета клиники по прайс-листу, тыйыны; 0 — ставки не заданы",
+            "examples": [
+              42300
+            ]
           }
         },
         "type": "object",
@@ -23328,7 +23466,8 @@
           "totals",
           "estimatedCostTiyin"
         ],
-        "title": "PlatformClinicUsageOut"
+        "title": "PlatformClinicUsageOut",
+        "description": "Строка платформенного отчёта: одна клиника за месяц."
       },
       "PlatformUsageResponse": {
         "properties": {
@@ -23345,17 +23484,24 @@
               "$ref": "#/components/schemas/PlatformClinicUsageOut"
             },
             "type": "array",
-            "title": "Clinics"
+            "title": "Clinics",
+            "description": "Клиники, у которых за месяц было хоть что-то, по названию; без активности не попадают"
           },
           "totals": {
-            "$ref": "#/components/schemas/UsageTotalsOut"
+            "$ref": "#/components/schemas/UsageTotalsOut",
+            "description": "Сумма по всем клиникам"
           },
           "estimatedCostTiyin": {
             "type": "integer",
-            "title": "Estimatedcosttiyin"
+            "title": "Estimatedcosttiyin",
+            "description": "Смета по всей платформе, тыйыны; 0 — ставки не заданы",
+            "examples": [
+              1284000
+            ]
           },
           "rateCard": {
-            "$ref": "#/components/schemas/RateCardOut"
+            "$ref": "#/components/schemas/RateCardOut",
+            "description": "Ставки, по которым посчитана смета"
           }
         },
         "type": "object",
@@ -23519,25 +23665,42 @@
           "aiInputPerMtok": {
             "type": "integer",
             "title": "Aiinputpermtok",
-            "description": "Тыйын за миллион токенов запроса"
+            "description": "Тыйынов за миллион токенов запроса к модели",
+            "examples": [
+              2600
+            ]
           },
           "aiOutputPerMtok": {
             "type": "integer",
             "title": "Aioutputpermtok",
-            "description": "Тыйын за миллион токенов ответа"
+            "description": "Тыйынов за миллион токенов ответа модели",
+            "examples": [
+              21500
+            ]
           },
           "waUtility": {
             "type": "integer",
             "title": "Wautility",
-            "description": "Тыйын за платное utility-сообщение"
+            "description": "Тыйынов за одно платное сообщение utility",
+            "examples": [
+              90
+            ]
           },
           "waMarketing": {
             "type": "integer",
-            "title": "Wamarketing"
+            "title": "Wamarketing",
+            "description": "Тыйынов за одно платное сообщение marketing",
+            "examples": [
+              0
+            ]
           },
           "waAuthentication": {
             "type": "integer",
-            "title": "Waauthentication"
+            "title": "Waauthentication",
+            "description": "Тыйынов за одно платное сообщение authentication",
+            "examples": [
+              60
+            ]
           }
         },
         "type": "object",
@@ -23549,7 +23712,7 @@
           "waAuthentication"
         ],
         "title": "RateCardOut",
-        "description": "Прайс-лист из настроек, по которому считается смета (тыйыны)."
+        "description": "Прайс-лист из настроек, по которому считается смета (тыйыны).\n\nСтавки задаются переменными окружения сервера; нули — ставка не задана, и\nэта статья в смету не входит."
       },
       "RatioBlock": {
         "properties": {
@@ -28234,63 +28397,99 @@
           "modelCalls": {
             "type": "integer",
             "title": "Modelcalls",
-            "description": "Вызовов модели (ответы ассистента и резюме)"
+            "description": "Вызовов модели (ответы ассистента и резюме)",
+            "examples": [
+              412
+            ]
           },
           "modelInputTokens": {
             "type": "integer",
             "title": "Modelinputtokens",
-            "description": "Токенов запроса суммарно"
+            "description": "Токенов запроса суммарно",
+            "examples": [
+              1850000
+            ]
           },
           "modelOutputTokens": {
             "type": "integer",
             "title": "Modeloutputtokens",
-            "description": "Токенов ответа суммарно"
+            "description": "Токенов ответа суммарно",
+            "examples": [
+              96400
+            ]
           },
           "modelCachedTokens": {
             "type": "integer",
             "title": "Modelcachedtokens",
-            "description": "Из токенов запроса взято из кэша префикса (Ф8) — дешевле",
-            "default": 0
+            "description": "Из токенов запроса взято из кэша префикса (Ф8) — они дешевле",
+            "default": 0,
+            "examples": [
+              1210000
+            ]
           },
           "assistantReplies": {
             "type": "integer",
             "title": "Assistantreplies",
-            "description": "Ответов ассистента: отправленных, черновиков, теневых"
+            "description": "Ответов ассистента: отправленных, черновиков, теневых",
+            "examples": [
+              318
+            ]
           },
           "dialogs": {
             "type": "integer",
             "title": "Dialogs",
-            "description": "Диалогов с ассистентом — каждый считается один раз"
+            "description": "Диалогов с ассистентом — каждый считается один раз",
+            "examples": [
+              74
+            ]
           },
           "waSent": {
             "type": "integer",
             "title": "Wasent",
-            "description": "Исходящих WhatsApp, по которым пришёл статус доставки"
+            "description": "Исходящих WhatsApp, по которым пришёл статус доставки",
+            "examples": [
+              530
+            ]
           },
           "waUtility": {
             "type": "integer",
             "title": "Wautility",
-            "description": "Платных сообщений категории utility (напоминания)"
+            "description": "Платных сообщений категории utility (напоминания о приёмах)",
+            "examples": [
+              120
+            ]
           },
           "waMarketing": {
             "type": "integer",
             "title": "Wamarketing",
-            "description": "Платных категории marketing"
+            "description": "Платных сообщений категории marketing",
+            "examples": [
+              0
+            ]
           },
           "waAuthentication": {
             "type": "integer",
             "title": "Waauthentication",
-            "description": "Платных категории authentication"
+            "description": "Платных сообщений категории authentication (коды входа)",
+            "examples": [
+              35
+            ]
           },
           "waBillableOther": {
             "type": "integer",
             "title": "Wabillableother",
-            "description": "Платных неизвестной категории"
+            "description": "Платных сообщений, категорию которых Мета не сообщила",
+            "examples": [
+              0
+            ]
           },
           "waServiceFree": {
             "type": "integer",
             "title": "Waservicefree",
-            "description": "Бесплатных: ответы в открытое окно 24 часов"
+            "description": "Бесплатных: ответы пациенту в открытое окно 24 часов",
+            "examples": [
+              375
+            ]
           }
         },
         "type": "object",
@@ -28308,7 +28507,7 @@
           "waServiceFree"
         ],
         "title": "UsageTotalsOut",
-        "description": "Счётчики за период: модель, ассистент, WhatsApp по категориям Меты."
+        "description": "Счётчики за период: модель, ассистент, WhatsApp по категориям Меты.\n\nВсе значения — целые счётчики (штуки или токены) за весь запрошенный период.\nПлатные категории WhatsApp — те, что Мета выставляет в счёт; ответы в\nоткрытое окно 24 часов бесплатны и считаются отдельно."
       },
       "ValidationError": {
         "properties": {
@@ -28917,7 +29116,8 @@
     },
     {
       "name": "usage",
-      "description": "Учёт использования по клиникам (админка Skrezo): токены модели, диалоги с ассистентом, платные сообщения WhatsApp и смета по прайс-листу."
+      "description": "Учёт использования по клиникам (админка Skrezo): токены модели, диалоги с ассистентом, платные сообщения WhatsApp и смета по прайс-листу. Основа для цен и тарифных пакетов; клиникам не показывается.",
+      "x-displayName": "Учёт использования"
     },
     {
       "name": "payments",
