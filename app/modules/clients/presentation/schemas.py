@@ -372,6 +372,14 @@ class CreateAccountRequest(CamelModel):
             "смыслу: без неё врач не сможет вести приём"
         ),
     )
+    application_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Заявка из очереди `/admin/clinic-applications`, из которой заводится "
+            "клиент; помечается сконвертированной и рассмотренной"
+        ),
+        examples=["3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60"],
+    )
     language: Lang = Lang.RU
 
 

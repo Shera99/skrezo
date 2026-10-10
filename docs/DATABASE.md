@@ -440,7 +440,13 @@ erDiagram
   и сняла умолчание).
 * `converted_clinic_id` → `clinic.id` `ON DELETE SET NULL` — семантика конверсии для
   дашборда (`conversion()` и тренд «Заявки» считают строки этой таблицы);
-  выставляется провижинингом (`ProvisionCommand.application_id`).
+  выставляется провижинингом (`ProvisionCommand.application_id`) — единственный
+  живой путь `POST /admin/clients` с `applicationId`. Заявка берётся под
+  `SELECT ... FOR UPDATE`; уже сконвертированная (`converted_clinic_id IS NOT NULL`)
+  отклоняется `409 application_already_converted`. В той же транзакции заявка
+  становится `reviewed` (рассмотревший — заводивший клиента сотрудник Skrezo, если
+  статус был не `reviewed`). Если клинику удалят, FK обнулит поле и заявку можно
+  конвертировать снова.
 * `doctors_count` из лида — только если свободный текст формы после `trim` ровно
   `2-5` | `6-10` | `10+`, иначе `NULL`.
 

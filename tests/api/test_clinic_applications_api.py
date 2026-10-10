@@ -24,11 +24,13 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.errors import ValidationAppError
 from app.modules.clinics.application.services.provisioning_service import (
     ProvisionCommand,
     build_provisioning_service,
 )
 from app.shared.db.enums import ClinicType
+from app.shared.db.models.account import Account
 from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.domain.value_objects import normalize_phone
 from tests.conftest import API, Resources, otp_login
@@ -299,6 +301,7 @@ _ITEM_KEYS = {
     "source",
     "comment",
     "status",
+    "convertedClinicId",
     "reviewedByAccountId",
     "reviewedByName",
     "reviewedAt",
@@ -668,21 +671,22 @@ async def test_provisioning_with_application_id_marks_application_as_converted(
     assert row.converted_clinic_id == result.clinic.id
 
 
-async def test_mark_converted_for_unknown_application_changes_nothing(
+async def test_provisioning_with_unknown_application_id_creates_nothing(
     public_client: AsyncClient, _resources: Resources
 ) -> None:
-    """Несуществующий id заявки не ломает конвертацию и не трогает чужие строки."""
+    """Несуществующий id заявки — 422 ``application_not_found``; ничего не создаётся."""
     other = await _lead(public_client)
     async with _resources.factory() as session:
-        result = await build_provisioning_service(session).provision(
-            ProvisionCommand(
-                type=ClinicType.SOLO,
-                admin_full_name="Без заявки",
-                admin_phone="0700990999",
-                application_id=uuid.uuid4(),
+        with pytest.raises(ValidationAppError) as exc:
+            await build_provisioning_service(session).provision(
+                ProvisionCommand(
+                    type=ClinicType.SOLO,
+                    admin_full_name="Без заявки",
+                    admin_phone="0700990999",
+                    application_id=uuid.uuid4(),
+                )
             )
-        )
-        assert result.clinic.id
+    assert exc.value.code == "application_not_found"
 
     async with _resources.factory() as session:
         row = (
@@ -690,4 +694,10 @@ async def test_mark_converted_for_unknown_application_changes_nothing(
                 select(ClinicApplication).where(ClinicApplication.id == uuid.UUID(other["id"]))
             )
         ).scalar_one()
+        accounts = (
+            await session.execute(
+                select(Account.id).where(Account.phone == normalize_phone("0700990999"))
+            )
+        ).all()
     assert row.converted_clinic_id is None
+    assert accounts == []

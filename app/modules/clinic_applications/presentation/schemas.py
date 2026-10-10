@@ -164,6 +164,7 @@ class ApplicationItem(CamelModel):
                     "source": "instagram",
                     "comment": None,
                     "status": "pending",
+                    "convertedClinicId": None,
                     "reviewedByAccountId": None,
                     "reviewedByName": None,
                     "reviewedAt": None,
@@ -181,6 +182,7 @@ class ApplicationItem(CamelModel):
                     "source": None,
                     "comment": None,
                     "status": "reviewed",
+                    "convertedClinicId": "5b7d9f1a-3c4e-4a6b-8d0e-2f4a6c8e0b13",
                     "reviewedByAccountId": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6a8e10",
                     "reviewedByName": "Менеджер Skrezo",
                     "reviewedAt": "2026-10-10T11:30:00+00:00",
@@ -238,6 +240,12 @@ class ApplicationItem(CamelModel):
     status: ClinicApplicationStatus = Field(
         description="pending — на рассмотрении, reviewed — рассмотрен, rejected — отклонён"
     )
+    converted_clinic_id: uuid.UUID | None = Field(
+        description=(
+            "Клиника, заведённая по заявке (ссылка на карточку клиента); "
+            "`null` — клиента ещё не завели"
+        ),
+    )
     reviewed_by_account_id: uuid.UUID | None = Field(
         default=None, description="Аккаунт из команды Skrezo, сменивший статус"
     )
@@ -259,6 +267,7 @@ class ApplicationItem(CamelModel):
             source=r.source,
             comment=r.comment,
             status=r.status,
+            converted_clinic_id=r.converted_clinic_id,
             reviewed_by_account_id=r.reviewed_by_account_id,
             reviewed_by_name=r.reviewed_by_name,
             reviewed_at=r.reviewed_at,

@@ -1,4 +1,4 @@
-"""Репозиторий заявок клиник: создание, список с фильтром, карточка, смена статуса.
+"""Репозиторий заявок клиник: создание, список с фильтром, карточка, смена статуса, конверсия.
 
 Очередь одна на две двери: заявки через OTP (``phone_verified = true``) и лиды с
 лендинга (``phone_verified = false``).
@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, func, select, update
+from sqlalchemy import ColumnElement, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -116,14 +116,52 @@ class ClinicApplicationRepository:
         await self._session.flush()
         return application
 
-    async def mark_converted(self, application_id: uuid.UUID, clinic_id: uuid.UUID) -> None:
-        """Отметить, что по заявке заведена клиника (конверсия для дашборда)."""
-        await self._session.execute(
-            update(ClinicApplication)
-            .where(ClinicApplication.id == application_id)
-            .values(converted_clinic_id=clinic_id)
-        )
+    async def lock_for_conversion(self, application_id: uuid.UUID) -> ClinicApplication | None:
+        """Взять заявку под ``SELECT ... FOR UPDATE`` перед заведением по ней клиента.
+
+        Блокировка держится до конца транзакции и сериализует параллельные
+        конверсии одной заявки. Строка перечитывается из базы
+        (``populate_existing``), иначе после ожидания блокировки сессия отдала бы
+        устаревший ``converted_clinic_id`` из своего кеша. ``None`` — заявки нет.
+        """
+        return (
+            await self._session.execute(
+                select(ClinicApplication)
+                .where(ClinicApplication.id == application_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+
+    async def mark_converted(
+        self,
+        application_id: uuid.UUID,
+        clinic_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+    ) -> ClinicApplicationStatus:
+        """Отметить, что по заявке заведена клиника (конверсия для дашборда).
+
+        Заявка заодно становится рассмотренной: если статус был не ``reviewed``,
+        ставится ``reviewed`` с рассмотревшим ``actor_id`` и временем «сейчас».
+        У уже рассмотренной заявки рассмотревший и дата не трогаются. Возвращает
+        прежний статус — по нему роут решает, писать ли смену статуса в аудит.
+
+        Вызывается после :meth:`lock_for_conversion` в той же транзакции (повторное
+        взятие своей блокировки ничего не ждёт); при отсутствии заявки —
+        ``LookupError``: это нарушение предусловия, а не ошибка пользователя,
+        существование заявки проверяет первая блокировка.
+        """
+        application = await self.lock_for_conversion(application_id)
+        if application is None:
+            raise LookupError(f"Заявка {application_id} не найдена")
+        previous_status = application.status
+        application.converted_clinic_id = clinic_id
+        if previous_status != ClinicApplicationStatus.REVIEWED:
+            application.status = ClinicApplicationStatus.REVIEWED
+            application.reviewed_by_account_id = actor_id
+            application.reviewed_at = datetime.now(UTC)
         await self._session.flush()
+        return previous_status
 
     # ── Выборки ────────────────────────────────────────────────────────────
     def _row_query(self, lang: Lang) -> Select[Any]:
@@ -143,6 +181,7 @@ class ClinicApplicationRepository:
                 ClinicApplication.source,
                 ClinicApplication.comment,
                 ClinicApplication.status,
+                ClinicApplication.converted_clinic_id,
                 ClinicApplication.reviewed_by_account_id,
                 reviewer.full_name.label("reviewed_by_name"),
                 ClinicApplication.reviewed_at,
@@ -169,6 +208,7 @@ class ClinicApplicationRepository:
             source=row.source,
             comment=row.comment,
             status=row.status,
+            converted_clinic_id=row.converted_clinic_id,
             reviewed_by_account_id=row.reviewed_by_account_id,
             reviewed_by_name=row.reviewed_by_name,
             reviewed_at=row.reviewed_at,

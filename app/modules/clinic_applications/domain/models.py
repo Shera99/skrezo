@@ -29,6 +29,7 @@ class ApplicationRow:
     source: str | None
     comment: str | None
     status: ClinicApplicationStatus
+    converted_clinic_id: uuid.UUID | None
     reviewed_by_account_id: uuid.UUID | None
     reviewed_by_name: str | None
     reviewed_at: datetime | None
