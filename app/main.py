@@ -36,6 +36,7 @@ from app.modules.clients.presentation.routes import router as clients_router
 from app.modules.clinic_applications.presentation.routes import (
     admin_router as clinic_applications_admin_router,
 )
+from app.modules.clinic_applications.presentation.routes import leads_router
 from app.modules.clinic_applications.presentation.routes import (
     router as clinic_applications_router,
 )
@@ -44,7 +45,6 @@ from app.modules.dashboard.presentation.routes import router as dashboard_router
 from app.modules.identity.presentation.routes import onboarding_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.jobs.presentation.routes import router as jobs_router
-from app.modules.leads.presentation.routes import router as leads_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
 from app.modules.push.presentation.routes import router as push_router
@@ -122,7 +122,11 @@ OPENAPI_TAGS = [
     {
         "name": "leads",
         "x-displayName": "Лиды",
-        "description": "Лид-форма «Больше одного» (публичная).",
+        "description": (
+            "Заявка с лендинга без кода (публичная): `POST /leads` ложится в общую "
+            "очередь заявок с пометкой «телефон не подтверждён» и виден команде в "
+            "`GET /admin/clinic-applications`."
+        ),
     },
     {
         "name": "tariffs",
@@ -321,13 +325,18 @@ OPENAPI_TAGS = [
         "x-displayName": "Заявки клиник",
         "description": (
             "Второй путь регистрации: заявка «клиника с сотрудниками» после "
-            "подтверждения телефона по OTP."
+            "подтверждения телефона по OTP. Очередь заявок одна, дверей две: эта "
+            "(`phoneVerified = true`) и лид с лендинга `POST /leads` "
+            "(`phoneVerified = false`)."
         ),
     },
     {
         "name": "clinic-applications-admin",
         "x-displayName": "Заявки клиник (Skrezo)",
-        "description": "Рассмотрение заявок: список, карточка, статусы.",
+        "description": (
+            "Рассмотрение заявок обеих дверей: список (фильтры `status` и "
+            "`phoneVerified`), карточка, статусы."
+        ),
     },
     {
         "name": "audit",

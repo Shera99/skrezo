@@ -58,11 +58,10 @@ DDD. Документ фиксирует принципы, границы мод
 | `staff` | клиент-сайд: сотрудники клиники (RBAC; работник без пароля — вход по коду) | membership/account/role (в shared) | 6b ✅ |
 | `identity` | вход: клиники и соло-врачи — по OTP (+ self-service регистрация соло с триалом), команда Skrezo — телефон + пароль; смена пароля своим паролём и **self-service «забыл пароль»** по коду (`/auth/password/forgot`+`/reset`, отзыв сессий) — только для команды; выбор клиники. **Доставка OTP** — цепочка каналов `infrastructure/otp` (Telegram Gateway → WhatsApp → SMSPRO) с переходом к следующему при неудаче; назначение кода (`login`/`reset`) — часть ключа, коды не взаимозаменяемы | `account` (в shared) | 2b ✅ / 12 / 14 ✅ |
 | `access` | RBAC-каталог/резолвер прав, guard `require_permission`; **управление ролями клиники** (`/clinic/roles`, право `roles.manage`); **триал-политика** (`permission.in_trial`) — ограничение функций на триале + админ-настройка `/admin/trial-features` | `permission`, `role`, `role_permission` | 2a ✅ / 12 ✅ / 13 ✅ |
-| `leads` | лид-форма «Больше одного» + нотификация команды в Telegram-чат | `lead` | 3a ✅ / 14 ✅ |
-| `clinic_applications` | заявки клиник (2-й путь регистрации после OTP): подача с подтверждённым телефоном + рассмотрение в админке (статусы pending/reviewed/rejected). Клиника заводится вручную | `clinic_application` | 12 ✅ |
+| `clinic_applications` | **единая очередь заявок, две двери**: заявка клиники после OTP (`POST /clinic-applications`, телефон подтверждён) и лид с лендинга без кода (`POST /leads`, `phoneVerified=false`, дедуп по телефону: `already_client` / `already_submitted`, нотификация команды в Telegram-чат) + рассмотрение в админке (статусы pending/reviewed/rejected, фильтр `phoneVerified`). Клиника заводится вручную. Бывший модуль `leads` влит сюда (миграция 0070) | `clinic_application` | 3a ✅ / 12 ✅ / 14 ✅ |
 | `tariffs` | версии тарифов: solo (цена), clinic (пакеты + `over_price` «Сеть»); расчёт цены, история | `tariff_version`, `tariff_package` | 4a ✅ |
 | `payments` | журнал платежей + сводка, refund (v1 — заглушки формы) | — (биллинг отложен) | 5 (заглушка) |
-| `dashboard` | сводка за период + тренды по месяцам (active/trial/риски/конверсия/отмены; заявки→клиенты; MRR ждёт биллинг) | читает clinic/subscription/lead | 7 ✅ |
+| `dashboard` | сводка за период + тренды по месяцам (active/trial/риски/конверсия/отмены; заявки→клиенты; MRR ждёт биллинг) | читает clinic/subscription/clinic_application | 7 ✅ |
 | `subscriptions` | подписка, статусы, триал и оплаченный период; клиентская ручка `GET /clinic/subscription` + админские `POST /admin/clients/{id}/subscription/activate|block` (оплата приходит переводом, отмечает человек); **правило доступа** (`domain/access`: режим чтения считается по датам `trial_ends_at` и `current_period_end`, а не по статусу); джобы `expire_trials`, `expire_paid_periods`, `warn_trial_ending` и `warn_period_ending` (предупреждение однократно — отметка ставится тем же UPDATE; у периода сбрасывается при продлении) | `subscription`, `subscription_event` | 3a ✅ (триал) / 13 ✅ / 14 ✅ / 4 |
 | `billing` | платежи, карта, refund, джобы | `platform_payment`, `payment_method` | 5 |
 | `dashboard` | сводки и тренды | — (агрегаты + кеш) | 7 |
@@ -74,7 +73,7 @@ DDD. Документ фиксирует принципы, границы мод
 | `cash` | касса клиники: платежи/возвраты по приёмам, долги (по приёму), сводка; владеет `CashService` — правилами проведения оплаты (его же зовёт `appointments` при завершении) (RBAC `cash.*`) | `cash_payment` | 11 ✅ |
 | `reports` | операционная аналитика: выручка, врачи, услуги, пациенты, долг. Два контура: клиентский (RBAC `reports.view_own`/`view_all`) и платформенный (`is_platform_admin`, свод по всем клиникам + любая клиника). Своих таблиц нет — агрегирует приёмы и кассу | читает appointment(_tooth)/cash_payment/membership | 12 ✅ |
 | `jobs` | состояние фоновых задач: журнал запусков (`job_run`, пишется воркером) и `GET /admin/jobs` + `/runs` для команды Skrezo. Сами задачи живут в `app/jobs/worker.py`, а их работа — в use-case'ах модулей | `job_run` | 14 ✅ |
-| `notifications` (в `shared`) | транспорты сообщений: WhatsApp/SMS на телефон (`NOTIFY_CHANNELS`, цепочка с переходом) и Telegram Bot API в чат команды; фоновая отправка, недоставка не отменяет операцию. Отдельным модулем не стал — своих ручек и таблиц нет, а зовут его `staff`, `clinics` и `leads` | — | 14 ✅ |
+| `notifications` (в `shared`) | транспорты сообщений: WhatsApp/SMS на телефон (`NOTIFY_CHANNELS`, цепочка с переходом) и Telegram Bot API в чат команды; фоновая отправка, недоставка не отменяет операцию. Отдельным модулем не стал — своих ручек и таблиц нет, а зовут его `staff`, `clinics` и `clinic_applications` | — | 14 ✅ |
 
 ## 4. Модель данных
 
@@ -106,8 +105,13 @@ DDD. Документ фиксирует принципы, границы мод
   (без клиничного членства), и он же — единственный с непустым `password_hash`:
   у всех остальных вход по коду (инвариант закреплён миграцией 0038). Таблица
   `platform_user` удалена (миграция 0017).
-- **lead** — `id, full_name, phone(unique=дедуп), clinic_name,
-  doctors_count_range?, comment?, converted_clinic_id?→clinic, created_at`.
+- **clinic_application** — единая очередь заявок: `id, company_name?, city_id?→city,
+  doctors_count?, full_name?, phone, phone_verified, source?, comment?, status,
+  converted_clinic_id?→clinic, reviewed_by_account_id?→account, reviewed_at?,
+  timestamps`. Две двери: через OTP (`phone_verified=true`, поля компании
+  обязательны) и лид с лендинга (`false`, обязательно имя). Инварианты держат
+  два CHECK и частичный уникальный индекс «одна открытая заявка с лендинга на
+  номер» (подробно — `docs/DATABASE.md`). Отдельной таблицы лидов нет.
 - **subscription** — `id, clinic_id(unique), status, trial_started_at,
   trial_ends_at, card_attach_deadline?(гейт карты отключён → NULL),
   card_attached_at?, current_period_start?, current_period_end?, cancelled_at?,
@@ -212,7 +216,10 @@ DDD. Документ фиксирует принципы, границы мод
   `clinic_application` со статусом `pending`, Skrezo смотрит её в
   `/admin/clinic-applications` (фильтр по статусу, `statusCounts`) и заводит
   клиента вручную через `POST /admin/clients`. Смена статуса пишет, кто и когда,
-  и попадает в аудит.
+  и попадает в аудит. **Вторая дверь той же очереди** — `POST /leads`: форма
+  лендинга без кода (имя + телефон) ложится в `clinic_application` с
+  `phone_verified=false`; дедуп по телефону — `409 already_client` (аккаунт уже
+  есть) или `409 already_submitted` (есть открытая заявка любой двери).
 - **Триал-функции** (`access`) ✅: клиника на триале использует только права с
   `permission.in_trial=true` (по умолчанию все); набор настраивается из
   `/admin/trial-features`. Ограничение (`403 trial_restricted`) применяют все

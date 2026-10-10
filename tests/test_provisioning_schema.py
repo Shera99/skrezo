@@ -33,3 +33,22 @@ def test_clinic_full_ok() -> None:
         seatsLimit=5,
     )
     assert req.seats_limit == 5
+
+
+def test_application_id_replaces_lead_id() -> None:
+    """Конвертируемая сущность — заявка очереди (``applicationId``), таблицы лидов больше нет."""
+    application = "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60"
+    req = CreateClinicRequest(
+        adminFullName="Иван",
+        adminPhone="0700111222",
+        type=ClinicType.SOLO,
+        applicationId=application,
+    )
+
+    assert str(req.application_id) == application
+    assert "lead_id" not in CreateClinicRequest.model_fields
+
+
+def test_application_id_is_optional() -> None:
+    req = CreateClinicRequest(adminFullName="Иван", adminPhone="0700111222", type=ClinicType.SOLO)
+    assert req.application_id is None

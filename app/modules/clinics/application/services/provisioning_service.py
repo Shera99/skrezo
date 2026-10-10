@@ -20,12 +20,14 @@ from app.core.errors import ConflictError, ValidationAppError
 from app.modules.access.application.services.role_provisioning_service import (
     RoleProvisioningService,
 )
+from app.modules.clinic_applications.infrastructure.repositories.clinic_application_repository import (  # noqa: E501
+    ClinicApplicationRepository,
+)
 from app.modules.clinics.infrastructure.repositories.account_repository import AccountRepository
 from app.modules.clinics.infrastructure.repositories.clinic_repository import ClinicRepository
 from app.modules.clinics.infrastructure.repositories.membership_repository import (
     MembershipRepository,
 )
-from app.modules.leads.infrastructure.repositories.lead_repository import LeadRepository
 from app.modules.subscriptions.application.services.subscription_service import SubscriptionService
 from app.shared.db.enums import ClinicType, Lang
 from app.shared.db.models.account import Account
@@ -44,7 +46,7 @@ class ProvisionCommand:
     business_phone: str | None = None
     seats_limit: int | None = None
     lang: Lang = Lang.RU
-    lead_id: uuid.UUID | None = None
+    application_id: uuid.UUID | None = None  # конвертируемая заявка из очереди (опц.)
     # Специализация владельца (соло-врач = practitioner); NULL для клиники.
     specialization_id: uuid.UUID | None = None
 
@@ -66,7 +68,7 @@ class ProvisioningService:
         memberships: MembershipRepository,
         roles: RoleProvisioningService,
         subscriptions: SubscriptionService,
-        leads: LeadRepository,
+        applications: ClinicApplicationRepository,
     ) -> None:
         self._session = session
         self._clinics = clinics
@@ -74,7 +76,7 @@ class ProvisioningService:
         self._memberships = memberships
         self._roles = roles
         self._subscriptions = subscriptions
-        self._leads = leads
+        self._applications = applications
 
     async def provision(self, command: ProvisionCommand) -> ProvisionResult:
         phone = normalize_phone(command.admin_phone)
@@ -112,8 +114,8 @@ class ProvisioningService:
             specialization_id=command.specialization_id,
         )
         subscription = await self._subscriptions.create_trial(clinic.id)
-        if command.lead_id is not None:
-            await self._leads.mark_converted(command.lead_id, clinic.id)
+        if command.application_id is not None:
+            await self._applications.mark_converted(command.application_id, clinic.id)
 
         await self._session.commit()
         return ProvisionResult(clinic, account, owner_role_id, subscription.id)
@@ -128,12 +130,14 @@ def build_provisioning_service(session: AsyncSession) -> ProvisioningService:
     from app.modules.access.infrastructure.repositories.role_provisioning_repository import (
         RoleProvisioningRepository,
     )
+    from app.modules.clinic_applications.infrastructure.repositories.clinic_application_repository import (  # noqa: E501
+        ClinicApplicationRepository,
+    )
     from app.modules.clinics.infrastructure.repositories.account_repository import AccountRepository
     from app.modules.clinics.infrastructure.repositories.clinic_repository import ClinicRepository
     from app.modules.clinics.infrastructure.repositories.membership_repository import (
         MembershipRepository,
     )
-    from app.modules.leads.infrastructure.repositories.lead_repository import LeadRepository
     from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
         SubscriptionRepository,
     )
@@ -145,5 +149,5 @@ def build_provisioning_service(session: AsyncSession) -> ProvisioningService:
         memberships=MembershipRepository(session),
         roles=RoleProvisioningService(RoleProvisioningRepository(session)),
         subscriptions=SubscriptionService(SubscriptionRepository(session)),
-        leads=LeadRepository(session),
+        applications=ClinicApplicationRepository(session),
     )

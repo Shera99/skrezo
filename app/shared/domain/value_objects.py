@@ -1,7 +1,7 @@
 """Общие value-objects домена.
 
 Пока — телефон в формате E.164 (единое правило нормализации для дедупликации
-по всем сущностям: ``lead.phone``, ``account.phone`` и т.д.).
+по всем сущностям: ``clinic_application.phone``, ``account.phone`` и т.д.).
 """
 
 from __future__ import annotations

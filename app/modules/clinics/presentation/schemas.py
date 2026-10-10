@@ -23,7 +23,9 @@ class CreateClinicRequest(CamelModel):
     )
     seats_limit: int | None = Field(default=None, ge=2, description="Лимит мест (обяз. для clinic)")
     lang: Lang = Lang.RU
-    lead_id: uuid.UUID | None = Field(default=None, description="Конвертируемый лид (опц.)")
+    application_id: uuid.UUID | None = Field(
+        default=None, description="Конвертируемая заявка из очереди заявок (опц.)"
+    )
 
     @model_validator(mode="after")
     def _require_clinic_fields(self) -> CreateClinicRequest:

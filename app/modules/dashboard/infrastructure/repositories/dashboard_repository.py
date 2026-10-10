@@ -1,4 +1,4 @@
-"""Репозиторий дашборда: агрегаты по клиникам/подпискам/лидам.
+"""Репозиторий дашборда: агрегаты по клиникам/подпискам/заявкам.
 
 Метрики считаются как текущий срез (историческое версионирование срезов и MRR —
 после подключения биллинга). Часть метрик (MRR, выручка) зависит от отложенного
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db.enums import ClinicType, SubscriptionStatus
 from app.shared.db.models.clinic import Clinic
-from app.shared.db.models.lead import Lead
+from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.db.models.subscription import Subscription
 
 # (created_at, тип клиники, статус подписки) — строка снапшота для трендов.
@@ -77,15 +77,19 @@ class DashboardRepository:
         return total, with_card
 
     async def conversion(self) -> tuple[int, int]:
-        """(всего лидов, из них сконвертированных в клинику)."""
+        """(всего заявок, из них сконвертированных в клинику).
+
+        «Заявка» — строка единой очереди ``clinic_application``: и лид с
+        лендинга, и заявка через OTP. Сконвертированная — с ``converted_clinic_id``.
+        """
         total = (
-            await self._session.execute(select(func.count()).select_from(Lead))
+            await self._session.execute(select(func.count()).select_from(ClinicApplication))
         ).scalar_one()
         converted = (
             await self._session.execute(
                 select(func.count())
-                .select_from(Lead)
-                .where(Lead.converted_clinic_id.is_not(None))
+                .select_from(ClinicApplication)
+                .where(ClinicApplication.converted_clinic_id.is_not(None))
             )
         ).scalar_one()
         return total, converted
@@ -102,6 +106,6 @@ class DashboardRepository:
         return [(r[0], r[1], r[2]) for r in rows]
 
     async def lead_dates(self) -> list[datetime]:
-        """Даты создания всех лидов — для помесячного тренда «Заявки»."""
-        rows = (await self._session.execute(select(Lead.created_at))).scalars().all()
+        """Даты создания всех заявок (обеих дверей) — для помесячного тренда «Заявки»."""
+        rows = (await self._session.execute(select(ClinicApplication.created_at))).scalars().all()
         return list(rows)

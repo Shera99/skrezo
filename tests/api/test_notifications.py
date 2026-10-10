@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import uuid
 
 import httpx
 import pytest
@@ -24,8 +25,9 @@ from httpx import AsyncClient
 
 from app.core.jobs import JobQueue
 from app.main import app
-from app.modules.leads.domain.messages import new_lead_text
-from app.shared.db.models.lead import Lead
+from app.modules.clinic_applications.domain.messages import new_lead_text
+from app.shared.db.enums import DoctorsCountRange
+from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.notifications.channels import MessageDeliveryError, TextChannel
 from app.shared.notifications.delivery import TextDeliveryService
 from app.shared.notifications.deps import get_notifier
@@ -33,7 +35,7 @@ from app.shared.notifications.notifier import Notifier
 from app.shared.notifications.smspro import SmsProTextChannel
 from app.shared.notifications.telegram_chat import TelegramChatChannel
 from app.shared.notifications.whatsapp import WhatsAppTextChannel
-from tests.conftest import API, Resources, otp_login
+from tests.conftest import API, Resources, otp_code, otp_login
 
 PHONE = "+996700123456"
 TEXT = "Skrezo: тестовое сообщение"
@@ -360,6 +362,138 @@ async def test_new_lead_goes_to_team_chat(client: AsyncClient, _resources: Resou
     assert "2-5" in chat.sent[0]
 
 
+async def test_landing_lead_without_clinic_name_reaches_team_chat(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Лид «имя + телефон» (ровно как с лендинга) доходит до чата и не ломает текст.
+
+    Названия клиники нет — строки «Клиника:» в сообщении быть не должно, а также
+    ни «None», ни пустых значений; телефон помечен неподтверждённым.
+    """
+    phones, chat = _Recorder(), _ChatRecorder()
+    _override_notifier(phones, chat)
+
+    created = await public_client.post(
+        f"{API}/leads", json={"fullName": "Тест Тестов", "phone": "0555 000 001"}
+    )
+
+    assert created.status_code == 201, created.text
+    assert phones.sent == []
+    (text,) = chat.sent
+    assert "Тест Тестов" in text
+    assert "+996555000001" in text  # нормализованный номер, а не «как ввели»
+    assert "не подтверждён" in text
+    assert "Клиника" not in text
+    assert "Врачей" not in text
+    assert "Источник" not in text
+    assert "Комментарий" not in text
+    assert "None" not in text
+
+
+async def test_team_message_about_lead_carries_source_and_optional_fields(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """В сообщении команде есть source (откуда пришёл человек) и всё, что он написал."""
+    phones, chat = _Recorder(), _ChatRecorder()
+    _override_notifier(phones, chat)
+
+    created = await public_client.post(
+        f"{API}/leads",
+        json={
+            "fullName": "Айгүл",
+            "phone": _phone(),
+            "clinicName": "Дента+",
+            "doctorsCountRange": "6-10",
+            "comment": "Позвоните после 14:00",
+            "source": "instagram",
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    (text,) = chat.sent
+    assert "Источник: instagram" in text
+    assert "Клиника: Дента+" in text
+    assert "Врачей: 6-10" in text
+    assert "Комментарий: Позвоните после 14:00" in text
+    assert "не подтверждён" in text
+
+
+async def test_duplicate_lead_does_not_ping_team_again(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Отказ по дедупу (409) — не событие: команду второй раз не тревожим."""
+    phones, chat = _Recorder(), _ChatRecorder()
+    _override_notifier(phones, chat)
+    phone = _phone()
+
+    first = await public_client.post(f"{API}/leads", json={"fullName": "Первый", "phone": phone})
+    second = await public_client.post(f"{API}/leads", json={"fullName": "Повтор", "phone": phone})
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 409, second.text
+    assert len(chat.sent) == 1
+
+
+async def test_rejected_lead_does_not_ping_team(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Невалидный лид (422) ничего не записывает и команде не пишет."""
+    phones, chat = _Recorder(), _ChatRecorder()
+    _override_notifier(phones, chat)
+
+    bad = await public_client.post(f"{API}/leads", json={"fullName": "Кривой", "phone": "123"})
+
+    assert bad.status_code == 422, bad.text
+    assert chat.sent == []
+
+
+async def test_otp_application_does_not_ping_team_chat(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Заявка через OTP, как и раньше, в чат команды не пишет — только лиды с лендинга."""
+    phones, chat = _Recorder(), _ChatRecorder()
+    _override_notifier(phones, chat)
+    phone = _phone()
+
+    requested = await public_client.post(f"{API}/auth/otp/request", json={"phone": phone})
+    assert requested.status_code == 200, requested.text
+    verified = await public_client.post(
+        f"{API}/auth/otp/verify", json={"phone": phone, "code": await otp_code(phone)}
+    )
+    assert verified.status_code == 200, verified.text
+    city = (await public_client.get(f"{API}/cities")).json()[0]["id"]
+    submitted = await public_client.post(
+        f"{API}/clinic-applications",
+        json={
+            "registrationToken": verified.json()["registrationToken"],
+            "companyName": "Через OTP",
+            "cityId": city,
+            "doctorsCount": "2-5",
+        },
+    )
+
+    assert submitted.status_code == 201, submitted.text
+    assert chat.sent == []
+
+
+async def test_lead_is_saved_even_when_team_chat_is_down(
+    public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Чат команды лежит — лид всё равно принят (201) и записан в очередь."""
+    phones, chat = _Recorder(fail=True), _ChatRecorder(fail=True)
+    _override_notifier(phones, chat)
+
+    created = await public_client.post(
+        f"{API}/leads", json={"fullName": "Переживёт сбой", "phone": _phone()}
+    )
+
+    assert created.status_code == 201, created.text
+    assert len(chat.sent) == 1  # попытка была
+    async with _resources.factory() as session:
+        saved = await session.get(ClinicApplication, uuid.UUID(created.json()["id"]))
+    assert saved is not None
+
+
 async def test_delivery_failure_does_not_break_the_operation(
     admin_client: AsyncClient, _resources: Resources
 ) -> None:
@@ -390,11 +524,12 @@ async def test_delivery_failure_does_not_break_the_operation(
 
 def test_lead_message_lists_optional_fields_only_when_filled() -> None:
     """Пустые поля лида в карточку не лезут — иначе в чате пустые строки."""
-    lead = Lead(
+    lead = ClinicApplication(
         full_name="Заявитель",
         phone="+996700123456",
-        clinic_name="Клиника",
-        doctors_count_range=None,
+        phone_verified=False,
+        company_name="Клиника",
+        doctors_count=None,
         comment=None,
     )
     text = new_lead_text(lead)
@@ -402,3 +537,53 @@ def test_lead_message_lists_optional_fields_only_when_filled() -> None:
     assert "Врачей" not in text
     assert "Комментарий" not in text
     assert "Заявитель" in text
+
+
+def _lead_row(**overrides: object) -> ClinicApplication:
+    """Лид с лендинга: только имя и телефон; остальное — через ``overrides``."""
+    fields: dict[str, object] = {
+        "full_name": "Заявитель",
+        "phone": "+996700123456",
+        "phone_verified": False,
+    }
+    return ClinicApplication(**{**fields, **overrides})
+
+
+def test_lead_message_without_clinic_name_has_only_contact_and_unverified_mark() -> None:
+    """Лид без названия клиники: две строки — заголовок и контакт с пометкой о телефоне."""
+    text = new_lead_text(_lead_row())
+
+    lines = text.splitlines()
+    assert len(lines) == 2
+    assert "Заявитель" in lines[1]
+    assert "+996700123456" in lines[1]
+    assert "(телефон не подтверждён)" in lines[1]
+    assert "None" not in text
+
+
+def test_lead_message_includes_source_when_present_and_skips_it_otherwise() -> None:
+    """Источник трафика попадает в текст, только если он есть."""
+    assert "Источник: instagram" in new_lead_text(_lead_row(source="instagram"))
+    assert "Источник" not in new_lead_text(_lead_row(source=None))
+
+
+def test_lead_message_renders_doctors_range_as_plain_value() -> None:
+    """Диапазон врачей — «6-10», а не repr enum («DoctorsCountRange.FROM_6_TO_10»)."""
+    text = new_lead_text(_lead_row(doctors_count=DoctorsCountRange.FROM_6_TO_10))
+
+    assert "Врачей: 6-10" in text
+    assert "DoctorsCountRange" not in text
+
+
+def test_lead_message_keeps_special_characters_verbatim() -> None:
+    """Разметки нет: ``<``, ``&``, ``_`` в названии и комментарии уходят как есть.
+
+    Иначе Bot API отклонил бы сообщение целиком — и заявка осталась бы незамеченной.
+    """
+    text = new_lead_text(
+        _lead_row(company_name="Dent_<b>&Co", comment="a_b *c* <i>x</i>", source="utm_source=ig")
+    )
+
+    assert "Клиника: Dent_<b>&Co" in text
+    assert "Комментарий: a_b *c* <i>x</i>" in text
+    assert "Источник: utm_source=ig" in text

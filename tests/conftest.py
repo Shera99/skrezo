@@ -93,7 +93,7 @@ _CLEAN_SQL = [
     "DELETE FROM subscription",
     "DELETE FROM membership",
     "DELETE FROM role WHERE clinic_id IS NOT NULL",
-    "DELETE FROM lead",
+    "DELETE FROM clinic_application",
     # Общие шаблоны WhatsApp (clinic_id IS NULL) каскадом от клиники не
     # чистятся; диалоги/сообщения/привязки уходят каскадом вместе с clinic.
     "DELETE FROM whatsapp_template",
@@ -179,6 +179,21 @@ async def _resources(pg_url: str) -> AsyncIterator[Resources]:
 @pytest_asyncio.fixture
 async def client(_resources: Resources) -> AsyncIterator[AsyncClient]:
     """httpx-клиент поверх ASGI (единый контур, тестовая БД)."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        yield http
+
+
+@pytest_asyncio.fixture
+async def public_client(_resources: Resources) -> AsyncIterator[AsyncClient]:
+    """Отдельный httpx-клиент БЕЗ заголовков авторизации — для публичных ручек.
+
+    ``admin_client`` кладёт ``Authorization`` в общие заголовки ``client``, поэтому
+    после неё «анонимный» запрос через ``client`` анонимным уже не будет. Тесты,
+    которым нужны оба вида запросов (админ смотрит то, что прислал аноним),
+    берут ``admin_client`` и ``public_client`` одновременно: приложение и БД общие,
+    заголовки — раздельные.
+    """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http

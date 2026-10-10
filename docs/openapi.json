@@ -1079,9 +1079,9 @@
         "tags": [
           "leads"
         ],
-        "summary": "Оставить заявку «Больше одного»",
-        "description": "Принять заявку клиники (публично, без токена). Дедуп по телефону.",
-        "operationId": "create_lead_api_v1_leads_post",
+        "summary": "Оставить заявку с лендинга (без кода)",
+        "description": "Принять заявку с формы лендинга (публично, без токена и без OTP).\n\n**Одна очередь — две двери.** Лид ложится в ту же очередь, что и заявки\n`POST /clinic-applications`, и виден команде в `GET /admin/clinic-applications`\nсо статусом `pending`. Отличие одно: **телефон не подтверждён**\n(`phoneVerified = false`), поэтому по такому номеру нельзя отправлять доступы.\nНазвание клиники, город и размер у лида необязательны — форма спрашивает\nтолько имя и телефон (`doctorsCountRange` попадает в заявку, лишь если это\nровно `2-5`, `6-10` или `10+`).\n\n**Дедуп** идёт по нормализованному телефону, в таком порядке:\n\n1. по номеру уже есть аккаунт → `409 already_client` (форма предлагает войти);\n2. по номеру есть открытая заявка (`pending`) — лид или заявка через OTP →\n   `409 already_submitted` с `createdAt` самой свежей из них (форма говорит\n   «мы уже получили вашу заявку, скоро свяжемся» — это не ошибка для человека);\n3. иначе заявка создаётся.\n\nЗаявки со статусом `reviewed` и `rejected` дедуп не блокируют: человек может\nприйти снова. Две одновременные отправки одного номера дают одну заявку и один\n`already_submitted`.\n\n**`source`** — метка трафика (`utm_source` или referrer как пришли с формы).\nХранится отдельным полем, а не в `comment`: комментарий читает человек, а\nметка нужна, чтобы знать, какой канал приводит заявки.\n\nПосле записи команда получает уведомление в Telegram-чат; недоставка\nуведомления заявку не отменяет. Ручка ограничена по IP (429).",
+        "operationId": "submit_lead_api_v1_leads_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1094,7 +1094,7 @@
         },
         "responses": {
           "201": {
-            "description": "Идентификатор и время создания заявки",
+            "description": "Идентификатор заявки в очереди и время её создания",
             "content": {
               "application/json": {
                 "schema": {
@@ -1104,22 +1104,72 @@
             }
           },
           "409": {
-            "description": "Заявка с этим номером уже существует",
+            "description": "Заявку принимать не нужно. Различаются по `error`: `already_submitted` — открытая заявка по номеру уже есть, `already_client` — по номеру уже заведён аккаунт",
             "content": {
               "application/json": {
-                "example": {
-                  "error": "lead_already_exists",
-                  "createdAt": "2026-07-05T10:00:00+00:00"
+                "examples": {
+                  "already_submitted": {
+                    "summary": "Заявка по номеру уже есть и ещё не разобрана",
+                    "description": "Не ошибка для человека: форма говорит «мы уже получили вашу заявку». `createdAt` — время самой свежей открытой заявки.",
+                    "value": {
+                      "error": "already_submitted",
+                      "message": "Заявка по этому номеру уже принята, мы скоро свяжемся",
+                      "createdAt": "2026-10-10T09:15:00+00:00"
+                    }
+                  },
+                  "already_client": {
+                    "summary": "По номеру уже есть аккаунт",
+                    "description": "Форма предлагает войти, а не оставлять заявку снова.",
+                    "value": {
+                      "error": "already_client",
+                      "message": "По этому номеру уже есть аккаунт — войдите в приложение"
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Номер не распознан как телефон либо тело не прошло валидацию",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "examples": {
+                  "invalid_phone": {
+                    "summary": "Некорректный телефон",
+                    "value": {
+                      "error": "invalid_phone",
+                      "message": "Некорректный номер телефона"
+                    }
+                  },
+                  "validation_error": {
+                    "summary": "Тело не прошло валидацию (например, имя короче двух символов)",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Тело запроса не прошло валидацию",
+                      "details": [
+                        {
+                          "type": "string_too_short",
+                          "loc": [
+                            "body",
+                            "fullName"
+                          ],
+                          "msg": "String should have at least 2 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Исчерпан лимит заявок с одного IP; `retryAfter` — секунд до сброса окна",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "too_many_requests",
+                  "message": "Слишком много попыток, попробуйте позже",
+                  "retryAfter": 1800
                 }
               }
             }
@@ -1187,7 +1237,7 @@
           "clinic-applications-admin"
         ],
         "summary": "Заявки клиник",
-        "description": "Заявки на подключение клиник: название, город, размер, телефон, статус.\n\n``statusCounts`` отдаёт число заявок по каждому статусу — для бейджей в меню.",
+        "description": "Единая очередь заявок: имя, телефон, компания, город, размер, статус.\n\nВ очереди две двери: заявки из приложения (`POST /clinic-applications`,\n`phoneVerified = true`) и лиды с лендинга (`POST /leads`,\n`phoneVerified = false`). У лида название компании, город и размер могут быть\nпустыми, а имя — `fullName` — есть всегда; по неподтверждённому номеру нельзя\nотправлять доступы.\n\n`statusCounts` отдаёт число заявок по каждому статусу — для бейджей в меню.\nСчётчики учитывают фильтр `phoneVerified` (но не `status`), поэтому чипы\nстатусов совпадают с отфильтрованным списком.",
         "operationId": "list_applications_api_v1_admin_clinic_applications_get",
         "security": [
           {
@@ -1212,6 +1262,24 @@
               "title": "Status"
             },
             "description": "Фильтр: pending | reviewed | rejected"
+          },
+          {
+            "name": "phoneVerified",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Фильтр по двери очереди: `true` — только заявки из приложения (телефон подтверждён кодом), `false` — только лиды с лендинга. Не задан — все",
+              "title": "Phoneverified"
+            },
+            "description": "Фильтр по двери очереди: `true` — только заявки из приложения (телефон подтверждён кодом), `false` — только лиды с лендинга. Не задан — все"
           },
           {
             "name": "page",
@@ -1267,7 +1335,7 @@
           "clinic-applications-admin"
         ],
         "summary": "Карточка заявки",
-        "description": "Данные заявки: компания, город, размер, подтверждённый телефон, статус.",
+        "description": "Данные заявки: имя, телефон, признак подтверждения, компания, город, размер.\n\nСхема та же, что у элемента списка, включая написанное человеком (`comment`) и\nметку трафика (`source`). Для лида с лендинга (`phoneVerified = false`)\nкомпания, город и размер могут быть `null`, а телефон не подтверждён кодом.",
         "operationId": "get_application_api_v1_admin_clinic_applications__application_id__get",
         "security": [
           {
@@ -1327,7 +1395,7 @@
           "clinic-applications-admin"
         ],
         "summary": "Сменить статус заявки",
-        "description": "Поставить заявке статус: ``pending`` | ``reviewed`` | ``rejected``.\n\nЗапоминается, кто из команды Skrezo и когда сменил статус; переходы свободные\n(решение можно пересмотреть). Действие пишется в аудит платформы.",
+        "description": "Поставить заявке статус: ``pending`` | ``reviewed`` | ``rejected``.\n\nЗапоминается, кто из команды Skrezo и когда сменил статус; переходы свободные\n(решение можно пересмотреть). Действие пишется в аудит платформы.\n\nИсключение: у лида с лендинга (`phoneVerified = false`) не может быть двух\nоткрытых заявок на один номер. Если разобранный лид возвращают в `pending`,\nа по номеру уже есть другой открытый лид, ответ — `409 open_lead_exists` с\n`openApplicationId` (сначала разберите тот лид); статус и аудит не меняются.",
         "operationId": "set_application_status_api_v1_admin_clinic_applications__application_id__status_patch",
         "security": [
           {
@@ -1374,6 +1442,18 @@
                 "example": {
                   "error": "application_not_found",
                   "message": "Заявка не найдена"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Заявку нельзя вернуть в `pending`: по этому номеру уже есть другой открытый лид с лендинга. `openApplicationId` — лид, который надо разобрать первым",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "open_lead_exists",
+                  "message": "По этому номеру уже есть открытый лид — сначала разберите его",
+                  "openApplicationId": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60"
                 }
               }
             }
@@ -14380,19 +14460,36 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "title": "Id"
+            "title": "Id",
+            "description": "Идентификатор заявки"
           },
           "companyName": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Companyname",
+            "description": "Название клиники; у лида с лендинга бывает `null`",
             "examples": [
               "Дента+"
             ]
           },
           "cityId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Cityid"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cityid",
+            "description": "Город из справочника; у лида с лендинга всегда `null`"
           },
           "cityName": {
             "anyOf": [
@@ -14404,22 +14501,84 @@
               }
             ],
             "title": "Cityname",
+            "description": "Название города на языке платформы; `null`, если города нет",
             "examples": [
               "Бишкек"
             ]
           },
           "doctorsCount": {
-            "$ref": "#/components/schemas/DoctorsCountRange",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DoctorsCountRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Размер клиники: `2-5` | `6-10` | `10+`; у лида — `null`, если не указан",
             "examples": [
               "6-10"
+            ]
+          },
+          "fullName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fullname",
+            "description": "Имя контактного лица. Есть у лида с лендинга; у заявки из приложения `null` — там имя спрашивается позже",
+            "examples": [
+              "Айгүл Асанова"
             ]
           },
           "phone": {
             "type": "string",
             "title": "Phone",
-            "description": "Подтверждённый по OTP телефон",
+            "description": "Телефон. Подтверждён по OTP, если `phoneVerified = true`; у лида с лендинга — как ввёл человек, после нормализации в E.164",
             "examples": [
               "+996700123456"
+            ]
+          },
+          "phoneVerified": {
+            "type": "boolean",
+            "title": "Phoneverified",
+            "description": "`true` — телефон подтверждён кодом (заявка из приложения); `false` — лид с лендинга: по этому номеру нельзя отправлять доступы",
+            "examples": [
+              false
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Метка трафика (`utm_source` или referrer); `null` — не передана",
+            "examples": [
+              "instagram"
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "Комментарий человека из формы; `null` — не писал",
+            "examples": [
+              "Перезвоните после 14:00"
             ]
           },
           "status": {
@@ -14436,7 +14595,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reviewedbyaccountid"
+            "title": "Reviewedbyaccountid",
+            "description": "Аккаунт из команды Skrezo, сменивший статус"
           },
           "reviewedByName": {
             "anyOf": [
@@ -14460,12 +14620,14 @@
                 "type": "null"
               }
             ],
-            "title": "Reviewedat"
+            "title": "Reviewedat",
+            "description": "Когда сменён статус"
           },
           "createdAt": {
             "type": "string",
             "format": "date-time",
-            "title": "Createdat"
+            "title": "Createdat",
+            "description": "Когда заявка поступила"
           }
         },
         "type": "object",
@@ -14473,13 +14635,43 @@
           "id",
           "companyName",
           "cityId",
+          "cityName",
           "doctorsCount",
+          "fullName",
           "phone",
+          "phoneVerified",
+          "source",
+          "comment",
           "status",
           "createdAt"
         ],
         "title": "ApplicationItem",
-        "description": "Заявка клиники в списке/карточке админки."
+        "description": "Заявка клиники в списке/карточке админки (обе двери очереди).\n\n``phoneVerified = true`` — заявка из приложения (телефон подтверждён кодом,\nназвание/город/размер заполнены). ``phoneVerified = false`` — лид с лендинга:\nизвестны имя и телефон, остальное может быть пустым, а по номеру нельзя\nотправлять доступы.",
+        "examples": [
+          {
+            "createdAt": "2026-10-10T09:15:00+00:00",
+            "fullName": "Айгүл Асанова",
+            "id": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60",
+            "phone": "+996700123456",
+            "phoneVerified": false,
+            "source": "instagram",
+            "status": "pending"
+          },
+          {
+            "cityId": "0f9b7c1e-2a3d-4b5c-8e9f-1a2b3c4d5e6f",
+            "cityName": "Бишкек",
+            "companyName": "Дента+",
+            "createdAt": "2026-10-09T16:40:00+00:00",
+            "doctorsCount": "6-10",
+            "id": "8a1d4c7e-2b5f-4e90-a3c6-5d7e9f102b34",
+            "phone": "+996555000111",
+            "phoneVerified": true,
+            "reviewedAt": "2026-10-10T11:30:00+00:00",
+            "reviewedByAccountId": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6a8e10",
+            "reviewedByName": "Менеджер Skrezo",
+            "status": "reviewed"
+          }
+        ]
       },
       "ApplicationsResponse": {
         "properties": {
@@ -14508,7 +14700,7 @@
             },
             "type": "object",
             "title": "Statuscounts",
-            "description": "Число заявок по статусам (бейджи)",
+            "description": "Число заявок по статусам (бейджи). Учитывает фильтр `phoneVerified`, но не `status` — чтобы чипы совпадали с отфильтрованным списком",
             "examples": [
               {
                 "pending": 3,
@@ -18059,52 +18251,110 @@
         "properties": {
           "fullName": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 2,
             "title": "Fullname",
-            "description": "ФИО контактного лица"
+            "description": "Имя контактного лица (2–200 символов)",
+            "examples": [
+              "Айгүл Асанова"
+            ]
           },
           "phone": {
             "type": "string",
             "title": "Phone",
-            "description": "Телефон (нормализуется в E.164)"
+            "description": "Телефон в любом разумном виде; сервер приводит его к E.164",
+            "examples": [
+              "+996700123456",
+              "0700 123 456"
+            ]
           },
           "clinicName": {
-            "type": "string",
-            "minLength": 2,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Clinicname",
-            "description": "Название клиники"
+            "description": "Название клиники (2–200 символов). Необязательно: лендинг его не спрашивает",
+            "examples": [
+              "Дента+"
+            ]
           },
           "doctorsCountRange": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 50
               },
               {
                 "type": "null"
               }
             ],
             "title": "Doctorscountrange",
-            "description": "Кол-во врачей, напр. '2-3'"
+            "description": "Сколько врачей — свободный текст. В очередь попадает диапазон `2-5` | `6-10` | `10+`, только если строка после обрезки пробелов совпала с ним ровно; иначе поле в заявке остаётся пустым",
+            "examples": [
+              "6-10"
+            ]
           },
           "comment": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Comment"
+            "title": "Comment",
+            "description": "Комментарий человека; его читает менеджер, метки трафика сюда не кладут",
+            "examples": [
+              "Перезвоните после 14:00"
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Метка трафика — `utm_source` или referrer как пришли с формы; нужна, чтобы знать, какой канал приводит заявки",
+            "examples": [
+              "instagram"
+            ]
           }
         },
         "type": "object",
         "required": [
           "fullName",
-          "phone",
-          "clinicName"
+          "phone"
         ],
-        "title": "CreateLeadRequest"
+        "title": "CreateLeadRequest",
+        "description": "Заявка с лендинга без подтверждения телефона (имя и телефон).\n\nЛендинг спрашивает только два поля — ``fullName`` и ``phone``; остальные\nнеобязательны и остаются в контракте для других источников. Пустые строки и\nстроки из одних пробелов приравниваются к отсутствию значения.",
+        "examples": [
+          {
+            "fullName": "Айгүл Асанова",
+            "phone": "+996700123456"
+          },
+          {
+            "clinicName": "Дента+",
+            "comment": "Перезвоните после 14:00",
+            "doctorsCountRange": "6-10",
+            "fullName": "Айгүл Асанова",
+            "phone": "0700 123 456",
+            "source": "instagram"
+          }
+        ]
       },
       "CreatePatientRequest": {
         "properties": {
@@ -20760,12 +21010,14 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "title": "Id"
+            "title": "Id",
+            "description": "Идентификатор заявки в очереди (clinic_application.id)"
           },
           "createdAt": {
             "type": "string",
             "format": "date-time",
-            "title": "Createdat"
+            "title": "Createdat",
+            "description": "Когда заявка принята"
           }
         },
         "type": "object",
@@ -20773,7 +21025,12 @@
           "id",
           "createdAt"
         ],
-        "title": "LeadCreatedResponse"
+        "title": "LeadCreatedResponse",
+        "description": "Подтверждение приёма заявки с лендинга.",
+        "example": {
+          "createdAt": "2026-10-10T09:15:00+00:00",
+          "id": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60"
+        }
       },
       "LeadsPoint": {
         "properties": {
@@ -28482,7 +28739,7 @@
     },
     {
       "name": "leads",
-      "description": "Лид-форма «Больше одного» (публичная).",
+      "description": "Заявка с лендинга без кода (публичная): `POST /leads` ложится в общую очередь заявок с пометкой «телефон не подтверждён» и виден команде в `GET /admin/clinic-applications`.",
       "x-displayName": "Лиды"
     },
     {
@@ -28606,12 +28863,12 @@
     },
     {
       "name": "clinic-applications",
-      "description": "Второй путь регистрации: заявка «клиника с сотрудниками» после подтверждения телефона по OTP.",
+      "description": "Второй путь регистрации: заявка «клиника с сотрудниками» после подтверждения телефона по OTP. Очередь заявок одна, дверей две: эта (`phoneVerified = true`) и лид с лендинга `POST /leads` (`phoneVerified = false`).",
       "x-displayName": "Заявки клиник"
     },
     {
       "name": "clinic-applications-admin",
-      "description": "Рассмотрение заявок: список, карточка, статусы.",
+      "description": "Рассмотрение заявок обеих дверей: список (фильтры `status` и `phoneVerified`), карточка, статусы.",
       "x-displayName": "Заявки клиник (Skrezo)"
     },
     {

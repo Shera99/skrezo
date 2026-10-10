@@ -40,6 +40,11 @@ async def get_application(
     _actor: uuid.UUID = Depends(get_authenticated_user_id),
     use_case: GetClinicApplicationUseCase = Depends(get_get_application_use_case),
 ) -> ApplicationItem:
-    """Данные заявки: компания, город, размер, подтверждённый телефон, статус."""
+    """Данные заявки: имя, телефон, признак подтверждения, компания, город, размер.
+
+    Схема та же, что у элемента списка, включая написанное человеком (`comment`) и
+    метку трафика (`source`). Для лида с лендинга (`phoneVerified = false`)
+    компания, город и размер могут быть `null`, а телефон не подтверждён кодом.
+    """
     row = await use_case.execute(application_id)
     return ApplicationItem.from_row(row)

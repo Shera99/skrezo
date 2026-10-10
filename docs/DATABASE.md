@@ -22,7 +22,7 @@ PostgreSQL, ORM в `app/shared/db/models/` (по файлу на таблицу)
 | Справочники (i18n) | `city`, `city_translation`, `specialization`, `specialization_translation` |
 | Аккаунты и клиники | `account`, `clinic`, `membership` |
 | RBAC (права/роли) | `permission`, `role`, `role_permission` |
-| Продажи / биллинг | `lead`, `clinic_application`, `subscription`, `subscription_event`, `tariff_version`, `tariff_package`, `clinic_custom_plan` — спецплан клиники от Skrezo (свои места и цена вместо пакетов, строка на клинику), `plan_request` — заявки «нужно больше мест» (открытая одна на клинику) |
+| Продажи / биллинг | `clinic_application` (единая очередь заявок: лиды с лендинга и заявки через OTP), `subscription`, `subscription_event`, `tariff_version`, `tariff_package`, `clinic_custom_plan` — спецплан клиники от Skrezo (свои места и цена вместо пакетов, строка на клинику), `plan_request` — заявки «нужно больше мест» (открытая одна на клинику) |
 | Аудит | `audit_log` |
 | Фоновые задачи | `job_run` |
 | **Клиническое ядро** | `patient`, `patient_tooth`, `patient_file`, `service`, `appointment`, `appointment_item`, `appointment_item_tooth` |
@@ -52,7 +52,7 @@ erDiagram
 
     CLINIC ||--o| SUBSCRIPTION : "подписка (1:1)"
     SUBSCRIPTION ||--o{ SUBSCRIPTION_EVENT : "история статусов"
-    CLINIC ||--o{ LEAD : "конвертация (опц.)"
+    CLINIC ||--o{ CLINIC_APPLICATION : "конвертация (опц.)"
     CITY ||--o{ CLINIC_APPLICATION : "город заявки"
     ACCOUNT ||--o{ CLINIC_APPLICATION : "кто рассмотрел (опц.)"
 
@@ -163,26 +163,22 @@ erDiagram
         enum lang
         text value
     }
-    LEAD {
-        uuid id PK
-        text full_name
-        text phone UK
-        text clinic_name
-        text doctors_count_range "nullable"
-        text comment "nullable"
-        uuid converted_clinic_id FK "nullable"
-        timestamptz created_at
-    }
     CLINIC_APPLICATION {
         uuid id PK
-        text company_name
-        uuid city_id FK
-        enum doctors_count "2-5|6-10|10+"
-        text phone "подтверждён OTP"
+        text company_name "nullable: у лида может не быть"
+        uuid city_id FK "nullable: у лида нет"
+        enum doctors_count "nullable; 2-5|6-10|10+"
+        text full_name "nullable: у заявки из приложения нет"
+        text phone "не уникален; подтверждён OTP, если phone_verified"
+        boolean phone_verified "true — OTP, false — лид с лендинга"
+        text source "nullable: utm_source/referrer"
+        text comment "nullable"
         enum status "pending|reviewed|rejected"
+        uuid converted_clinic_id FK "nullable: клиника по заявке"
         uuid reviewed_by_account_id FK "nullable"
         timestamptz reviewed_at "nullable"
         timestamptz created_at
+        timestamptz updated_at
     }
     SUBSCRIPTION {
         uuid id PK
@@ -416,6 +412,46 @@ erDiagram
 
 ---
 
+## Заявки клиник — одна очередь, две двери
+
+Таблицы `lead` больше нет (миграция 0070): лиды с лендинга лежат в
+`clinic_application` вместе с заявками из приложения, и команда видит всё одним
+`GET /admin/clinic-applications`.
+
+| Дверь | `phone_verified` | Что заполнено |
+|---|---|---|
+| `POST /clinic-applications` (OTP) | `true` | `company_name`, `city_id`, `doctors_count`, `phone`; `full_name` пуст |
+| `POST /leads` (лендинг, без кода) | `false` | `full_name`, `phone`; `company_name`, `doctors_count`, `comment`, `source` — если пришли; `city_id` всегда пуст |
+
+Что держит сама схема, а не только код:
+
+* `company_name`, `city_id`, `doctors_count` — nullable. **`ck_clinic_application_verified_complete`**:
+  `phone_verified = false OR (company_name, city_id, doctors_count все NOT NULL)` —
+  заявка с подтверждённым телефоном всегда полная.
+* **`ck_clinic_application_lead_named`**: `phone_verified = true OR full_name IS NOT NULL` —
+  у лида имя обязательно.
+* **`ux_clinic_application_pending_lead_phone`** — частичный уникальный индекс по
+  `phone` `WHERE status = 'pending' AND phone_verified = false`: не больше одной
+  открытой заявки с лендинга на номер (защита дедупа от гонки двух отправок).
+  Заявки через OTP по-прежнему могут повторяться; `reviewed`/`rejected` лиды
+  индексом не учитываются — человек вправе прийти снова.
+* `phone_verified` — NOT NULL **без** server_default: обе двери задают значение явно
+  (миграция добавляла колонку с `true`, поскольку все старые заявки пришли через OTP,
+  и сняла умолчание).
+* `converted_clinic_id` → `clinic.id` `ON DELETE SET NULL` — семантика конверсии для
+  дашборда (`conversion()` и тренд «Заявки» считают строки этой таблицы);
+  выставляется провижинингом (`ProvisionCommand.application_id`).
+* `doctors_count` из лида — только если свободный текст формы после `trim` ровно
+  `2-5` | `6-10` | `10+`, иначе `NULL`.
+
+Миграция 0070 переносит каждый `lead` в заявку `pending` с `phone_verified = false`
+(id и дата создания сохраняются) и удаляет таблицу. `downgrade` воссоздаёт `lead` и
+возвращает туда неподтверждённые заявки — по одной на телефон (самую раннюю; название
+клиники, если пусто, заменяется именем контакта); статус рассмотрения и `source` при
+откате теряются.
+
+---
+
 ## Перечисления (enum)
 
 | Enum (PG-тип) | Значения | Где |
@@ -481,6 +517,6 @@ patient ─1:N─ patient_tooth ─1:N─ appointment_item_tooth ─N:1─ appoi
 | `cash_payment` | recorded_by_membership_id, refunds_payment_id | SET NULL |
 | `clinic` | city_id | (без каскада) |
 | `tariff_version` / `audit_log` | created_by / actor_id → account | (без каскада) |
-| `lead` | converted_clinic_id | (без каскада, nullable) |
-| `clinic_application` | city_id | (без каскада) |
+| `clinic_application` | city_id | (без каскада, nullable) |
+| `clinic_application` | converted_clinic_id | SET NULL |
 | `clinic_application` | reviewed_by_account_id | SET NULL |

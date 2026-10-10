@@ -32,6 +32,21 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
             }
         },
     },
+    409: {
+        "description": (
+            "Заявку нельзя вернуть в `pending`: по этому номеру уже есть другой открытый "
+            "лид с лендинга. `openApplicationId` — лид, который надо разобрать первым"
+        ),
+        "content": {
+            "application/json": {
+                "example": {
+                    "error": "open_lead_exists",
+                    "message": "По этому номеру уже есть открытый лид — сначала разберите его",
+                    "openApplicationId": "3f6c1b2a-8d4e-4f5a-9b7c-1e2d3c4b5a60",
+                }
+            }
+        },
+    },
 }
 
 
@@ -53,6 +68,11 @@ async def set_application_status(
 
     Запоминается, кто из команды Skrezo и когда сменил статус; переходы свободные
     (решение можно пересмотреть). Действие пишется в аудит платформы.
+
+    Исключение: у лида с лендинга (`phoneVerified = false`) не может быть двух
+    открытых заявок на один номер. Если разобранный лид возвращают в `pending`,
+    а по номеру уже есть другой открытый лид, ответ — `409 open_lead_exists` с
+    `openApplicationId` (сначала разберите тот лид); статус и аудит не меняются.
     """
     row = await use_case.execute(application_id, body.status, actor)
     await audit.record(

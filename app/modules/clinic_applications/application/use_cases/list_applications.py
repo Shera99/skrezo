@@ -27,14 +27,22 @@ class ListClinicApplicationsUseCase:
         self,
         *,
         status: ClinicApplicationStatus | None,
+        phone_verified: bool | None = None,
         page: int,
         page_size: int,
     ) -> ApplicationsResult:
-        """Заявки (свежие сверху) с фильтром по статусу и счётчиками."""
+        """Заявки (свежие сверху) с фильтрами по статусу и подтверждению телефона.
+
+        Счётчики по статусам учитывают ``phone_verified`` (но не ``status``),
+        поэтому бейджи совпадают со списком, отфильтрованным по двери.
+        """
         items, total = await self._applications.list_page(
-            status=status, limit=page_size, offset=(page - 1) * page_size
+            status=status,
+            phone_verified=phone_verified,
+            limit=page_size,
+            offset=(page - 1) * page_size,
         )
-        counts = await self._applications.status_counts()
+        counts = await self._applications.status_counts(phone_verified=phone_verified)
         return ApplicationsResult(
             page=ApplicationsPage(
                 items=items, total_count=total, current_page=page, page_size=page_size

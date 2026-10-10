@@ -1,4 +1,7 @@
-"""Use-case: подать заявку клиники (второй путь после подтверждённого OTP)."""
+"""Use-case: подать заявку клиники (дверь «через OTP», телефон подтверждён).
+
+Вторая дверь той же очереди — лид с лендинга без кода — в ``submit_lead``.
+"""
 
 from __future__ import annotations
 
@@ -55,6 +58,7 @@ class SubmitClinicApplicationUseCase:
             city_id=city_id,
             doctors_count=doctors_count,
             phone=phone,
+            phone_verified=True,  # телефон из билета OTP — подтверждён кодом
         )
         await self._session.commit()
         await self._otp.discard_registration_ticket(registration_token)

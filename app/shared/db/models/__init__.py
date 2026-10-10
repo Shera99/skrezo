@@ -41,7 +41,6 @@ from app.shared.db.models.inbox_item import InboxItem
 from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.kb_document import KbDocument
 from app.shared.db.models.kb_document_version import KbDocumentVersion
-from app.shared.db.models.lead import Lead
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.notification_delivery import NotificationDelivery
 from app.shared.db.models.notification_pref import NotificationPref
@@ -106,7 +105,6 @@ __all__ = [
     "JobRun",
     "KbDocument",
     "KbDocumentVersion",
-    "Lead",
     "Membership",
     "NotificationDelivery",
     "NotificationPref",

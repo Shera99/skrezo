@@ -27,14 +27,32 @@ async def list_applications(
     status: ClinicApplicationStatus | None = Query(
         default=None, description="Фильтр: pending | reviewed | rejected"
     ),
+    phone_verified: bool | None = Query(
+        default=None,
+        alias="phoneVerified",
+        description=(
+            "Фильтр по двери очереди: `true` — только заявки из приложения (телефон "
+            "подтверждён кодом), `false` — только лиды с лендинга. Не задан — все"
+        ),
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
     _actor: uuid.UUID = Depends(get_authenticated_user_id),
     use_case: ListClinicApplicationsUseCase = Depends(get_list_applications_use_case),
 ) -> ApplicationsResponse:
-    """Заявки на подключение клиник: название, город, размер, телефон, статус.
+    """Единая очередь заявок: имя, телефон, компания, город, размер, статус.
 
-    ``statusCounts`` отдаёт число заявок по каждому статусу — для бейджей в меню.
+    В очереди две двери: заявки из приложения (`POST /clinic-applications`,
+    `phoneVerified = true`) и лиды с лендинга (`POST /leads`,
+    `phoneVerified = false`). У лида название компании, город и размер могут быть
+    пустыми, а имя — `fullName` — есть всегда; по неподтверждённому номеру нельзя
+    отправлять доступы.
+
+    `statusCounts` отдаёт число заявок по каждому статусу — для бейджей в меню.
+    Счётчики учитывают фильтр `phoneVerified` (но не `status`), поэтому чипы
+    статусов совпадают с отфильтрованным списком.
     """
-    result = await use_case.execute(status=status, page=page, page_size=page_size)
+    result = await use_case.execute(
+        status=status, phone_verified=phone_verified, page=page, page_size=page_size
+    )
     return ApplicationsResponse.from_result(result)

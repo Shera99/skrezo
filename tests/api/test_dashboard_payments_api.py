@@ -7,7 +7,11 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from app.shared.db.enums import SubscriptionStatus
+from app.modules.clinics.application.services.provisioning_service import (
+    ProvisionCommand,
+    build_provisioning_service,
+)
+from app.shared.db.enums import ClinicType, SubscriptionStatus
 from app.shared.db.models.subscription import Subscription
 from tests.conftest import API, Resources
 
@@ -74,3 +78,52 @@ async def test_dashboard_counts_expired_trials_as_risk(
 
     assert body["risks"]["trialExpired"] == 1
     assert body["active"]["total"] == 0  # и активной она больше не считается
+
+
+async def test_dashboard_conversion_is_zero_for_an_empty_queue(admin_client: AsyncClient) -> None:
+    """Заявок нет — конверсия 0 без деления на ноль."""
+    body = (
+        await admin_client.get(f"{API}/admin/dashboard/summary?from=2026-07-01&to=2026-07-11")
+    ).json()
+
+    assert body["conversion"] == {"pct": 0.0, "converted": 0, "leads": 0}
+
+
+async def test_dashboard_conversion_counts_applications_of_the_single_queue(
+    admin_client: AsyncClient, public_client: AsyncClient, _resources: Resources
+) -> None:
+    """Конверсия считается по очереди заявок: «заявок» — все строки, «сконвертировано» — с клиникой.
+
+    Лиды с лендинга теперь живут в ``clinic_application``, поэтому и они — часть
+    знаменателя; разобранные и отклонённые из него не выпадают. Клиника, заведённая
+    по заявке (``ProvisionCommand.application_id``), попадает в числитель.
+    """
+    ids = []
+    for i in range(3):
+        resp = await public_client.post(
+            f"{API}/leads", json={"fullName": f"Лид {i}", "phone": f"070082000{i}"}
+        )
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    await admin_client.patch(
+        f"{API}/admin/clinic-applications/{ids[2]}/status", json={"status": "rejected"}
+    )
+    before = (
+        await admin_client.get(f"{API}/admin/dashboard/summary?from=2026-07-01&to=2026-07-11")
+    ).json()
+    assert before["conversion"] == {"pct": 0.0, "converted": 0, "leads": 3}
+
+    async with _resources.factory() as session:
+        await build_provisioning_service(session).provision(
+            ProvisionCommand(
+                type=ClinicType.SOLO,
+                admin_full_name="Лид 0",
+                admin_phone="0700820000",
+                application_id=uuid.UUID(ids[0]),
+            )
+        )
+
+    after = (
+        await admin_client.get(f"{API}/admin/dashboard/summary?from=2026-07-01&to=2026-07-11")
+    ).json()
+    assert after["conversion"] == {"pct": 33.3, "converted": 1, "leads": 3}

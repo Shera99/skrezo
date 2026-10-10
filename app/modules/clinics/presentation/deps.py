@@ -12,6 +12,9 @@ from app.modules.access.application.services.role_provisioning_service import (
 from app.modules.access.infrastructure.repositories.role_provisioning_repository import (
     RoleProvisioningRepository,
 )
+from app.modules.clinic_applications.infrastructure.repositories.clinic_application_repository import (  # noqa: E501
+    ClinicApplicationRepository,
+)
 from app.modules.clinics.application.services.admin_notification_service import (
     AdminNotificationService,
 )
@@ -29,7 +32,6 @@ from app.modules.clinics.infrastructure.repositories.clinic_settings_repository 
 from app.modules.clinics.infrastructure.repositories.membership_repository import (
     MembershipRepository,
 )
-from app.modules.leads.infrastructure.repositories.lead_repository import LeadRepository
 from app.modules.subscriptions.application.services.subscription_service import SubscriptionService
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
@@ -49,7 +51,7 @@ def get_provisioning_service(
         memberships=MembershipRepository(session),
         roles=RoleProvisioningService(RoleProvisioningRepository(session)),
         subscriptions=SubscriptionService(SubscriptionRepository(session)),
-        leads=LeadRepository(session),
+        applications=ClinicApplicationRepository(session),
     )
 
 
