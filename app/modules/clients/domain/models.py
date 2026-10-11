@@ -69,3 +69,34 @@ class ClientDetail:
     custom_plan: ClinicCustomPlan | None = None
     #: Открытая заявка клиники на условия сверх тарифов.
     open_plan_request: PlanRequest | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClientCard:
+    """Клиент глазами команды Skrezo: кто это и как связаться (карточка в канал).
+
+    Собирается одним запросом на пачку клиник — джоба конца триала шлёт карточки
+    всем перешедшим сразу. Названия города и специализации — по-русски: карточки
+    читает команда, а не клиника.
+
+    Счётчики активности — за всё время, но у клиники с только что кончившимся
+    триалом «всё время» и есть триал: оплаченного периода у неё ещё не было.
+    """
+
+    clinic_id: uuid.UUID
+    name: str
+    type: ClinicType
+    city_name: str | None
+    address: str | None
+    business_phone: str | None
+    #: Владелец; ``None`` — активного владельца нет (после архивации бывает).
+    owner_full_name: str | None
+    owner_phone: str | None
+    owner_specialization: str | None
+    registered_at: datetime
+    trial_started_at: datetime | None
+    trial_ends_at: datetime | None
+    #: Активные сотрудники вместе с владельцем.
+    staff_count: int
+    patients_count: int
+    appointments_count: int

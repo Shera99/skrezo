@@ -101,5 +101,9 @@ class SubmitLeadUseCase:
             raise _already_submitted(pending_since) from exc
 
         await self._session.commit()
-        await self._notifier.notify_new_lead(application)
+        # Карточке нужен тот же вид заявки, что и админке (с названием города), —
+        # перечитываем строку уже после коммита.
+        row = await self._applications.get_row(application.id)
+        if row is not None:
+            await self._notifier.notify_new_application(row)
         return application

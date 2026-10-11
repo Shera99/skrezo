@@ -58,6 +58,9 @@ async def submit_application(
     ``registrationToken``, а не из тела — заявку нельзя подать на чужой номер.
     Клиника **не создаётся автоматически**: команда Skrezo рассматривает заявку в
     админке и заводит клиента вручную.
+
+    После записи команда получает карточку заявки в Telegram-канал; недоставка
+    уведомления заявку не отменяет.
     """
     row = await use_case.execute(
         body.registration_token, body.company_name, body.city_id, body.doctors_count

@@ -10,6 +10,9 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequestError, ValidationAppError
+from app.modules.clinic_applications.application.services.team_notification_service import (
+    TeamNotificationService,
+)
 from app.modules.clinic_applications.domain.models import ApplicationRow
 from app.modules.clinic_applications.infrastructure.repositories.clinic_application_repository import (  # noqa: E501
     ClinicApplicationRepository,
@@ -24,10 +27,12 @@ class SubmitClinicApplicationUseCase:
         session: AsyncSession,
         applications: ClinicApplicationRepository,
         otp: OtpService,
+        notifier: TeamNotificationService,
     ) -> None:
         self._session = session
         self._applications = applications
         self._otp = otp
+        self._notifier = notifier
 
     async def execute(
         self,
@@ -43,7 +48,8 @@ class SubmitClinicApplicationUseCase:
         гасится только после успешного сохранения: ошибка валидации (неизвестный
         город) позволяет повторить без нового кода.
 
-        Клиника автоматически НЕ создаётся — заявку рассматривает команда Skrezo.
+        Клиника автоматически НЕ создаётся — заявку рассматривает команда Skrezo:
+        после коммита ей уходит карточка заявки в канал Telegram.
         """
         phone = await self._otp.read_registration_ticket(registration_token)
         if phone is None:
@@ -65,4 +71,5 @@ class SubmitClinicApplicationUseCase:
 
         row = await self._applications.get_row(application.id)
         assert row is not None  # только что создали
+        await self._notifier.notify_new_application(row)
         return row

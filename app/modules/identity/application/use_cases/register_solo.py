@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from app.core.errors import BadRequestError
+from app.modules.clients.application.services.team_card_service import ClientTeamCardService
 from app.modules.clinics.application.services.provisioning_service import (
     ProvisionCommand,
     ProvisioningService,
@@ -28,12 +29,14 @@ class RegisterSoloUseCase:
         accounts: AccountRepository,
         memberships: MembershipRepository,
         tokens: ClientTokenService,
+        team_cards: ClientTeamCardService | None = None,
     ) -> None:
         self._otp = otp
         self._provisioning = provisioning
         self._accounts = accounts
         self._memberships = memberships
         self._tokens = tokens
+        self._team_cards = team_cards
 
     async def execute(
         self,
@@ -49,6 +52,9 @@ class RegisterSoloUseCase:
         его не передаёт и подменить не может. Билет гасится только после успешного
         провижининга: ошибка анкеты (неизвестный город/специализация) позволяет
         повторить без нового OTP.
+
+        Команде Skrezo уходит карточка нового клиента — последним шагом, когда
+        токены уже выданы: её чтение не должно мешать входу.
         """
         phone = await self._otp.read_registration_ticket(registration_token)
         if phone is None:
@@ -67,4 +73,7 @@ class RegisterSoloUseCase:
         result = await self._provisioning.provision(command)  # атомарно + commit
         await self._otp.discard_registration_ticket(registration_token)
 
-        return await issue_session(result.account, self._memberships, self._tokens)
+        login = await issue_session(result.account, self._memberships, self._tokens)
+        if self._team_cards is not None:
+            await self._team_cards.notify_registered(result.clinic.id)
+        return login

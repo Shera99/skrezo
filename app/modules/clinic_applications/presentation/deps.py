@@ -37,18 +37,19 @@ def get_application_repository(
     return ClinicApplicationRepository(session)
 
 
-def get_submit_application_use_case(
-    session: AsyncSession = Depends(get_session),
-    applications: ClinicApplicationRepository = Depends(get_application_repository),
-    otp: OtpService = Depends(get_otp_service),
-) -> SubmitClinicApplicationUseCase:
-    return SubmitClinicApplicationUseCase(session, applications, otp)
-
-
 def get_team_notification_service(
     notifier: Notifier = Depends(get_notifier),
 ) -> TeamNotificationService:
     return TeamNotificationService(notifier)
+
+
+def get_submit_application_use_case(
+    session: AsyncSession = Depends(get_session),
+    applications: ClinicApplicationRepository = Depends(get_application_repository),
+    otp: OtpService = Depends(get_otp_service),
+    notifier: TeamNotificationService = Depends(get_team_notification_service),
+) -> SubmitClinicApplicationUseCase:
+    return SubmitClinicApplicationUseCase(session, applications, otp, notifier)
 
 
 def get_submit_lead_use_case(

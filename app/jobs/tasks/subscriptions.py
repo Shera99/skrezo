@@ -13,6 +13,10 @@ from typing import Any
 from app.core.config import settings
 from app.core.db import session_factory
 from app.jobs.tasks.context import attempt, notifier
+from app.modules.clients.application.services.team_card_service import ClientTeamCardService
+from app.modules.clients.infrastructure.repositories.client_card_repository import (
+    ClientCardRepository,
+)
 from app.modules.jobs.application.services.job_recorder import JobRunRecorder
 from app.modules.subscriptions.application.use_cases.expire_paid_periods import (
     ExpirePaidPeriodsUseCase,
@@ -30,11 +34,18 @@ from app.modules.subscriptions.infrastructure.repositories.subscription_reposito
 
 
 async def expire_trials(ctx: dict[str, Any]) -> int:
-    """Перевести истёкшие триалы в ``trial_expired`` и сообщить об этом."""
+    """Перевести истёкшие триалы в ``trial_expired`` и сообщить об этом.
+
+    Владельцу — сообщение на телефон, команде — карточка клиента в канал.
+    """
     async with JobRunRecorder("expire_trials", attempt(ctx)) as run:
         async with session_factory() as session:
+            sender = notifier(ctx)
             use_case = ExpireTrialsUseCase(
-                session, SubscriptionRepository(session), notifier(ctx)
+                session,
+                SubscriptionRepository(session),
+                sender,
+                ClientTeamCardService(ClientCardRepository(session), sender),
             )
             count = await use_case.execute()
         run.note(f"переведено клиник: {count}")

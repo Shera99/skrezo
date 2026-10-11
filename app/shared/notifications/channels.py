@@ -12,7 +12,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
+
+#: Кнопка-ссылка под сообщением в чате: (подпись, https-адрес). Кортеж, а не
+#: класс: кнопки едут аргументом задачи в очередь, а простые типы переживают
+#: сериализацию arq без привязки к пути модуля.
+ChatButton = tuple[str, str]
 
 
 class MessageDeliveryError(Exception):
@@ -36,6 +42,12 @@ class ChatChannel(Protocol):
     #: Короткое имя канала — для логов (``telegram-chat``).
     name: str
 
-    async def send(self, text: str) -> None:
-        """Отправить текст в чат; при неудаче — ``MessageDeliveryError``."""
+    async def send(
+        self, text: str, *, html: bool = False, buttons: Sequence[ChatButton] = ()
+    ) -> None:
+        """Отправить текст в чат; при неудаче — ``MessageDeliveryError``.
+
+        ``html`` — текст размечен HTML (динамические значения в нём уже
+        экранированы); ``buttons`` — кнопки-ссылки под сообщением.
+        """
         ...

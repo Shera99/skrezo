@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import itertools
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -32,7 +33,7 @@ from app.modules.jobs.application.services.job_recorder import JobRunRecorder
 from app.shared.db.enums import JobRunStatus, SubscriptionStatus
 from app.shared.db.models.job_run import JobRun
 from app.shared.db.models.subscription import Subscription
-from app.shared.notifications.channels import MessageDeliveryError
+from app.shared.notifications.channels import ChatButton, MessageDeliveryError
 from app.shared.notifications.delivery import TextDeliveryService
 from app.shared.notifications.notifier import Notifier
 from tests.conftest import API, Resources
@@ -64,9 +65,15 @@ class _ChatRecorder:
 
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.html: list[bool] = []
+        self.buttons: list[tuple[ChatButton, ...]] = []
 
-    async def send(self, text: str) -> None:
+    async def send(
+        self, text: str, *, html: bool = False, buttons: Sequence[ChatButton] = ()
+    ) -> None:
         self.sent.append(text)
+        self.html.append(html)
+        self.buttons.append(tuple(buttons))
 
 
 @pytest.fixture
@@ -204,6 +211,35 @@ async def test_send_notification_job_retries_on_failure(
     assert "сломан" in (runs[0].detail or "")
 
 
+async def test_send_team_notification_job_passes_markup_and_buttons(
+    _resources: Resources, _worker_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Задача доставки карточки отдаёт чату и разметку, и кнопки."""
+    chat = _ChatRecorder()
+    monkeypatch.setattr(notifications, "build_team_chat", lambda: chat)
+
+    result = await notifications.send_team_notification(
+        {}, "<b>карточка</b>", "test_event", True, (("WhatsApp", "https://wa.me/1"),)
+    )
+
+    assert result == "sent"
+    assert chat.sent == ["<b>карточка</b>"]
+    assert chat.html == [True]
+    assert chat.buttons == [(("WhatsApp", "https://wa.me/1"),)]
+
+
+async def test_send_team_notification_job_accepts_old_two_argument_form(
+    _resources: Resources, _worker_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Задача, поставленная до карточек (текст + событие), уходит простым текстом."""
+    chat = _ChatRecorder()
+    monkeypatch.setattr(notifications, "build_team_chat", lambda: chat)
+
+    assert await notifications.send_team_notification({}, "текст", "test_event") == "sent"
+    assert chat.html == [False]
+    assert chat.buttons == [()]
+
+
 # ── Подписки ────────────────────────────────────────────────────────────────
 
 
@@ -224,8 +260,16 @@ async def test_expire_trials_notifies_owner_and_team(
     assert count == 1
     assert len(phones.sent) == 1
     assert "Клиника Истёкшая" in phones.sent[0][1]
+    # Команде — карточка: кто, как связаться, насколько пользовались.
     assert len(chat.sent) == 1
-    assert "Клиника Истёкшая" in chat.sent[0]
+    card = chat.sent[0]
+    assert "Закончился пробный период" in card
+    assert "Клиника Истёкшая" in card
+    assert "Владелец" in card
+    assert f"+996{phone[1:]}" in card
+    assert "ни одного приёма" in card
+    assert chat.html == [True]
+    assert chat.buttons[0][0] == ("💬 WhatsApp", f"https://wa.me/996{phone[1:]}")
 
     async with _resources.factory() as session:
         subscription = (
@@ -250,6 +294,31 @@ async def test_expire_trials_is_idempotent(
     assert await subscription_tasks.expire_trials({}) == 1
     assert await subscription_tasks.expire_trials({}) == 0
     assert len(phones.sent) == 1
+
+
+async def test_expire_trials_sends_a_card_per_clinic(
+    admin_client: AsyncClient,
+    _resources: Resources,
+    _worker_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Две клиники с истёкшим триалом — две карточки, у каждой свои кнопки."""
+    _, chat = _capture_notifications(monkeypatch)
+    first_phone, second_phone = _phone(), _phone()
+    first = await _create_clinic(admin_client, first_phone, "Клиника Первая")
+    second = await _create_clinic(admin_client, second_phone, "Клиника Вторая")
+    for clinic_id in (first, second):
+        await _set_trial_end(_resources, clinic_id, datetime.now(UTC) - timedelta(hours=1))
+
+    assert await subscription_tasks.expire_trials({}) == 2
+
+    assert len(chat.sent) == 2
+    assert sorted("Первая" in card for card in chat.sent) == [False, True]
+    phones_in_buttons = {buttons[0][1] for buttons in chat.buttons}
+    assert phones_in_buttons == {
+        f"https://wa.me/996{first_phone[1:]}",
+        f"https://wa.me/996{second_phone[1:]}",
+    }
 
 
 async def test_trial_warning_is_sent_once(

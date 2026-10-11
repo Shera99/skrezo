@@ -6,6 +6,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.clients.application.services.team_card_service import ClientTeamCardService
 from app.modules.clients.application.use_cases.archive_client import ArchiveClientUseCase
 from app.modules.clients.application.use_cases.change_admin_phone import ChangeAdminPhoneUseCase
 from app.modules.clients.application.use_cases.create_account import CreateAccountUseCase
@@ -15,9 +16,14 @@ from app.modules.clients.application.use_cases.list_staff import ListStaffUseCas
 from app.modules.clients.application.use_cases.phone_check import PhoneCheckUseCase
 from app.modules.clients.application.use_cases.status_counts import StatusCountsUseCase
 from app.modules.clients.application.use_cases.update_client import UpdateClientUseCase
+from app.modules.clients.infrastructure.repositories.client_card_repository import (
+    ClientCardRepository,
+)
 from app.modules.clients.infrastructure.repositories.client_repository import ClientRepository
 from app.modules.clinics.application.use_cases.create_clinic import CreateClinicUseCase
 from app.modules.clinics.presentation.deps import get_create_clinic_use_case
+from app.shared.notifications.deps import get_notifier
+from app.shared.notifications.notifier import Notifier
 
 
 def get_client_repository(session: AsyncSession = Depends(get_session)) -> ClientRepository:
@@ -80,3 +86,11 @@ def get_archive_client_use_case(
     clients: ClientRepository = Depends(get_client_repository),
 ) -> ArchiveClientUseCase:
     return ArchiveClientUseCase(session, clients)
+
+
+def get_client_team_card_service(
+    session: AsyncSession = Depends(get_session),
+    notifier: Notifier = Depends(get_notifier),
+) -> ClientTeamCardService:
+    """Карточки клиентов в канал команды — для регистрации и других модулей."""
+    return ClientTeamCardService(ClientCardRepository(session), notifier)

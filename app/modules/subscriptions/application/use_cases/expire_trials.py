@@ -9,7 +9,7 @@
 Отсюда и запуск по расписанию, и идемпотентность: повторный прогон никого не
 трогает второй раз (условие ``status = 'trial'`` перестаёт выполняться). На той
 же идемпотентности держится и уведомление — оно уходит только тем, кого перевёл
-именно этот прогон, поэтому второй раз владельцу не напишут.
+именно этот прогон, поэтому второй раз ни владельцу, ни команде не напишут.
 """
 
 from __future__ import annotations
@@ -18,10 +18,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.subscriptions.domain.messages import (
-    team_trials_expired_text,
-    trial_expired_text,
-)
+from app.modules.clients.application.services.team_card_service import ClientTeamCardService
+from app.modules.subscriptions.domain.messages import trial_expired_text
 from app.modules.subscriptions.infrastructure.repositories.subscription_repository import (
     SubscriptionRepository,
 )
@@ -36,10 +34,12 @@ class ExpireTrialsUseCase:
         session: AsyncSession,
         subscriptions: SubscriptionRepository,
         notifier: Notifier | None = None,
+        team_cards: ClientTeamCardService | None = None,
     ) -> None:
         self._session = session
         self._subscriptions = subscriptions
         self._notifier = notifier
+        self._team_cards = team_cards
 
     async def execute(self, now: datetime | None = None) -> int:
         """Перевести все истёкшие триалы; вернуть число переведённых клиник."""
@@ -65,8 +65,8 @@ class ExpireTrialsUseCase:
                     trial_expired_text(subscription.clinic_name, pay_url=pay_url()),
                     event="trial_expired",
                 )
-            await self._notifier.notify_team(
-                team_trials_expired_text([s.clinic_name for s in expired]),
-                event="trial_expired",
-            )
+        # Команде — карточка на каждую клинику: кто это, как связаться и
+        # пользовались ли вообще. Повод позвонить и предложить оплату.
+        if self._team_cards is not None and expired:
+            await self._team_cards.notify_trial_expired([s.clinic_id for s in expired])
         return len(expired)

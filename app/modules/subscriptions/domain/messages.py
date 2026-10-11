@@ -70,17 +70,6 @@ def team_paid_periods_expired_text(clinic_names: list[str]) -> str:
     return "\n".join(lines)
 
 
-def team_trials_expired_text(clinic_names: list[str]) -> str:
-    """Команде: сводка по клиникам, у которых триал кончился только что.
-
-    Одним сообщением, а не по одному на клинику: джоба ходит по всем сразу, и
-    десяток отдельных сообщений в чате читается хуже, чем список.
-    """
-    lines = ["🔒 Триал закончился, клиники перешли в режим чтения:"]
-    lines.extend(f"• {name}" for name in clinic_names)
-    return "\n".join(lines)
-
-
 def period_ending_text(clinic_name: str, days_left: int, *, pay_url: str | None = None) -> str:
     """Владельцу: оплаченный период скоро кончится."""
     return (

@@ -15,6 +15,8 @@ from app.modules.access.application.services.subscription_policy import (
     SubscriptionPolicy,
 )
 from app.modules.access.presentation.deps import get_permission_resolver, get_subscription_policy
+from app.modules.clients.application.services.team_card_service import ClientTeamCardService
+from app.modules.clients.presentation.deps import get_client_team_card_service
 from app.modules.clinics.application.services.provisioning_service import build_provisioning_service
 from app.modules.identity.application.services.client_token_service import ClientTokenService
 from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
@@ -95,10 +97,11 @@ def get_register_solo_use_case(
     accounts: AccountRepository = Depends(get_account_repository),
     memberships: MembershipRepository = Depends(get_membership_repository),
     tokens: ClientTokenService = Depends(get_client_token_service),
+    team_cards: ClientTeamCardService = Depends(get_client_team_card_service),
 ) -> RegisterSoloUseCase:
     # Провижининг делит ту же сессию → создание соло атомарно.
     return RegisterSoloUseCase(
-        otp, build_provisioning_service(session), accounts, memberships, tokens
+        otp, build_provisioning_service(session), accounts, memberships, tokens, team_cards
     )
 
 
