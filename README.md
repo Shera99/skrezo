@@ -135,6 +135,7 @@ make run           # uvicorn с автоперезагрузкой
 | `REFRESH_TOKEN_TTL_SECONDS` | срок жизни refresh-токена | `2592000` |
 | `TELEGRAM_TEAM_BOT_TOKEN` / `TELEGRAM_TEAM_CHAT_ID` | карточки команде в Telegram-канал: заявки, регистрации соло-врачей, конец триала (см. [«Уведомления команды»](#уведомления-команды-в-telegram)); ID канала — `-100…` или `@username` | — (в лог) |
 | `OTP_CHANNELS` | каналы доставки кода по приоритету: `telegram,whatsapp,sms` | — (лог) |
+| `OTP_REVIEW_PHONE` / `OTP_REVIEW_CODE` | **временно**, на время проверки приложения в App Store / Google Play: для одного номера код фиксирован и не отправляется (у ревьюера нет SIM). Только парой, код длины `OTP_LENGTH`; каждый выпуск — `otp_review_code_issued` в логе. После проверки — очистить | — (выключено) |
 | `OTP_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру | `5` |
 | `TELEGRAM_GATEWAY_URL` / `TELEGRAM_GATEWAY_TOKEN` | Telegram Gateway (код своим шаблоном) | `https://gatewayapi.telegram.org` / — |
 | `WHATSAPP_API_URL` / `WHATSAPP_ACCOUNT_ID` | WhatsApp-бот (номер без «+») | — |

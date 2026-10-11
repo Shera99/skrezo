@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import secrets
 
+import structlog
 from redis.asyncio import Redis
 
 from app.core.config import settings
@@ -21,10 +22,17 @@ from app.core.errors import TooManyRequestsError
 from app.modules.identity.application.services.otp_delivery_service import OtpDeliveryService
 from app.modules.identity.domain.models import OtpPurpose
 
+logger = structlog.get_logger(__name__)
+
 _CODE_KEY = "auth:otp:code:{}:{}"
 _ATTEMPTS_KEY = "auth:otp:attempts:{}:{}"
 _TICKET_KEY = "auth:otp:reg:{}"
 _DIGITS = "0123456789"
+
+
+def _is_review_phone(phone: str) -> bool:
+    """Номер ли это для проверки приложения в сторах (оба значения уже в E.164)."""
+    return bool(settings.otp_review_phone) and phone == settings.otp_review_phone
 
 
 class OtpService:
@@ -37,12 +45,27 @@ class OtpService:
 
         Новый запрос перезаписывает прежний код **того же назначения** и обнуляет
         его счётчик попыток — предыдущий код становится недействительным.
+
+        Номер ревью сторов (``OTP_REVIEW_PHONE``) получает заранее известный код
+        ``OTP_REVIEW_CODE`` и **без доставки**: SIM-карты у ревьюера нет, а
+        отправка тратила бы SMS впустую. Дальше код живёт как обычный — с TTL,
+        счётчиком неверных попыток и одноразовостью.
         """
-        code = "".join(secrets.choice(_DIGITS) for _ in range(settings.otp_length))
+        review = _is_review_phone(phone)
+        code = (
+            settings.otp_review_code
+            if review
+            else "".join(secrets.choice(_DIGITS) for _ in range(settings.otp_length))
+        )
         await self._redis.set(
             _CODE_KEY.format(purpose.value, phone), code, ex=settings.otp_ttl_seconds
         )
         await self._redis.delete(_ATTEMPTS_KEY.format(purpose.value, phone))
+        if review:
+            # warning, а не info: режим временный, и каждый вход по нему должен
+            # бросаться в глаза в логах, чтобы его не забыли выключить.
+            logger.warning("otp_review_code_issued", phone=phone, purpose=purpose.value)
+            return code
         await self._delivery.send_code(phone, code, purpose)
         return code
 

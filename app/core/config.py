@@ -11,7 +11,8 @@ from functools import lru_cache
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, ValidationInfo, field_validator
+import phonenumbers
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -80,6 +81,13 @@ class Settings(BaseSettings):
     otp_registration_ttl_seconds: int = 900  # срок жизни registrationToken после verify
     # true — вернуть код в ответе /auth/otp/request (dev/тесты, канал доставки не выбран).
     otp_expose_code: bool = False
+    # ── Номер для проверки приложения в App Store / Google Play ─────────────
+    # Ревьюер стора входит по OTP, но SIM-карты с этим номером у него нет: для
+    # одного номера код фиксирован и никуда не отправляется. ВРЕМЕННО — после
+    # прохождения проверки обе переменные очистить. Пусто — режим выключен.
+    # Задаются только парой; номер приводится к E.164 при старте.
+    otp_review_phone: str = ""
+    otp_review_code: str = ""
 
     # ── Доставка OTP: каналы в порядке приоритета ───────────────────────────
     # «telegram,whatsapp,sms» — сначала бесплатный Telegram Gateway, при неудаче
@@ -342,6 +350,40 @@ class Settings(BaseSettings):
                 "CABINET_URL в проде — https и без www: иначе iOS откроет браузер вместо приложения"
             )
         return value
+
+    @field_validator("otp_review_phone", mode="after")
+    @classmethod
+    def _normalize_review_phone(cls, value: str) -> str:
+        """Номер ревью сторов → E.164: с ним сравнивается нормализованный телефон запроса.
+
+        Нормализуем здесь, а не при каждом запросе: опечатка в номере должна
+        ронять старт, а не каждый запрос кода у всех пользователей.
+        """
+        value = value.strip()
+        if not value:
+            return value
+        try:
+            parsed = phonenumbers.parse(value, "KG")
+        except phonenumbers.NumberParseException as exc:
+            raise ValueError("OTP_REVIEW_PHONE — некорректный номер телефона") from exc
+        if not phonenumbers.is_valid_number(parsed):
+            raise ValueError("OTP_REVIEW_PHONE — некорректный номер телефона")
+        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+
+    @model_validator(mode="after")
+    def _check_otp_review(self) -> Settings:
+        """Номер и код ревью — только парой, код той же длины и из цифр, что обычный.
+
+        Половина пары — почти наверняка недоделанная настройка: номер без кода
+        молча ничего не включил бы, а код без номера не к чему привязать.
+        """
+        code = self.otp_review_code.strip()
+        if bool(self.otp_review_phone) != bool(code):
+            raise ValueError("OTP_REVIEW_PHONE и OTP_REVIEW_CODE задаются только вместе")
+        if code and (not code.isdigit() or len(code) != self.otp_length):
+            raise ValueError(f"OTP_REVIEW_CODE — ровно {self.otp_length} цифр")
+        self.otp_review_code = code
+        return self
 
     @property
     def direct_database_url(self) -> str:
