@@ -142,7 +142,7 @@ make run           # uvicorn с автоперезагрузкой
 | `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
 | `NOTIFY_CHANNELS` | каналы уведомлений (не OTP) по приоритету: `whatsapp,sms` | — (лог) |
 | `NOTIFY_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру уведомлений | `5` |
-| `PUSH_ENABLED` | рубильник живых пушей; `false` — всё в лог даже с кредами | `false` |
+| `PUSH_ENABLED` | рубильник живых пушей; `false` — всё в лог даже с кредами. Проверка доставки — `make push-test phone=…` | `false` |
 | `FCM_SERVICE_ACCOUNT_JSON` | пуши Android: service-account Firebase — JSON строкой **или путь к файлу** | — (лог) |
 | `APNS_KEY` / `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_USE_SANDBOX` | пуши iOS: ключ `.p8` — содержимое **или путь к файлу** + идентификаторы | — (лог) / `true` |
 | `WA_CLOUD_API_URL` | Graph API Meta (переписка WhatsApp, НЕ OTP-канал) | `https://graph.facebook.com/v23.0` |
@@ -1595,6 +1595,14 @@ TanStack Query и перечитывает REST, поэтому потерянн
 > скоуп-guard'ы расписания/кассы/отчётов), включая владельца.
 
 Создать админа Skrezo: `make create-admin phone=0700000001 password=secret`.
+
+Проверить пуши: `make push-test phone=0700123456` — тестовый пуш на **все**
+устройства номера напрямую через FCM/APNs (в обход событий и тихих часов) с
+отчётом по каждому: ✅ принят провайдером, 💀 токен недействителен (для iOS —
+чаще всего `APNS_USE_SANDBOX` не совпадает со сборкой: TestFlight и App Store →
+`false`), ❌ ошибка провайдера, ⚠️ живой канал не настроен (пуш ушёл в лог).
+Базу не меняет. На сервере без make:
+`sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/python -m app.scripts.push_test --phone 0700123456'`.
 Тестовая клиника (dev): `uv run python -m app.scripts.create_test_clinic --phone 0700123456`.
 
 ## Уведомления команды в Telegram
