@@ -88,6 +88,7 @@ def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
         list(case.get("facts") or []),
         _CASE_DOCTORS,
         list(case.get("foreignClinics") or []),
+        own_clinic=case.get("clinicName"),
     )
     verdict = validate(reply, case.get("conversationLang"), facts)
     actual = verdict.action.value

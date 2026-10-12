@@ -125,7 +125,8 @@ async def test_climbing_requires_gates_and_descending_is_free(
     assert up.status_code == 200 and up.json()["level"] == "auto" and up.json()["next"] is None
 
     # Фактическая ошибка (время не из фактов) — неделя не чистая: вниз можно, обратно вверх — нет.
-    fake.script = [AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))]
+    invented = AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))
+    fake.script = [invented, invented]  # повтор с подсказкой тоже выдумал — блок
     body = await _simulate(admin_client, ctx, "Во сколько открывается парковка?", "+996700600502")
     assert body["outcome"] == "escalated"
     down = await _set(client, ctx, level="shadow")

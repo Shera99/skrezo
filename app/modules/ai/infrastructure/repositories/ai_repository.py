@@ -11,12 +11,20 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ai.domain.knowledge import KB_PROMPT_MAX_CHARS, fits_in_prompt
-from app.shared.db.enums import AiMessageRole, GlossaryStatus
+from app.shared.db.enums import AiConversationStatus, AiMessageRole, AiMode, GlossaryStatus
+from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.ai_tool_call import AiToolCall
+from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.glossary_term import GlossaryTerm
 from app.shared.db.models.kb_document import KbDocument
+
+#: Причины эскалации, после которых диалог НЕ возвращается боту сам:
+#: сотрудник сказал «отвечаю сам», у пациента неотложное или сильная боль без
+#: свободного времени — нужен человек; поток сообщений (§14) — бот уже
+#: извинился один раз, и возврат означал бы новое извинение каждые 15 минут.
+STICKY_ESCALATIONS = ("manual_takeover", "urgent_medical", "acute_pain", "rate_limited")
 
 
 class AiRepository:
@@ -244,9 +252,12 @@ class AiRepository:
     # ── Эскалации: разрешение (Ф5) ──────────────────────────────────────────
 
     async def resolve_escalations(
-        self, conversation_id: uuid.UUID, *, actor_id: uuid.UUID, now: datetime
+        self, conversation_id: uuid.UUID, *, actor_id: uuid.UUID | None, now: datetime
     ) -> int:
-        """Закрыть все открытые эскалации диалога; вернуть число закрытых."""
+        """Закрыть все открытые эскалации диалога; вернуть число закрытых.
+
+        ``actor_id=None`` — закрыла система (автовозврат боту по таймауту).
+        """
         result = await self._session.execute(
             update(AiEscalation)
             .where(
@@ -256,3 +267,86 @@ class AiRepository:
             .values(resolved_by=actor_id, resolved_at=now)
         )
         return int(getattr(result, "rowcount", 0) or 0)
+
+    async def latest_open_escalation_reason(self, conversation_id: uuid.UUID) -> str | None:
+        """Причина последней открытой эскалации диалога; ``None`` — открытых нет.
+
+        Именно последней: диалог на номер постоянный, и незакрытая эскалация
+        прошлого эпизода не говорит ничего о том, у кого диалог сейчас.
+        """
+        reason: str | None = (
+            await self._session.execute(
+                select(AiEscalation.reason)
+                .where(
+                    AiEscalation.conversation_id == conversation_id,
+                    AiEscalation.resolved_at.is_(None),
+                )
+                .order_by(AiEscalation.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return reason
+
+    async def escalations_to_return(
+        self,
+        *,
+        cutoff: datetime,
+        waiting_since: datetime,
+        conversation_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Диалоги у администратора, которые пора вернуть боту (решение 12.10.2026).
+
+        Решает **последняя** открытая эскалация диалога: незакрытые эскалации
+        прошлых эпизодов (диалог на номер один и постоянный) не должны навсегда
+        выключать возврат. Условия — все сразу:
+
+        * диалог ``escalated``, ассистент клиники не выключен;
+        * последняя открытая эскалация старше ``cutoff`` и не «липкая»
+          (:data:`STICKY_ESCALATIONS`);
+        * пациент **написал после неё**, и не раньше ``waiting_since`` (окно 24 ч).
+          Без нового сообщения возвращать нечего: бот снова взялся бы за то, что
+          уже передал человеку (фото, ошибка отправки), и эскалировал бы его по
+          кругу каждые 15 минут с critical-пушем;
+        * сотрудник после неё ничего не написал — разговор ведёт человек.
+
+        ``conversation_id`` — перепроверка одного диалога уже под блокировкой.
+        """
+        latest = (
+            select(
+                AiEscalation.conversation_id.label("conversation_id"),
+                AiEscalation.reason.label("reason"),
+                AiEscalation.created_at.label("created_at"),
+            )
+            .where(AiEscalation.resolved_at.is_(None))
+            .distinct(AiEscalation.conversation_id)
+            .order_by(AiEscalation.conversation_id, AiEscalation.created_at.desc())
+            .subquery()
+        )
+        staff_replied = (
+            select(AiMessage.id)
+            .where(
+                AiMessage.conversation_id == AiConversation.id,
+                AiMessage.role == AiMessageRole.ADMIN,
+                AiMessage.created_at >= latest.c.created_at,
+            )
+            .exists()
+        )
+        stmt = (
+            select(AiConversation.id)
+            .join(latest, latest.c.conversation_id == AiConversation.id)
+            .join(Clinic, Clinic.id == AiConversation.clinic_id)
+            .where(
+                AiConversation.status == AiConversationStatus.ESCALATED,
+                Clinic.ai_mode != AiMode.OFF,
+                latest.c.created_at <= cutoff,
+                latest.c.reason.not_in(STICKY_ESCALATIONS),
+                AiConversation.last_patient_msg_at > latest.c.created_at,
+                AiConversation.last_patient_msg_at >= waiting_since,
+                ~staff_replied,
+            )
+            # Один порядок блокировок у всех прогонов — без взаимных блокировок.
+            .order_by(AiConversation.id)
+        )
+        if conversation_id is not None:
+            stmt = stmt.where(AiConversation.id == conversation_id)
+        return list((await self._session.execute(stmt)).scalars())

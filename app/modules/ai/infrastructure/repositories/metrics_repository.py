@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Date, and_, cast, func, select
+from sqlalchemy import Date, and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
@@ -31,6 +31,20 @@ def _between(column: Any, start: datetime | None, end: datetime) -> ColumnElemen
     return and_(*conditions)
 
 
+def _fact_error(validator: Any) -> ColumnElement[bool]:
+    """Фактическая ошибка (V01–V03) — в итоговых кодах или в кодах первой попытки.
+
+    Ответ, прошедший со второй попытки, хранит выдумку первой в ``retriedCodes``:
+    пациент её не увидел, но модель её совершила, и гейт лестницы доверия
+    («ноль фактических ошибок за неделю») обязан её учитывать.
+    """
+    facts = array(list(FACT_ERROR_CODES))
+    return or_(
+        validator["codes"].has_any(facts),
+        func.coalesce(validator["retriedCodes"].has_any(facts), False),
+    )
+
+
 class MetricsRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -43,7 +57,7 @@ class MetricsRepository:
         """Счётчики ответов бота за период одним запросом (count … FILTER)."""
         passed = AiMessage.validator["passed"].as_boolean()
         codes = AiMessage.validator["codes"]
-        fact_error = codes.has_any(array(list(FACT_ERROR_CODES)))
+        fact_error = _fact_error(AiMessage.validator)
         blocked = and_(passed.is_(False), codes.has_any(array(list(BLOCK_CODES))))
         needs_human = and_(passed.is_(False), codes.has_any(array([NEEDS_HUMAN_CODE])))
         row = (
@@ -112,7 +126,7 @@ class MetricsRepository:
                         AiMessage.clinic_id == clinic_id,
                         AiMessage.role == AiMessageRole.BOT,
                         AiMessage.created_at >= since,
-                        AiMessage.validator["codes"].has_any(array(list(FACT_ERROR_CODES))),
+                        _fact_error(AiMessage.validator),
                     )
                 )
             ).scalar_one()

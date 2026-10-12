@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import structlog
 from sqlalchemy import func, select
@@ -30,11 +31,17 @@ from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.summary import recent_summaries
 from app.modules.ai.application.tools import ToolContext, ToolExecutor, tool_decls_for
 from app.modules.ai.domain.facts import TurnFacts
+from app.modules.ai.domain.language import detect_lang
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
-from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
+from app.modules.ai.domain.prompt import (
+    ClinicCard,
+    build_system_prompt,
+    clock_line,
+    without_clock,
+)
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
 from app.modules.ai.domain.skills import effective_skills
-from app.modules.ai.domain.texts import medical_text, service_text
+from app.modules.ai.domain.texts import medical_text, service_text, slots_phrase
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
@@ -70,6 +77,74 @@ _ESCALATION_TEXTS: dict[str, str] = {
 
 #: Язык спеки (ru|ky) → наш Lang для conversation/patient.
 _SPEC_TO_LANG = {"ru": Lang.RU, "ky": Lang.KG}
+
+#: Блок валидатора, который модель может исправить сама: в контексте хода уже
+#: есть верные цены, время и врачи — она просто взяла не то или не сослалась.
+#: Один повтор с подсказкой вместо мгновенного «уточню у администратора».
+_FIXABLE_CODES = frozenset({"V01", "V02", "V03", "V05"})
+_FIX_HINTS: dict[str, str] = {
+    "V01": (
+        "В ответе цена, которой нет в результатах инструментов ({notes}). Называй цены "
+        "только из get_services этого хода или не называй их."
+    ),
+    "V02": (
+        "В ответе время или дата не из слотов ({notes}). Называй только время из поля "
+        "time результатов get_available_slots этого хода; подходящего нет — так и скажи."
+    ),
+    "V03": (
+        "В ответе врач, которого нет в справочнике клиники ({notes}). Называй только "
+        "врачей из get_doctors или не называй врача."
+    ),
+    "V05": (
+        "В ответе есть цена или время, но used_facts пуст. Перечисли в used_facts "
+        "идентификаторы фактов, на которых основан ответ, или убери числа из ответа."
+    ),
+}
+
+
+def _lang_code(lang: Lang) -> str:
+    """Наш Lang → язык спеки модели (ru|ky)."""
+    return "ky" if lang is Lang.KG else "ru"
+
+
+def _clinic_zone(clinic: Clinic) -> ZoneInfo:
+    """Часовой пояс клиники: «сейчас» и «сегодня» пациенту — по её часам."""
+    try:
+        return ZoneInfo(clinic.timezone or "Asia/Bishkek")
+    except KeyError, ValueError:
+        return ZoneInfo("Asia/Bishkek")
+
+
+def with_clock(
+    parts: list[AiMessagePart], clinic: Clinic, now: datetime | None = None
+) -> list[AiMessagePart]:
+    """Строка «СЕЙЧАС» в начало последней реплики пациента.
+
+    Не в системный промпт: тот кэшируется у провайдера на клинику, и минутная
+    точность сбрасывала бы кэш на каждом ходе. Последняя реплика — потому что
+    именно её модель читает как «текущий момент».
+    """
+    moment = (now or datetime.now(UTC)).astimezone(_clinic_zone(clinic))
+    stamped = list(parts)
+    last = stamped[-1]
+    stamped[-1] = AiMessagePart(
+        role=last.role, text=f"{clock_line(moment)}\n\n{last.text or ''}".rstrip()
+    )
+    return stamped
+
+
+def _fixable(verdict: Verdict) -> bool:
+    return (
+        verdict.action is VerdictAction.BLOCK
+        and bool(verdict.codes)
+        and set(verdict.codes) <= _FIXABLE_CODES
+    )
+
+
+def _fix_instruction(verdict: Verdict) -> str:
+    """Подсказка модели для повтора: что именно не сошлось с фактами хода."""
+    hints = [_FIX_HINTS[code].format(notes=verdict.notes or "—") for code in verdict.codes]
+    return " ".join([*hints, "Верни строго один JSON."])
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +192,12 @@ class ProcessAiReplyService:
         if await self._repository.answered_after(conversation.id, last.id):
             return ReplyOutcome(status="skipped", note="already_answered")
 
+        # §10.2: язык ответа — язык последнего сообщения пациента. Переключаем
+        # диалог сразу, до фильтров: шаблоны медфильтра и «уточню у
+        # администратора» тоже должны уйти на языке, которым он сейчас пишет.
+        detected = detect_lang(last.transcript or last.body)
+        await self._follow_lang(conversation, detected)
+
         # §11: сообщение, которое мы не прочитали (голосовое без надёжной
         # расшифровки, снимок, документ), — к человеку. Отвечать на него
         # «чем помочь?» хуже, чем честно передать администратору.
@@ -135,6 +216,8 @@ class ProcessAiReplyService:
             )
         if medical.kind is MedicalKind.URGENT:
             return await self._urgent(conversation, clinic, medical)
+        if medical.kind is MedicalKind.ACUTE_PAIN:
+            return await self._acute_pain(conversation, clinic, medical)
         if medical.kind is MedicalKind.COMPLAINT:
             return await self._complaint(conversation, clinic, medical)
 
@@ -148,7 +231,9 @@ class ProcessAiReplyService:
             return ReplyOutcome(status="skipped")
 
         try:
-            return await self._converse(conversation, clinic, self._provider)
+            return await self._converse(
+                conversation, clinic, self._provider, detected_lang=detected
+            )
         except AiProviderUnavailableError as exc:
             # Временно недоступная модель (Ф8): ход откладывает и повторяет
             # координатор задания — эскалация здесь стала бы лавиной.
@@ -157,21 +242,30 @@ class ProcessAiReplyService:
             return ReplyOutcome(status="deferred", note=str(exc))
 
     async def _converse(
-        self, conversation: AiConversation, clinic: Clinic, provider: AiProvider
+        self,
+        conversation: AiConversation,
+        clinic: Clinic,
+        provider: AiProvider,
+        *,
+        detected_lang: str | None = None,
     ) -> ReplyOutcome:
         """Ход модели с инструментами → разбор → валидатор → доставка.
 
         :class:`AiProviderUnavailableError` отсюда пробрасывается: решение «отложить
         и повторить» принимает координатор задания, а не этот слой.
         """
-        # Язык фиксируется первым ПРОШЕДШИМ ответом бота (§10.2): до него
-        # модель распознаёт язык сама, и V07 не применяется.
+        # §10.2: язык хода — язык последнего сообщения пациента (детектор уже
+        # переключил на него диалог). Не распознан — язык диалога; а до первого
+        # прошедшего ответа бота язык выбирает модель сама, и V07 не применяется.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
-        lang: str | None = None if first_reply else ("ky" if conversation.lang is Lang.KG else "ru")
+        lang: str | None = (
+            None if first_reply and detected_lang is None else _lang_code(conversation.lang)
+        )
         skills = effective_skills(clinic.ai_mode, clinic.ai_skills)
         system = await self.system_prompt(clinic, lang)
         cache_scope = f"clinic:{clinic.id}"
-        parts = await self._history_parts(conversation)
+        # Дата и время — в каждом ходе: без них модель брала год из памяти.
+        parts = with_clock(await self._history_parts(conversation), clinic)
         executor = ToolExecutor(self._session, self._repository)
         binding = await self._whatsapp.binding_by_clinic(clinic.id)
         tool_context = ToolContext(
@@ -378,7 +472,15 @@ class ProcessAiReplyService:
         lang: str | None,
         facts: TurnFacts,
     ) -> tuple[BotReply | None, Verdict | None]:
-        """Разобрать ответ; V07/V08 и битый JSON — одна перегенерация (§7, §14)."""
+        """Разобрать ответ; один повтор на исправимое (§7, §14), затем как есть.
+
+        Повтор получают: битый JSON, язык и длина (V07/V08) и блок по фактам
+        (V01–V03, V05) — модель видит верные цены и слоты в контексте хода и
+        обычно просто взяла не то или не сослалась на факт. Раньше такой блок
+        сразу уводил пациента к администратору фразой «уточню и вернусь».
+        Запреты (V04) и чужая клиника (V09) не повторяются — это не опечатка.
+        """
+        retried: list[str] = []
         for attempt in range(2):
             try:
                 reply = parse_reply(raw_text)
@@ -394,15 +496,36 @@ class ProcessAiReplyService:
                 )
                 continue
             verdict = validate(reply, lang, facts)
-            if verdict.action is not VerdictAction.REGENERATE or attempt == 1:
+            retryable = verdict.action is VerdictAction.REGENERATE or _fixable(verdict)
+            if not retryable or attempt == 1:
                 if verdict.action is VerdictAction.REGENERATE:
                     # Повтор не помог — по §7 дальше эскалация.
-                    return reply, Verdict(VerdictAction.ESCALATE, verdict.codes, verdict.notes)
+                    verdict = Verdict(VerdictAction.ESCALATE, verdict.codes, verdict.notes)
+                if retried and verdict.action is VerdictAction.PASS:
+                    # Метка в журнале: ответ прошёл со второй попытки.
+                    verdict = Verdict(
+                        VerdictAction.PASS, notes=f"после повтора: {', '.join(retried)}"
+                    )
+                if retried:
+                    # Коды первой попытки — при ЛЮБОМ исходе повтора: выдумку,
+                    # после которой модель сказала «не знаю», лестница доверия
+                    # тоже обязана посчитать фактической ошибкой.
+                    verdict = replace(verdict, retried_codes=retried)
                 return reply, verdict
-            instruction = (
-                f"Ответь на языке диалога ({lang or 'ru'}) и не длиннее 1000 символов. "
-                "Верни строго один JSON."
+            retried = list(verdict.codes)
+            logger.info(
+                "ai_reply_regenerate",
+                conversation_id=str(conversation.id),
+                codes=verdict.codes,
+                notes=verdict.notes,
             )
+            if verdict.action is VerdictAction.REGENERATE:
+                instruction = (
+                    f"Ответь на языке {lang or 'ru'} и не длиннее 1000 символов. "
+                    "Верни строго один JSON."
+                )
+            else:
+                instruction = _fix_instruction(verdict)
             raw_text = await self._retry(
                 conversation.clinic_id, system, parts, raw_text, instruction
             )
@@ -638,7 +761,8 @@ class ProcessAiReplyService:
         sources: list[str] = [system]
         for part in parts:
             if part.text:
-                sources.append(part.text)
+                # Строка «СЕЙЧАС» — подсказка модели, а не факт для ответа.
+                sources.append(without_clock(part.text))
             if part.tool_result is not None:
                 sources.append(json.dumps(part.tool_result, ensure_ascii=False))
         # V09: названия остальных клиник платформы — их упоминание в ответе
@@ -663,6 +787,7 @@ class ProcessAiReplyService:
             sources,
             [name for name in doctors if name],
             [name for name in foreign if name],
+            own_clinic=clinic.name,
         )
 
     # ── Лимит потока (§14) ──────────────────────────────────────────────────
@@ -801,8 +926,8 @@ class ProcessAiReplyService:
         self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
     ) -> ReplyOutcome:
         """§9.1: состояние не обсуждаем — зовём к врачу и сразу даём слоты."""
-        lang = "ky" if conversation.lang is Lang.KG else "ru"
-        slots = await self._nearest_slots(conversation.clinic_id)
+        lang = _lang_code(conversation.lang)
+        slots = await self._nearest_slots(clinic, lang)
         body = (
             medical_text("complaint", lang).format(slots=slots)
             if slots
@@ -817,20 +942,83 @@ class ProcessAiReplyService:
         )
         return ReplyOutcome(status="sent" if auto else "shadow", reply=body)
 
-    async def _nearest_slots(self, clinic_id: uuid.UUID) -> str:
-        """Строка «03.09 в 10:00, 04.09 в 09:30» — ближайшие свободные дни."""
-        days = await BookingService(self._session).free_days(
-            clinic_id,
-            date_from=datetime.now(UTC),
-            days=3,
-            doctor_membership_id=None,
-            service_id=None,
+    async def _nearest_slots(self, clinic: Clinic, lang: str) -> str:
+        """«сегодня в 15:00, 15:30, 16:00» — ближайшее свободное время по всем врачам.
+
+        Пусто — свободного времени в ближайшие дни нет. Раньше здесь искались
+        дни без врача и услуги, правило подбора слотов отвечало отказом, и шаблон
+        жалобы ни разу не показал пациенту время.
+        """
+        starts = await BookingService(self._session).earliest_slots(clinic.id)
+        today = datetime.now(_clinic_zone(clinic)).date()
+        return slots_phrase(starts, lang, today=today)
+
+    async def _acute_pain(
+        self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
+    ) -> ReplyOutcome:
+        """Сильная боль без признаков неотложного: ближайшее время + администратор.
+
+        Решение владельца 12.10.2026: для стоматологии это самая частая причина
+        записи, поэтому бот не замолкает и не уводит пациента к человеку.
+        Пациенту — шаблон с ближайшим временем (сегодня, если оно есть), а
+        администратору — уведомление ``ai.urgent_booking``: он может позвонить
+        сам. Диалог остаётся у бота — «давайте на 15:00» он ведёт к записи.
+        Не ушло или нет свободного времени — передача человеку (см. ниже).
+        """
+        lang = _lang_code(conversation.lang)
+        slots = await self._nearest_slots(clinic, lang)
+        body = (
+            medical_text("acute_pain", lang).format(slots=slots)
+            if slots
+            else medical_text("acute_pain_no_slots", lang)
         )
-        parts = []
-        for day in days[:2]:
-            iso = str(day["date"])
-            parts.append(f"{iso[8:10]}.{iso[5:7]} в {day['firstSlot']}")
-        return ", ".join(parts)
+        sent = await self._send_filter_reply(conversation, clinic, body)
+        logger.info(
+            "ai_medical_acute_pain",
+            conversation_id=str(conversation.id),
+            trigger=medical.label,
+            has_slots=bool(slots),
+            sent=sent,
+        )
+        if sent and slots:
+            await emit_event(
+                self._session,
+                clinic_id=conversation.clinic_id,
+                type_="ai.urgent_booking",
+                entity_type="conversation",
+                entity_id=conversation.id,
+                payload={"trigger": medical.label, "slots": slots},
+            )
+            await self._session.commit()
+            return ReplyOutcome(status="sent", reply=body)
+        # Время пациенту не ушло (теневой режим, сбой отправки) или свободного
+        # нет — «бот предложил время» было бы неправдой, а ждать обычного пуша
+        # пациенту с сильной болью нельзя: передача человеку с critical-событием.
+        # Причина «липкая» — автовозврат боту такой диалог не заберёт.
+        return await self._escalate(
+            conversation,
+            clinic,
+            "acute_pain",
+            {"trigger": medical.label, "slots": slots or None},
+            notify_patient=False,
+        )
+
+    async def _follow_lang(self, conversation: AiConversation, detected: str | None) -> None:
+        """Переключить язык диалога на язык последнего сообщения пациента (§10.2).
+
+        ``None`` (имя, число, «ок») язык не меняет: одна реплика без признаков
+        не должна переводить разговор. Профиль пациента заполняется, только
+        если язык в нём ещё не задан: пациент глобальный, и одно сообщение в
+        одной клинике не должно менять язык напоминаний во всех остальных.
+        """
+        lang = _SPEC_TO_LANG.get(detected or "")
+        if lang is None or conversation.lang is lang:
+            return
+        conversation.lang = lang
+        if conversation.patient_id is not None:
+            patient = await self._session.get(Patient, conversation.patient_id)
+            if patient is not None and patient.preferred_lang is None:
+                patient.preferred_lang = lang
 
     async def _save_bot_message(
         self,
@@ -852,6 +1040,7 @@ class ProcessAiReplyService:
                 "passed": verdict.action is VerdictAction.PASS,
                 "codes": verdict.codes,
                 "notes": verdict.notes,
+                **({"retriedCodes": verdict.retried_codes} if verdict.retried_codes else {}),
             },
             # Ф5: уверенность — метка кабинета «уверенный ответ» / «проверьте текст».
             confidence=reply.confidence,

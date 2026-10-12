@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError, ValidationAppError
 from app.modules.ai.domain.knowledge import MIN_NORMALIZED_LEN, normalize_question
 from app.modules.ai.domain.learning import CASE_KINDS, extract_keywords
+from app.modules.ai.domain.medical import MedicalKind
 from app.modules.ai.infrastructure.repositories.regression_repository import RegressionRepository
 from app.shared.db.enums import Lang
 from app.shared.db.models.ai_conversation import AiConversation
@@ -23,6 +24,8 @@ from app.shared.db.models.ai_regression_case import AiRegressionCase
 from app.shared.db.updates import apply_updates
 
 _UPDATABLE = frozenset({"is_active", "note"})
+#: Ожидания медицинского кейса — ровно виды медфильтра, без своего словаря.
+_MEDICAL_KINDS = frozenset(kind.value for kind in MedicalKind)
 
 
 def conversation_lang(conversation: AiConversation) -> str:
@@ -138,9 +141,9 @@ class RegressionCaseService:
             )
         expect: dict[str, Any]
         if kind == "medical":
-            if medical not in {"urgent", "complaint", "none"}:
+            if medical not in _MEDICAL_KINDS:
                 raise ValidationAppError(
-                    "Для medical нужно ожидание: urgent, complaint или none",
+                    f"Для medical нужно ожидание: {', '.join(sorted(_MEDICAL_KINDS))}",
                     code="case_expect_invalid",
                 )
             expect = {"medical": medical}

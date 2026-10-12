@@ -114,9 +114,12 @@ async def test_patient_reschedules_own_appointment_by_button(
 
     listed = _tool_result(fake.calls[1]["parts"], "get_patient_appointments")
     assert listed[0]["appointmentId"] == appointment_id and listed[0]["canChange"] is True
+    # Время записи — по часам клиники: UTC («04:00») пациент принял бы за время приёма.
+    assert listed[0]["startsAt"] == _workday(10) and listed[0]["time"] == "10:00"
     proposed = _tool_result(fake.calls[2]["parts"], "propose_reschedule")
     assert proposed["kind"] == "reschedule" and proposed["buttonSent"] is True
-    assert proposed["fromStartsAt"] and proposed["startsAt"].startswith(new_slot[:13])
+    assert proposed["fromStartsAt"] == _workday(10)  # прежнее время — тоже местное
+    assert proposed["startsAt"].startswith(new_slot[:13])
     async with _resources.factory() as session:
         hold = (await session.execute(select(SlotHold))).scalar_one()
         assert hold.kind == "reschedule" and str(hold.target_appointment_id) == appointment_id

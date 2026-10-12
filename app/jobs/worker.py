@@ -43,7 +43,12 @@ from app.core.jobs import (
     SUMMARIZE_CONVERSATION,
 )
 from app.jobs.dispatcher_loop import run_dispatcher_loop
-from app.jobs.tasks.ai import ai_reply, run_ai_regression, summarize_conversation
+from app.jobs.tasks.ai import (
+    ai_reply,
+    return_escalations_to_bot,
+    run_ai_regression,
+    summarize_conversation,
+)
 from app.jobs.tasks.ai_cleanup import cleanup_ai_history
 from app.jobs.tasks.ai_health import check_ai_health, check_whatsapp_tokens
 from app.jobs.tasks.billing import autopay_subscriptions
@@ -145,6 +150,10 @@ class WorkerSettings:
         # Диалог WhatsApp без сообщений сутки — закрыт. Полчаса — компромисс:
         # правило «24 часа» не требует точности до минуты.
         cron(close_stale_conversations, minute={11, 41}),
+        # §8.4: диалог у администратора без его ответа 15 минут — снова боту.
+        # Каждую минуту: запрос лёгкий, а точность до минуты — это обещанные
+        # пациенту 15 минут, а не 15–45.
+        cron(return_escalations_to_bot, minute=set(range(60))),
         # §13.5: тихие отказы контура ассистента ловятся только расписанием.
         cron(check_ai_health, minute=set(range(0, 60, 5))),
         # Ф8: обход номеров WhatsApp — раз в час, а не каждые 5 минут.

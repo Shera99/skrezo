@@ -104,7 +104,9 @@ async def test_blocked_invention_becomes_refusal_case_that_validator_keeps_block
     admin_client: AsyncClient, client: AsyncClient, ctx: Ctx, fake: _FakeProvider
 ) -> None:
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))]
+    # Выдумка дважды: повтор с подсказкой не помог — блок и эскалация.
+    invented = AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))
+    fake.script = [invented, invented]
     body = await _simulate(admin_client, ctx, "Во сколько открывается парковка?", "+996700400510")
     assert body["outcome"] == "escalated"
 
@@ -178,7 +180,8 @@ async def test_sent_draft_becomes_reply_case_and_model_run_scores_it(
     run = await _run(client, ctx, mode="model")
     assert run["status"] == "done" and run["passed"] == 1, run
     assert "ключевые слова" in run["results"][0]["note"]
-    assert fake.calls[-1]["parts"][0].text == PARKING  # вопрос кейса, а не история диалога
+    # Вопрос кейса (после строки «СЕЙЧАС»), а не история диалога.
+    assert fake.calls[-1]["parts"][0].text.endswith(f"\n\n{PARKING}")
 
     # Ответил не о том — кейс красный, с текстом ответа в actual.
     fake.script = [AiResult(text=_reply_json("Мы работаем ежедневно, приходите."))]
@@ -190,7 +193,8 @@ async def test_model_run_fails_knowledge_case_when_bot_declines_and_passes_refus
     admin_client: AsyncClient, client: AsyncClient, ctx: Ctx, fake: _FakeProvider
 ) -> None:
     await _learn_parking(admin_client, client, ctx, fake, "+996700400540")
-    fake.script = [AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))]
+    invented = AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))
+    fake.script = [invented, invented]  # и повтор выдумал — блок
     await _simulate(admin_client, ctx, "Во сколько открывается парковка?", "+996700400541")
     assert (await _cases(client, ctx))["counts"]["active"] == 2
 

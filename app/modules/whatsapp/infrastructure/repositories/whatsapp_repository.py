@@ -22,6 +22,7 @@ from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import DEFAULT_TIMEZONE, Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+from app.shared.db.models.event import Event
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.whatsapp_contact import WhatsAppContact
 from app.shared.db.models.whatsapp_history_message import WhatsAppHistoryMessage
@@ -443,6 +444,31 @@ class WhatsAppRepository:
                 .limit(1)
             )
         ).scalar_one_or_none()
+
+    async def event_since(
+        self,
+        clinic_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        type_: str,
+        since: datetime,
+    ) -> bool:
+        """Было ли событие ``type_`` по диалогу после ``since`` — дедуп напоминаний.
+
+        Фильтр по клинике и времени идёт по индексу ``ix_event_clinic_occurred``.
+        """
+        found = (
+            await self._session.execute(
+                select(Event.id)
+                .where(
+                    Event.clinic_id == clinic_id,
+                    Event.occurred_at >= since,
+                    Event.type == type_,
+                    Event.entity_id == conversation_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return found is not None
 
     async def close_stale(self, cutoff: datetime) -> list[uuid.UUID]:
         """Закрыть диалоги без сообщений с ``cutoff``; вернуть их идентификаторы.

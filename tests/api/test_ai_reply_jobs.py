@@ -183,7 +183,11 @@ async def test_burst_of_messages_gets_one_reply_and_repeat_job_none(
     assert first.status == "sent"
     assert len(fake.calls) == 1
     user_parts = [p for p in fake.calls[0]["parts"] if p.role == "user"]
-    assert [p.text for p in user_parts] == ["Здравствуйте", "Сколько стоит чистка?"]
+    assert user_parts[0].text == "Здравствуйте"
+    # Последняя реплика начинается строкой «СЕЙЧАС» (дата и время клиники).
+    assert user_parts[-1].text.startswith("СЕЙЧАС: ")
+    assert user_parts[-1].text.endswith("\n\nСколько стоит чистка?")
+    assert len(user_parts) == 2
 
     second = await coordinator.run(conv_id)  # задание от второго сообщения
     assert second.status == "skipped"

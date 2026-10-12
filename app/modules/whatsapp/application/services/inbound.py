@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -40,7 +40,7 @@ from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
-from app.shared.db.enums import AiMessageRole
+from app.shared.db.enums import AiConversationStatus, AiMessageRole
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.domain.value_objects import normalize_phone
 from app.shared.realtime import publish_realtime
@@ -51,6 +51,8 @@ logger = structlog.get_logger(__name__)
 
 #: Типы сообщений Meta, несущие медиа-вложение.
 _MEDIA_TYPES = ("image", "audio", "video", "document", "sticker")
+#: Напоминание администратору о диалоге, где пациент ждёт, — не чаще этого.
+_WAITING_REMIND_EVERY = timedelta(minutes=5)
 
 
 #: Ответ в диалог на кнопку напоминания в пробном прогоне (в WhatsApp не уходит).
@@ -336,7 +338,32 @@ class InboundProcessor:
             entity_type="conversation",
             entity_id=conversation.id,
         )
+        if role is AiMessageRole.PATIENT:
+            await self._remind_waiting(conversation)
         return InboundRef(conversation_id=conversation.id, message_id=message_id)
+
+    async def _remind_waiting(self, conversation: AiConversation) -> None:
+        """Пациент снова пишет в диалог у администратора — напомнить ему пушем.
+
+        Бот в таком диалоге молчит (§8.4), а «новое сообщение» уходит только в
+        ленту, без пуша: первое ``ai.escalated`` могли пропустить, и человек
+        ждал бы ответа впустую. Не чаще раза в ``_WAITING_REMIND_EVERY`` на
+        диалог — пять сообщений подряд не должны дать пять пушей.
+        """
+        if conversation.status is not AiConversationStatus.ESCALATED:
+            return
+        since = datetime.now(UTC) - _WAITING_REMIND_EVERY
+        if await self._repository.event_since(
+            conversation.clinic_id, conversation.id, "conversation.waiting", since
+        ):
+            return
+        await emit_event(
+            self._session,
+            clinic_id=conversation.clinic_id,
+            type_="conversation.waiting",
+            entity_type="conversation",
+            entity_id=conversation.id,
+        )
 
     async def _save_echo(self, clinic_id: Any, msg: dict[str, Any]) -> None:
         """Эхо исходящего человека: диалог ищется по ПОЛУЧАТЕЛЮ (``to``)."""

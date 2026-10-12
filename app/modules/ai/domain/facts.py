@@ -22,8 +22,12 @@ from dataclasses import dataclass
 #: в несуществующее число 0410 и ломало разбор даты со временем.
 _INNER_SPACE = re.compile("(?<=\\d)[\\s\u00a0\u202f](?=\\d{3}\\b)")
 _DIGITS = re.compile(r"\d+")
-_TIME = re.compile(r"\b([0-2]?\d):([0-5]\d)\b")
-_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+#: Границы — «не цифра», а не ``\b``: в слоте инструмента время стоит сразу за
+#: буквой (``2026-10-14T09:30:00+06:00``), и ``\b`` перед ``09`` не находился.
+#: Тогда из слота «виделось» только смещение пояса ``06:00``, а верное время
+#: 09:30 валидатор считал выдуманным и блокировал ответ (V02).
+_TIME = re.compile(r"(?<!\d)([0-2]?\d):([0-5]\d)(?!\d)")
+_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 _DOT_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?\b")
 
 #: Имя врача узнаём по обращению: «врач Асанова», «к доктору Иванову».
@@ -80,6 +84,9 @@ class TurnFacts:
     #: Названия ЧУЖИХ клиник платформы (V09): упоминание любого из них в
     #: ответе — утечка или галлюцинация, и то и другое наружу не уходит.
     foreign_clinics: frozenset[str] = frozenset()
+    #: Название СВОЕЙ клиники: цифры в нём («123456», «Дентал 365») — не цена
+    #: и не время, и V05 не должен блокировать из-за них простое приветствие.
+    own_clinic: str | None = None
 
     @classmethod
     def build(
@@ -87,11 +94,14 @@ class TurnFacts:
         sources: Iterable[str],
         doctors: Iterable[str],
         foreign_clinics: Iterable[str] = (),
+        own_clinic: str | None = None,
     ) -> TurnFacts:
         numbers: set[str] = set()
         times: set[str] = set()
         dates: set[str] = set()
-        for source in sources:
+        # Название своей клиники — тоже факт: цифры в нём («123456», «365») модель
+        # вправе произнести, и V01 не должен принимать их за выдуманную цену.
+        for source in [*sources, own_clinic or ""]:
             if not source:
                 continue
             numbers |= _numbers(source)
@@ -106,7 +116,14 @@ class TurnFacts:
             foreign_clinics=frozenset(
                 name.strip().lower() for name in foreign_clinics if name and len(name.strip()) >= 5
             ),
+            own_clinic=(own_clinic or "").strip() or None,
         )
+
+    def without_own_clinic(self, text: str) -> str:
+        """Текст ответа без названия своей клиники — для поиска «конкретики» (V05)."""
+        if not self.own_clinic:
+            return text
+        return re.sub(re.escape(self.own_clinic), " ", text, flags=re.IGNORECASE)
 
     # ── Проверки, которые зовёт валидатор ───────────────────────────────────
 

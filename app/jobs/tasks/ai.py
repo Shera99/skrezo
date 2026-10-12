@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.db import session_factory
 from app.core.jobs import AI_REPLY, RUN_AI_REGRESSION, SUMMARIZE_CONVERSATION
 from app.jobs.tasks.context import attempt
+from app.modules.ai.application.escalation_return import EscalationReturnService
 from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_coordinator import (
     ConversationLock,
@@ -109,6 +110,28 @@ async def ai_reply(ctx: dict[str, Any], conversation_id: str, defer_count: int =
         )
         run.note(f"диалог {conversation_id}: {result.status}")
         return result.status
+
+
+async def return_escalations_to_bot(ctx: dict[str, Any]) -> int:
+    """Вернуть боту диалоги, за которые администратор не взялся (§8.4); вернуть число.
+
+    Сам возврат пациенту ничего не пишет. Если пациент ждёт — писал уже после
+    передачи, — на его сообщение ответит обычное задание ассистента; если
+    последним в диалоге стоит «уточню у администратора», задание увидит, что
+    ответ уже был, и промолчит.
+    """
+    async with JobRunRecorder("return_escalations_to_bot", attempt(ctx)) as run:
+        async with session_factory() as session:
+            returned = await EscalationReturnService(session).run()
+        answered = 0
+        for conversation_id in returned:
+            placed = await enqueue_ai_reply(ctx, conversation_id)
+            if placed == "no_queue":
+                result = await build_reply_coordinator(None).run(conversation_id)
+                if result.status != "skipped":
+                    answered += 1
+        run.note(f"возвращено боту: {len(returned)}, ответов на месте: {answered}")
+        return len(returned)
 
 
 async def summarize_conversation(ctx: dict[str, Any], conversation_id: str) -> bool:

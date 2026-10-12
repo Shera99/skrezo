@@ -8,10 +8,16 @@
   выдумке не сообщит;
 * V04 — запрещённые утверждения (гарантии, «не больно», препараты);
 * V09 — упоминание чужой клиники: блок и оповещение нам;
-* V05 — конкретика (числа, время) при пустом ``used_facts``;
+* V05 — конкретика (числа, время) при пустом ``used_facts``; название своей
+  клиники конкретикой не считается;
 * V06 — ``confidence=low`` / ``needs_human`` → эскалация;
 * V07 — язык ответа не совпал с языком диалога → одна перегенерация;
 * V08 — длина > 1000 символов → одна перегенерация.
+
+Блок V01–V03 и V05 — тоже не мгновенная эскалация: конвейер ответа
+(``reply_service``) один раз просит модель переписать ответ с подсказкой, что
+именно не сошлось с фактами, и только повторный блок уводит диалог к человеку.
+Здесь вердикт остаётся «блок» — решение о повторе принимает конвейер.
 
 ⚠️ Стоп-лист V04 — черновик: калибруется в теневом режиме на живом трафике
 (слишком жёсткий даст ложные срабатывания, слишком мягкий пропустит обещание).
@@ -43,6 +49,10 @@ class Verdict:
     action: VerdictAction
     codes: list[str] = field(default_factory=list)
     notes: str | None = None
+    #: Коды блока первой попытки, если ответ прошёл со второй (повтор с подсказкой).
+    #: Выдумка, исправленная повтором, остаётся фактической ошибкой для лестницы
+    #: доверия: модель её совершила, просто пациент её не увидел.
+    retried_codes: list[str] = field(default_factory=list)
 
 
 #: Запрещённые шаблоны (§7.2): гарантии результата, обещание «не больно»,
@@ -58,7 +68,7 @@ _FORBIDDEN: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 #: Конкретика: числа от 3 цифр (цены) и время HH:MM — при пустых фактах блок.
-_SPECIFICS = re.compile(r"\d{3,}|\b\d{1,2}:\d{2}\b")
+_SPECIFICS = re.compile(r"\d{3,}|(?<!\d)\d{1,2}:\d{2}(?!\d)")
 
 _MAX_REPLY_LEN = 1000
 
@@ -78,16 +88,29 @@ def validate(
     В боевом конвейере они есть всегда — параметр со значением по умолчанию
     оставлен для точечных проверок отдельных правил.
     """
+    # Чужая клиника (V09) и запреты (V04) — раньше сверки фактов: блок по фактам
+    # конвейер повторяет, и при обратном порядке выдуманная цена рядом с чужим
+    # названием ушла бы на повтор, а сигнал об утечке между клиниками — потерялся.
+    if facts is not None:
+        foreign = facts.foreign_mentions(reply.reply)
+        if foreign:
+            # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
+            # клиники значит либо утечку контекста, либо галлюцинацию промпта.
+            logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
+            return Verdict(
+                VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}"
+            )
+    for label, pattern in _FORBIDDEN:
+        if pattern.search(reply.reply):
+            return Verdict(VerdictAction.BLOCK, ["V04"], notes=f"forbidden:{label}")
     if facts is not None:
         fact_verdict = _check_facts(reply.reply, facts)
         if fact_verdict is not None:
             return fact_verdict
-    codes: list[str] = []
-    for label, pattern in _FORBIDDEN:
-        if pattern.search(reply.reply):
-            codes.append("V04")
-            return Verdict(VerdictAction.BLOCK, codes, notes=f"forbidden:{label}")
-    if not reply.used_facts and _SPECIFICS.search(reply.reply):
+    # Название своей клиники — не конкретика: «Клиника «123456»» в приветствии
+    # иначе выглядело ценой и уводило безобидный ответ администратору.
+    specifics_text = facts.without_own_clinic(reply.reply) if facts else reply.reply
+    if not reply.used_facts and _SPECIFICS.search(specifics_text):
         return Verdict(VerdictAction.BLOCK, ["V05"], notes="конкретика без used_facts")
     if reply.confidence == "low" or reply.needs_human:
         return Verdict(VerdictAction.ESCALATE, ["V06"], notes=reply.human_reason)
@@ -115,10 +138,4 @@ def _check_facts(text: str, facts: TurnFacts) -> Verdict | None:
         return Verdict(
             VerdictAction.BLOCK, ["V03"], notes=f"врач не из справочника: {sorted(doctors)[:3]}"
         )
-    foreign = facts.foreign_mentions(text)
-    if foreign:
-        # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
-        # клиники значит либо утечку контекста, либо галлюцинацию промпта.
-        logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
-        return Verdict(VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}")
     return None

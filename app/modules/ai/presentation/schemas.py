@@ -423,7 +423,9 @@ class CreateRegressionCaseRequest(CamelModel):
         description="Эталон (knowledge/reply): ключевые слова возьмутся из него",
     )
     keywords: list[str] | None = Field(default=None, description="Или ключевые слова явно")
-    medical: str | None = Field(default=None, description="Для medical: urgent | complaint | none")
+    medical: str | None = Field(
+        default=None, description="Для medical: urgent | acute_pain | complaint | none"
+    )
     proposed: str | None = Field(
         default=None,
         max_length=2000,

@@ -104,6 +104,24 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         android_channel="patients-inbox.v1",
         ttl_seconds=4 * _HOUR,
     ),
+    # Сильная боль (решение 12.10.2026): бот уже предложил ближайшее время, а
+    # администратор узнаёт, что пациента стоит принять сегодня. Обычный
+    # приоритет — диалог не брошен, бот ведёт запись дальше.
+    "ai.urgent_booking": EventSpec(
+        frozenset({Audience.MANAGER, Audience.OWNER}),
+        Rung.NORMAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=4 * _HOUR,
+    ),
+    # Пациент снова написал в диалог, переданный администратору: первое
+    # ai.escalated могли пропустить, а человек ждёт. Через 15 минут без ответа
+    # диалог и так вернётся боту — дольше этот пуш не нужен.
+    "conversation.waiting": EventSpec(
+        frozenset({Audience.MANAGER}),
+        Rung.NORMAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=15 * 60,
+    ),
     "conversation.inbound": EventSpec(
         frozenset({Audience.MANAGER}),
         Rung.LOW,

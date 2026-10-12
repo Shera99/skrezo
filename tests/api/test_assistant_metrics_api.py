@@ -72,8 +72,10 @@ async def test_metrics_reflect_auto_replies_drafts_escalations_and_learning(
     body = await _simulate(admin_client, ctx, "Вы работаете по субботам?", "+996700500500")
     assert body["outcome"] == "sent"
 
-    # 2) auto: фактическая ошибка — время не из фактов (V02) → блок + эскалация + пробел
-    fake.script = [AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))]
+    # 2) auto: фактическая ошибка — время не из фактов (V02), и повтор с подсказкой
+    #    тоже выдумал → блок + эскалация + пробел
+    invented = AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))
+    fake.script = [invented, invented]
     body = await _simulate(admin_client, ctx, "Во сколько открывается парковка?", "+996700500501")
     assert body["outcome"] == "escalated"
 

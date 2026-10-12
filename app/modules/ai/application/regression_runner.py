@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.modules.ai.application.kb import KbService
-from app.modules.ai.application.reply_service import ProcessAiReplyService
+from app.modules.ai.application.reply_service import ProcessAiReplyService, with_clock
 from app.modules.ai.application.tools import ToolContext, ToolExecutor, tool_decls_for
 from app.modules.ai.domain.learning import RUN_MODES, Evaluation, evaluate_keywords
 from app.modules.ai.domain.medical import MedicalKind, classify
@@ -269,7 +269,8 @@ class RegressionRunner:
             return DryRun(outcome="error", note="модель не настроена")
 
         system = await self._reply.system_prompt(clinic, lang)
-        parts = [AiMessagePart(role="user", text=question)]
+        # Та же строка «СЕЙЧАС», что в боевом ходе: без неё модель ищет слоты в прошлом.
+        parts = with_clock([AiMessagePart(role="user", text=question)], clinic)
         executor = ToolExecutor(self._session, AiRepository(self._session))
         # Диалог-пустышка вне сессии: инструментам чтения нужны только клиника и язык.
         context = ToolContext(

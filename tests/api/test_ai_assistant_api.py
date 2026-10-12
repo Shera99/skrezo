@@ -99,12 +99,14 @@ async def test_tools_are_executed_and_journaled(
         AiResult(tool_call=ToolCallRequest(name="get_services", args={"query": "чистка"})),
         AiResult(
             text=_reply_json(
-                "Чистка стоит 2 500 сом.",
+                "Тазалоо 2 500 сом турат.",
+                lang="ky",
                 intent="info",
                 facts=["service:x:price:2 500"],
             )
         ),
     ]
+    # Вопрос по-кыргызски — и ответ по-кыргызски (§10.2: язык последнего сообщения).
     body = await _simulate(admin_client, ctx, "Канча турат чистка?", "+996700200004")
     assert body["outcome"] == "sent"
     assert "2 500" in body["botReply"]
@@ -183,7 +185,7 @@ async def test_glossary_suggestion_flow(
                 args={"phrase": "тиш чыгаруу", "meaning": "удаление зуба", "lang": "ky"},
             )
         ),
-        AiResult(text=_reply_json("Записал! Речь про удаление зуба.", intent="clarify")),
+        AiResult(text=_reply_json("Түшүндүм, тиш чыгаруу жөнүндө.", lang="ky", intent="clarify")),
     ]
     await _simulate(admin_client, ctx, "Ооба, тиш чыгаруу деп жаттым", "+996700200008")
 
@@ -202,7 +204,7 @@ async def test_glossary_suggestion_flow(
     )
     assert approved.status_code == 200, approved.text
 
-    fake.script = [AiResult(text=_reply_json("Удаление зуба — от 1 500 сом? Уточню!"))]
+    fake.script = [AiResult(text=_reply_json("Тиш чыгаруунун баасын тактайм.", lang="ky"))]
     await _simulate(admin_client, ctx, "Тиш чыгаруу канча?", "+996700200008")
     assert "тиш чыгаруу" in fake.calls[-1]["system"]  # термин теперь в промпте
 
@@ -699,10 +701,13 @@ async def test_invented_price_is_blocked(
     а `used_facts` она заполняет тоже сама.
     """
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Чистка стоит 9 900 сом.", facts=["service:x:price"]))]
+    invented = AiResult(text=_reply_json("Чистка стоит 9 900 сом.", facts=["service:x:price"]))
+    # Первая выдумка — повтор с подсказкой, вторая — эскалация.
+    fake.script = [invented, invented]
     body = await _simulate(admin_client, ctx, "Почём чистка?", "+996700200030")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "validator_blocked"
+    assert len(fake.calls) == 2  # ровно один повтор
 
     async with _resources.factory() as session:
         blocked = (
@@ -732,10 +737,12 @@ async def test_invented_slot_time_is_blocked(
 ) -> None:
     """V02: время, которого не было в выдаче слотов, — блок."""
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Приходите 05.09 в 17:35.", facts=["slot:x"]))]
+    invented = AiResult(text=_reply_json("Приходите 05.09 в 17:35.", facts=["slot:x"]))
+    fake.script = [invented, invented]  # повтор с подсказкой тоже выдумал
     body = await _simulate(admin_client, ctx, "Когда можно прийти?", "+996700200032")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "validator_blocked"
+    assert len(fake.calls) == 2
 
 
 async def test_unknown_doctor_is_blocked(
@@ -744,10 +751,12 @@ async def test_unknown_doctor_is_blocked(
     """V03: врач не из справочника клиники — блок (падежи учтены)."""
     await _set_mode(admin_client, ctx, "auto")
     await own_membership_id(client, ctx.owner_headers)  # в клинике есть врач
-    fake.script = [AiResult(text=_reply_json("Вас примет врач Петрова."))]
+    invented = AiResult(text=_reply_json("Вас примет врач Петрова."))
+    fake.script = [invented, invented]
     body = await _simulate(admin_client, ctx, "А кто принимает?", "+996700200033")
     assert body["outcome"] == "escalated"
     assert body["escalationReason"] == "validator_blocked"
+    assert len(fake.calls) == 2
 
 
 # ── 8. Лимит потока сообщений (§14) ─────────────────────────────────────────
@@ -1008,7 +1017,8 @@ async def test_voice_transcript_reaches_the_model(
 
     assert outcome.status == "sent"
     last_user = [p for p in fake.calls[-1]["parts"] if p.role == "user"][-1]
-    assert last_user.text == "Хочу записаться"
+    # Реплика начинается строкой «СЕЙЧАС», а заканчивается расшифровкой.
+    assert last_user.text.endswith("\n\nХочу записаться")
 
 
 async def test_low_confidence_voice_goes_to_human(

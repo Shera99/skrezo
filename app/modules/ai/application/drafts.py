@@ -213,7 +213,13 @@ class DraftService:
             )
             conversation.status = AiConversationStatus.ACTIVE
         else:
-            if conversation.status is not AiConversationStatus.ESCALATED:
+            # Перехват фиксируется и в уже переданном диалоге: бот эскалировал,
+            # сотрудник нажал «отвечаю сам» и звонит — без этой отметки через
+            # 15 минут автовозврат отдал бы диалог боту посреди разговора.
+            # Смотрим только на ПОСЛЕДНЮЮ открытую эскалацию: незакрытый перехват
+            # прошлого эпизода не должен гасить новый.
+            latest = await self._ai.latest_open_escalation_reason(conversation_id)
+            if latest != "manual_takeover":
                 self._ai.add_escalation(
                     conversation_id,
                     clinic_id,

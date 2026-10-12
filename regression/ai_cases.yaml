@@ -36,8 +36,8 @@ cases:
   lang: ru
   message: Сильная боль всю ночь, не сплю
   expect:
-    medical: urgent
-  note: нестерпимая боль
+    medical: acute_pain
+  note: сильная боль без признаков неотложного — ближайшее время и администратор (12.10.2026)
 - id: med-006
   kind: medical
   lang: ru
@@ -71,8 +71,8 @@ cases:
   lang: ky
   message: Катуу оору, түндө уктай албадым
   expect:
-    medical: urgent
-  note: сильная ночная боль
+    medical: acute_pain
+  note: сильная ночная боль — время сегодня, не остановка бота (12.10.2026)
 - id: med-011
   kind: medical
   lang: ky
@@ -530,3 +530,119 @@ cases:
   expect:
     action: pass
   note: своя клиника и своя цена — проходит
+- id: med-040
+  kind: medical
+  lang: ru
+  message: |-
+    На консультацию хотел
+    У меня сильно болит зуб
+  expect:
+    medical: acute_pain
+  note: инцидент 12.10 — бот остановил запись на зубной боли
+- id: med-041
+  kind: medical
+  lang: ru
+  message: Очень болит зуб, можно сегодня?
+  expect:
+    medical: acute_pain
+  note: сильная боль — предложить время сегодня
+- id: med-042
+  kind: medical
+  lang: ru
+  message: Сильно болит зуб и опухла щека
+  expect:
+    medical: urgent
+  note: боль с отёком — неотложное, проверяется раньше сильной боли
+- id: val-022
+  kind: validator
+  lang: ru
+  reply: Здравствуйте! Я ассистент стоматологической клиники «123456». Чем я могу вам помочь?
+  clinicName: '123456'
+  usedFacts: []
+  expect:
+    action: pass
+  note: инцидент 12.10 — цифры в названии своей клиники не конкретика (V05)
+- id: val-023
+  kind: validator
+  lang: ru
+  reply: Здравствуйте! Клиника «Дентал 365» на связи. Чем помочь?
+  clinicName: Дентал 365
+  usedFacts: []
+  expect:
+    action: pass
+  note: название клиники с числом — не цена
+- id: val-024
+  kind: validator
+  lang: ru
+  reply: Приходите в 15:00, будем ждать.
+  clinicName: '123456'
+  facts:
+  - 'Свободно: 15:00'
+  usedFacts: []
+  expect:
+    action: block
+    code: V05
+  note: время без фактов по-прежнему блок — исключение только для названия
+- id: val-025
+  kind: validator
+  lang: ru
+  reply: Ближайшая дата — 14 октября. Доступно время 09:00, 09:30 и 10:00.
+  facts:
+  - '{"slots": [{"slot": "2026-10-14T09:00:00+06:00"}, {"slot": "2026-10-14T09:30:00+06:00"}, {"slot": "2026-10-14T10:00:00+06:00"}]}'
+  usedFacts:
+  - slot
+  expect:
+    action: pass
+  note: инцидент 12.10 — время из ISO-слотов (…T09:30…) не распознавалось, V02 ложно блокировал
+- id: val-026
+  kind: validator
+  lang: ru
+  reply: Доступно время 09:00 и 11:15.
+  facts:
+  - '{"slots": [{"slot": "2026-10-14T09:00:00+06:00"}, {"slot": "2026-10-14T09:30:00+06:00"}]}'
+  usedFacts:
+  - slot
+  expect:
+    action: block
+    code: V02
+  note: время, которого нет среди слотов, по-прежнему блок
+- id: med-043
+  kind: medical
+  lang: ru
+  message: Очень большое спасибо!
+  expect:
+    medical: none
+  note: «очень большое» — не «очень болит»; ложная срочная запись с пушем
+- id: med-044
+  kind: medical
+  lang: ru
+  message: Очень больно удалять зуб мудрости?
+  expect:
+    medical: none
+  note: вопрос о процедуре — отвечает модель, обещание «не больно» ловит V04
+- id: val-027
+  kind: validator
+  lang: ru
+  reply: В «Стоматология Аврора» чистка за 9 900 сом.
+  facts:
+  - Чистка — 2 500 сом
+  foreignClinics:
+  - Стоматология Аврора
+  usedFacts:
+  - s
+  expect:
+    action: block
+    code: V09
+  note: чужая клиника важнее выдуманной цены — повтор не должен прятать утечку
+- id: val-028
+  kind: validator
+  lang: ru
+  reply: Ждём вас 14.10 в 03:30.
+  facts:
+  - '{"slots": [{"slot": "2026-10-14T09:30:00+06:00", "time": "09:30", "fact": "slot:d:2026-10-14T09:30:00+06:00"}]}'
+  usedFacts:
+  - slot
+  expect:
+    action: block
+    code: V02
+  note: UTC-час (03:30 вместо 09:30) — сдвиг на 6 часов не проходит

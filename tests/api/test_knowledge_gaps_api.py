@@ -90,7 +90,9 @@ async def test_specifics_without_facts_is_a_gap_too(
 ) -> None:
     """Валидатор заблокировал ответ без единого факта — знаний не было."""
     await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))]
+    # И повтор с подсказкой выдумал — блок, эскалация и пробел знаний.
+    invented = AiResult(text=_reply_json("Парковка работает с 08:00.", facts=[]))
+    fake.script = [invented, invented]
     body = await _simulate(admin_client, ctx, "Во сколько открывается парковка?", "+996700200520")
     assert body["outcome"] == "escalated"
 

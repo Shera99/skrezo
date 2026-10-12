@@ -26,6 +26,7 @@ from app.modules.ai.application.booking import (
     HOLD_RESCHEDULE,
     BookingService,
     ProposeResult,
+    earliest_bookable,
 )
 from app.modules.ai.domain.skills import DEFAULT_SKILLS, disabled_tools
 from app.modules.ai.domain.texts import booking_text
@@ -329,11 +330,14 @@ class ToolExecutor:
 
     async def _get_days(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         booking = BookingService(self._session)
+        now = datetime.now(UTC)
         date_from = (
             datetime.fromisoformat(str(args["dateFrom"])).replace(tzinfo=UTC)
             if args.get("dateFrom")
-            else datetime.now(UTC)
+            else now
         )
+        # Прошедшая дата (модель ошиблась годом) — ищем от сегодня, а не в прошлом.
+        date_from = max(date_from, now)
         days = await booking.free_days(
             context.clinic_id,
             date_from=date_from,
@@ -417,11 +421,31 @@ class ToolExecutor:
             stmt = stmt.where(func.lower(Patient.last_name) == last_name.lower())
         return (await self._session.execute(stmt)).first() is not None
 
+    def _past_time_error(self, context: ToolContext, starts_at: datetime) -> dict[str, Any] | None:
+        """Ошибка для модели, если время записи уже прошло (иначе ``None``).
+
+        Кнопка на прошедшее время всё равно не сработала бы при подтверждении,
+        но пациент успел бы получить приглашение «прийти» вчера.
+        """
+        now = datetime.now(UTC)
+        if starts_at > now:
+            return None
+        local_now = now.astimezone(self._clinic_tz(context))
+        return {
+            "error": (
+                "это время уже прошло — возьми слот из get_available_slots на сегодня или позже"
+            ),
+            "now": local_now.isoformat(timespec="minutes"),
+        }
+
     async def _propose(self, context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         booking = BookingService(self._session)
         starts_at = datetime.fromisoformat(str(args["startsAt"]))
         if starts_at.tzinfo is None:
             return {"error": "startsAt без таймзоны — возьми значение из get_available_slots"}
+        past = self._past_time_error(context, starts_at)
+        if past is not None:
+            return past
         result = await booking.propose(
             context.conversation,
             doctor_membership_id=uuid.UUID(str(args["doctorId"])),
@@ -448,6 +472,9 @@ class ToolExecutor:
             starts_at = datetime.fromisoformat(str(args["startsAt"]))
             if starts_at.tzinfo is None:
                 return {"error": "startsAt без таймзоны — возьми значение из get_available_slots"}
+            past = self._past_time_error(context, starts_at)
+            if past is not None:
+                return past
             result = await booking.propose_reschedule(
                 context.conversation,
                 appointment_id=appointment_id,
@@ -466,7 +493,13 @@ class ToolExecutor:
             button_sent = await self._send_button(context, kind, result, when)
         except WhatsAppSendError as exc:
             return {"error": f"кнопка не отправилась: {exc}"}
-        card = {**result.card, "startsAt": when.astimezone(self._clinic_tz(context)).isoformat()}
+        tz = self._clinic_tz(context)
+        card = {**result.card, "startsAt": when.astimezone(tz).isoformat()}
+        if card.get("fromStartsAt"):
+            # Прежнее время переносимой записи — тоже по часам клиники, не UTC.
+            card["fromStartsAt"] = (
+                datetime.fromisoformat(str(card["fromStartsAt"])).astimezone(tz).isoformat()
+            )
         return {**card, "buttonSent": button_sent, **self._handoff(context, "changes", card)}
 
     @staticmethod
@@ -569,6 +602,17 @@ class ToolExecutor:
         day = date.fromisoformat(str(args.get("date")))
         doctor_id = uuid.UUID(str(args["doctorId"])) if args.get("doctorId") else None
         service_id = uuid.UUID(str(args["serviceId"])) if args.get("serviceId") else None
+        tz = self._clinic_tz(context)
+        now = datetime.now(UTC)
+        today = now.astimezone(tz).date()
+        if day < today:
+            # Модель без строки «СЕЙЧАС» брала год из памяти (2023, 2024), и
+            # расписание по прошедшей дате выглядело свободным. Ошибка с сегодняшней
+            # датой даёт ей исправиться в том же ходе.
+            return {
+                "error": "эта дата уже прошла — слоты только на сегодня и позже",
+                "today": today.isoformat(),
+            }
         schedule = ScheduleRepository(self._session)
         use_case = GetSlotsUseCase(schedule, build_availability_service(self._session))
         if doctor_id is None and service_id is None:
@@ -578,14 +622,23 @@ class ToolExecutor:
         plan = await use_case.execute(context.clinic_id, doctor_id, day, service_id)
         # Наружу — местное время клиники: модель называет слот пациенту дословно,
         # и UTC в её выдаче означал бы приглашение прийти на несколько часов раньше.
-        tz = self._clinic_tz(context)
+        # Прошедшее и слишком близкое сегодня не предлагаем: в 14:35 слоты на 09:00
+        # и на 14:45 пациенту уже недоступны (запас — AI_SLOT_LEAD_MINUTES).
+        not_before = earliest_bookable(now)
+        upcoming = [s for s in plan.slots if s.span.start >= not_before]
         slots = [
             {
                 "slot": s.span.start.astimezone(tz).isoformat(),
+                # Готовое «09:30» — его модель и называет пациенту, и валидатор
+                # узнаёт как факт без разбора ISO-строки.
+                "time": s.span.start.astimezone(tz).strftime("%H:%M"),
                 "doctorId": str(s.doctor_membership_id),
-                "fact": f"slot:{s.doctor_membership_id}:{s.span.start.isoformat()}",
+                # Метка факта — тоже по часам клиники: UTC-время («03:30» вместо
+                # «09:30») в контексте хода валидатор счёл бы законным фактом, и
+                # сдвиг на 6 часов проходил бы мимо V02.
+                "fact": f"slot:{s.doctor_membership_id}:{s.span.start.astimezone(tz).isoformat()}",
             }
-            for s in plan.slots[:10]
+            for s in upcoming[:10]
         ]
         return {"date": day.isoformat(), "durationMin": plan.duration_min, "slots": slots}
 
@@ -612,10 +665,14 @@ class ToolExecutor:
             )
         ).all()
         now = datetime.now(UTC)
+        tz = self._clinic_tz(context)
         return [
             {
                 "appointmentId": str(r[0]),
-                "startsAt": r[1].isoformat() if r[1] else None,
+                # Время клиники, а не UTC из базы: «Когда моя запись?» модель
+                # отвечает дословно, и UTC означал бы неверное время приёма.
+                "startsAt": r[1].astimezone(tz).isoformat() if r[1] else None,
+                "time": r[1].astimezone(tz).strftime("%H:%M") if r[1] else None,
                 "status": r[2].value,
                 "doctorName": (r[3] or "").strip() or None,
                 "upcoming": bool(r[1] and r[1] > now),

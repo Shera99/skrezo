@@ -54,6 +54,8 @@ PUSH_EVENT_TYPES: frozenset[str] = frozenset(
         "ai.escalated",
         "ai.urgent",
         "ai.draft_ready",
+        "ai.urgent_booking",
+        "conversation.waiting",
         "conversation.inbound",
         "debt.created",
         "debt.settled",
@@ -200,6 +202,31 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
             "title": "Ассистентке жардам керек",
             "body": "{fromName} — суроо администраторду күтүп жатат",
             "speak": "Ассистент {fromName} менен маекти администраторго өткөрдү",
+        },
+    },
+    # Без жалоб в тексте (ADR §2): пуш виден на заблокированном экране.
+    "ai.urgent_booking": {
+        Lang.RU: {
+            "title": "Срочная запись",
+            "body": "{fromName} — просит принять сегодня, бот предложил время",
+            "speak": "{fromName} просит принять сегодня, ассистент уже предложил время",
+        },
+        Lang.KG: {
+            "title": "Шашылыш жазылуу",
+            "body": "{fromName} — бүгүн кабыл алууну суранууда, бот убакыт сунуштады",
+            "speak": "{fromName} бүгүн кабыл алууну суранууда, ассистент убакыт сунуштады",
+        },
+    },
+    "conversation.waiting": {
+        Lang.RU: {
+            "title": "Пациент ждёт ответа",
+            "body": "{fromName} — снова написал(а), диалог у администратора",
+            "speak": "{fromName} снова написал, диалог ждёт администратора",
+        },
+        Lang.KG: {
+            "title": "Бейтап жооп күтүүдө",
+            "body": "{fromName} — кайра жазды, маек администратордо",
+            "speak": "{fromName} кайра жазды, маек администраторду күтүүдө",
         },
     },
     "conversation.inbound": {

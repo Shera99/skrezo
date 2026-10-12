@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import structlog
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import AppError
 from app.modules.ai.domain.texts import booking_text
 from app.modules.appointments.application.use_cases.create_appointment import (
@@ -544,33 +545,122 @@ class BookingService:
         doctor_membership_id: uuid.UUID | None,
         service_id: uuid.UUID | None,
     ) -> list[dict[str, Any]]:
-        """Ближайшие дни со свободными слотами — для этапа «когда удобно?»."""
+        """Ближайшие дни со свободными слотами — для этапа «когда удобно?».
+
+        Прошедшее время свободным не считается: сегодня в 14:35 слоты на утро
+        уже недоступны. Без врача и услуги ищем по всем врачам клиники — иначе
+        правило подбора слотов («нужен врач или услуга») давало пустой список,
+        и бот говорил, что свободных дней нет.
+        """
+        use_case = self._slots_use_case()
+        tz = await self._clinic_tz(clinic_id)
+        now = datetime.now(UTC)
+        not_before = earliest_bookable(now)
+        doctors = await self._doctors_to_search(clinic_id, doctor_membership_id, service_id)
+        result: list[dict[str, Any]] = []
+        day = max(date_from, now).astimezone(tz).date()
+        for offset in range(min(days, 7)):
+            current = day + timedelta(days=offset)
+            starts = await self._day_starts(
+                use_case, clinic_id, doctors, current, service_id, not_before=not_before
+            )
+            if starts:
+                result.append(
+                    {
+                        "date": current.isoformat(),
+                        "freeSlots": len(starts),
+                        "firstSlot": starts[0].astimezone(tz).strftime("%H:%M"),
+                    }
+                )
+        return result
+
+    async def earliest_slots(
+        self, clinic_id: uuid.UUID, *, days: int = 3, limit: int = 3
+    ) -> list[datetime]:
+        """Самые ранние свободные начала приёма (время клиники) — по всем врачам.
+
+        Для шаблонов медфильтра: у них нет ни врача, ни услуги. Берётся первый
+        день, где есть свободное время, — сегодня, если успеваем, — и до
+        ``limit`` самых ранних начал в нём. Пусто — свободного времени нет.
+        """
+        use_case = self._slots_use_case()
+        tz = await self._clinic_tz(clinic_id)
+        now = datetime.now(UTC)
+        not_before = earliest_bookable(now)
+        doctors = await self._doctors_to_search(clinic_id, None, None)
+        today = now.astimezone(tz).date()
+        for offset in range(days):
+            starts = await self._day_starts(
+                use_case,
+                clinic_id,
+                doctors,
+                today + timedelta(days=offset),
+                None,
+                not_before=not_before,
+            )
+            if starts:
+                return [start.astimezone(tz) for start in starts[:limit]]
+        return []
+
+    def _slots_use_case(self) -> Any:
         from app.modules.schedule.application.use_cases.get_slots import GetSlotsUseCase
         from app.modules.schedule.infrastructure.repositories.schedule_repository import (
             ScheduleRepository,
         )
 
-        use_case = GetSlotsUseCase(
+        return GetSlotsUseCase(
             ScheduleRepository(self._session), build_availability_service(self._session)
         )
-        tz = await self._clinic_tz(clinic_id)
-        result: list[dict[str, Any]] = []
-        day = date_from.astimezone(tz).date()
-        for offset in range(min(days, 7)):
-            current = day + timedelta(days=offset)
+
+    async def _doctors_to_search(
+        self,
+        clinic_id: uuid.UUID,
+        doctor_membership_id: uuid.UUID | None,
+        service_id: uuid.UUID | None,
+    ) -> list[uuid.UUID | None]:
+        """Кого перебирать: указанного врача, исполнителей услуги или всех врачей."""
+        if doctor_membership_id is not None or service_id is not None:
+            # Услугу без врача use-case подбирает сам — по её исполнителям.
+            return [doctor_membership_id]
+        rows = (
+            await self._session.execute(
+                select(Membership.id).where(
+                    Membership.clinic_id == clinic_id,
+                    Membership.active.is_(True),
+                    Membership.specialization_id.is_not(None),
+                )
+            )
+        ).scalars()
+        return list(rows)
+
+    @staticmethod
+    async def _day_starts(
+        use_case: Any,
+        clinic_id: uuid.UUID,
+        doctors: list[uuid.UUID | None],
+        day: date,
+        service_id: uuid.UUID | None,
+        *,
+        not_before: datetime,
+    ) -> list[datetime]:
+        """Свободные начала приёма в день по всем ``doctors`` — не раньше ``not_before``."""
+        starts: set[datetime] = set()
+        for doctor_id in doctors:
             try:
-                plan = await use_case.execute(clinic_id, doctor_membership_id, current, service_id)
+                plan = await use_case.execute(clinic_id, doctor_id, day, service_id)
             except AppError:
                 continue
-            if plan.slots:
-                result.append(
-                    {
-                        "date": current.isoformat(),
-                        "freeSlots": len(plan.slots),
-                        "firstSlot": plan.slots[0].span.start.astimezone(tz).strftime("%H:%M"),
-                    }
-                )
-        return result
+            starts.update(slot.span.start for slot in plan.slots if slot.span.start >= not_before)
+        return sorted(starts)
+
+
+def earliest_bookable(now: datetime) -> datetime:
+    """С какого момента ассистент предлагает время: сейчас + ``AI_SLOT_LEAD_MINUTES``.
+
+    Слот, начинающийся через минуту, формально свободен, но пациенту до него не
+    добраться — предлагать такое значит записать на неявку.
+    """
+    return now + timedelta(minutes=settings.ai_slot_lead_minutes)
 
 
 async def hold_count_alive(session: AsyncSession, conversation_id: uuid.UUID) -> int:

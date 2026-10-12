@@ -18726,7 +18726,7 @@
               }
             ],
             "title": "Medical",
-            "description": "Для medical: urgent | complaint | none"
+            "description": "Для medical: urgent | acute_pain | complaint | none"
           },
           "proposed": {
             "anyOf": [
