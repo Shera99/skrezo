@@ -8,11 +8,14 @@
   выдумке не сообщит;
 * V04 — запрещённые утверждения (гарантии, «не больно», препараты);
 * V09 — упоминание чужой клиники: блок и оповещение нам;
-* V05 — конкретика (числа, время) при пустом ``used_facts``; название своей
-  клиники конкретикой не считается;
+* V05 — конкретика (числа, время) при пустом ``used_facts``;
 * V06 — ``confidence=low`` / ``needs_human`` → эскалация;
 * V07 — язык ответа не совпал с языком диалога → одна перегенерация;
 * V08 — длина > 1000 символов → одна перегенерация.
+
+Название своей клиники из проверок содержания (V01–V05, V09) исключено: это
+не утверждение бота, а в названии бывает что угодно — цифры, «Доктор …»,
+чужое слово.
 
 Блок V01–V03 и V05 — тоже не мгновенная эскалация: конвейер ответа
 (``reply_service``) один раз просит модель переписать ответ с подсказкой, что
@@ -88,11 +91,17 @@ def validate(
     В боевом конвейере они есть всегда — параметр со значением по умолчанию
     оставлен для точечных проверок отдельных правил.
     """
+    # Название своей клиники вырезаем ДО всех проверок содержания: в нём бывает
+    # что угодно, и каждое правило видело в нём своё — «123456» было ценой
+    # (V05), «Доктор Айбек» — врачом не из справочника (V03), «Дентал Плюс» —
+    # чужой клиникой «Дентал» (V09). Приветствие «Я ассистент клиники «…»» из-за
+    # этого уходило администратору. Язык (V07) и длина (V08) — по полному тексту.
+    text = facts.without_own_clinic(reply.reply) if facts else reply.reply
     # Чужая клиника (V09) и запреты (V04) — раньше сверки фактов: блок по фактам
     # конвейер повторяет, и при обратном порядке выдуманная цена рядом с чужим
     # названием ушла бы на повтор, а сигнал об утечке между клиниками — потерялся.
     if facts is not None:
-        foreign = facts.foreign_mentions(reply.reply)
+        foreign = facts.foreign_mentions(text)
         if foreign:
             # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
             # клиники значит либо утечку контекста, либо галлюцинацию промпта.
@@ -101,16 +110,13 @@ def validate(
                 VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}"
             )
     for label, pattern in _FORBIDDEN:
-        if pattern.search(reply.reply):
+        if pattern.search(text):
             return Verdict(VerdictAction.BLOCK, ["V04"], notes=f"forbidden:{label}")
     if facts is not None:
-        fact_verdict = _check_facts(reply.reply, facts)
+        fact_verdict = _check_facts(text, facts)
         if fact_verdict is not None:
             return fact_verdict
-    # Название своей клиники — не конкретика: «Клиника «123456»» в приветствии
-    # иначе выглядело ценой и уводило безобидный ответ администратору.
-    specifics_text = facts.without_own_clinic(reply.reply) if facts else reply.reply
-    if not reply.used_facts and _SPECIFICS.search(specifics_text):
+    if not reply.used_facts and _SPECIFICS.search(text):
         return Verdict(VerdictAction.BLOCK, ["V05"], notes="конкретика без used_facts")
     if reply.confidence == "low" or reply.needs_human:
         return Verdict(VerdictAction.ESCALATE, ["V06"], notes=reply.human_reason)

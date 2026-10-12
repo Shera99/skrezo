@@ -4,7 +4,9 @@
 
 * модель не знала даты и искала слоты в 2023–2024 годах → строка «СЕЙЧАС»;
 * время из ISO-слотов (``…T09:30…``) не распознавалось → ложный блок V02;
-* «Клиника «123456»» в приветствии считалась ценой → ложный блок V05;
+* «Клиника «123456»» в приветствии считалась ценой → ложный блок V05, а
+  «Доктор Айбек» — врачом не из справочника → ложный V03: название своей
+  клиники вырезается до всех проверок содержания;
 * «Саламатсызбы» после русской переписки получило русский ответ → язык по
   последнему сообщению;
 * «сильно болит зуб» останавливало бота → сильная боль отдельно от неотложного;
@@ -163,6 +165,53 @@ def test_specifics_without_facts_still_blocked_next_to_clinic_name() -> None:
 
     assert verdict.action is VerdictAction.BLOCK
     assert verdict.codes == ["V05"]
+
+
+# ── Название своей клиники — ни в одной проверке ────────────────────────────
+
+_GREETING = "Здравствуйте! Я ассистент стоматологической клиники «{name}». Чем я могу вам помочь?"
+
+
+@pytest.mark.parametrize(
+    ("name", "doctors", "foreign"),
+    [
+        # Инцидент 12.10: «Доктор Айбек» — «доктор + имя», Айбека в справочнике нет → V03.
+        ("Доктор Айбек", ["Сулайманова Асель"], []),
+        # Чужая клиника «Дентал» — подстрока своего названия → V09.
+        ("Дентал Плюс", [], ["Дентал"]),
+        # «Безболезненная» — не обещание бота «не больно» → V04.
+        ("Безболезненная стоматология", [], []),
+    ],
+)
+def test_greeting_with_own_clinic_name_passes(
+    name: str, doctors: list[str], foreign: list[str]
+) -> None:
+    facts = TurnFacts.build([], doctors, foreign, own_clinic=name)
+
+    assert validate(_reply(_GREETING.format(name=name)), None, facts).action is VerdictAction.PASS
+
+
+def test_own_clinic_name_is_cut_with_any_spaces() -> None:
+    """Неразрывный пробел или перенос внутри названия — то же название."""
+    facts = TurnFacts.build([], [], own_clinic="Доктор Айбек")
+    reply = _reply("Клиника «Доктор Айбек» на связи.\nДоктор\nАйбек ждёт вас!")
+
+    assert validate(reply, None, facts).action is VerdictAction.PASS
+
+
+def test_unknown_doctor_next_to_own_clinic_name_is_still_v03() -> None:
+    """Вырезается только название клиники — выдуманный врач рядом ловится как раньше."""
+    facts = TurnFacts.build([], ["Сулайманова Асель"], own_clinic="Доктор Айбек")
+    reply = _reply("В клинике «Доктор Айбек» вас примет доктор Петров.")
+
+    assert validate(reply, None, facts).codes == ["V03"]
+
+
+def test_foreign_clinic_next_to_own_clinic_name_is_still_v09() -> None:
+    facts = TurnFacts.build([], [], ["Дентал"], own_clinic="Дентал Плюс")
+    reply = _reply("Мы — «Дентал Плюс», а не «Дентал» на соседней улице.")
+
+    assert validate(reply, None, facts).codes == ["V09"]
 
 
 # ── Язык по последнему сообщению ────────────────────────────────────────────

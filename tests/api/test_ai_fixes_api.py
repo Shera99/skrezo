@@ -5,7 +5,8 @@
 * в каждом ходе модель получает строку «СЕЙЧАС» с датой и временем клиники;
 * исправимый блок валидатора — один повтор с подсказкой, а не мгновенная
   передача администратору;
-* цифры в названии своей клиники не превращают приветствие в эскалацию;
+* цифры и «Доктор …» в названии своей клиники не превращают приветствие в
+  эскалацию; повтор, приславший не JSON, не прячет настоящую причину блока;
 * кыргызское сообщение переключает язык ответа и служебных шаблонов;
 * сильная зубная боль: ближайшее время + уведомление администратору, диалог
   остаётся у бота;
@@ -241,6 +242,64 @@ async def test_greeting_with_digits_in_clinic_name_reaches_patient(
 
     assert body["outcome"] == "sent"
     assert len(fake.calls) == 1  # прошло с первого раза, без повтора
+
+
+async def test_greeting_with_doctor_in_clinic_name_reaches_patient(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Инцидент 12.10 (вечер): «Доктор Айбек» в названии считался врачом не из справочника."""
+    async with _resources.factory() as session:
+        await session.execute(
+            update(Clinic).where(Clinic.id == uuid.UUID(ctx.clinic_id)).values(name="Доктор Айбек")
+        )
+        await session.commit()
+    await _set_mode(admin_client, ctx, "auto")
+    fake.script = [
+        AiResult(
+            text=_reply_json(
+                "Здравствуйте! Я ассистент стоматологической клиники «Доктор Айбек». "
+                "Чем я могу вам помочь?"
+            )
+        )
+    ]
+
+    body = await _simulate(admin_client, ctx, "Здравствуйте", _patient())
+
+    assert body["outcome"] == "sent"
+    assert len(fake.calls) == 1
+
+
+async def test_unparseable_retry_keeps_the_real_block_reason(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Повтор прислал не JSON — в журнале блок первой попытки, а не «непарсибельный».
+
+    12.10 первый ответ был верным, его снял ложный V03, повтор не разобрался — и
+    в ``ai_escalation`` лежало «непарсибельный ответ» с текстом ПЕРВОЙ попытки.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    fake.script = [
+        AiResult(text=_reply_json("Вас примет доктор Небывалов.")),
+        AiResult(text="Извините, не могу ответить в формате JSON."),
+    ]
+
+    body = await _simulate(admin_client, ctx, "Кто меня примет?", phone)
+
+    assert body["outcome"] == "escalated"
+    assert body["escalationReason"] == "validator_blocked"
+    conversation = await _conversation(_resources, phone)
+    async with _resources.factory() as session:
+        escalation = (
+            await session.execute(
+                select(AiEscalation).where(AiEscalation.conversation_id == conversation.id)
+            )
+        ).scalar_one()
+    assert escalation.payload is not None
+    assert escalation.payload["codes"] == ["V03"]
+    assert escalation.payload["proposed"] == "Вас примет доктор Небывалов."
+    (message,) = await _bot_messages(_resources, conversation.id)
+    assert message.sent_at is None  # заблокированный ответ пациенту не ушёл
 
 
 # ── 4. Язык по последнему сообщению ─────────────────────────────────────────

@@ -120,10 +120,17 @@ class TurnFacts:
         )
 
     def without_own_clinic(self, text: str) -> str:
-        """Текст ответа без названия своей клиники — для поиска «конкретики» (V05)."""
+        """Текст ответа без названия своей клиники — для всех проверок содержания.
+
+        Название — не утверждение бота: цифры в нём не цена (V01/V05), «Доктор
+        Айбек» — не врач (V03), «Дентал Плюс» — не чужая клиника «Дентал» (V09).
+        """
         if not self.own_clinic:
             return text
-        return re.sub(re.escape(self.own_clinic), " ", text, flags=re.IGNORECASE)
+        # Пробелы внутри названия — любые: модель пишет «Доктор Айбек» и с
+        # неразрывным пробелом, и с переносом строки.
+        pattern = r"\s+".join(re.escape(word) for word in self.own_clinic.split())
+        return re.sub(pattern, " ", text, flags=re.IGNORECASE)
 
     # ── Проверки, которые зовёт валидатор ───────────────────────────────────
 

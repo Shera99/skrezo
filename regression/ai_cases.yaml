@@ -730,3 +730,30 @@ cases:
   expect:
     medical: none
   note: «отечественные» — не «отёчные»
+- id: val-029
+  kind: validator
+  lang: ru
+  reply: Здравствуйте! Я ассистент стоматологической клиники «Доктор Айбек». Чем я могу вам помочь?
+  clinicName: Доктор Айбек
+  expect:
+    action: pass
+  note: инцидент 12.10 — «Доктор Айбек» в названии клиники не врач (был ложный V03)
+- id: val-030
+  kind: validator
+  lang: ru
+  reply: Здравствуйте! Это клиника «Дентал Плюс». Чем помочь?
+  clinicName: Дентал Плюс
+  foreignClinics:
+  - Дентал
+  expect:
+    action: pass
+  note: чужая «Дентал» — подстрока своего названия, не упоминание чужой клиники
+- id: val-031
+  kind: validator
+  lang: ru
+  reply: В клинике «Доктор Айбек» вас примет доктор Петров.
+  clinicName: Доктор Айбек
+  expect:
+    action: block
+    code: V03
+  note: выдуманный врач рядом с названием клиники ловится как раньше

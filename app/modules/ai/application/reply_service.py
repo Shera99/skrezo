@@ -102,6 +102,20 @@ _FIX_HINTS: dict[str, str] = {
 }
 
 
+class _UnparseableReplyError(Exception):
+    """Ни одна попытка хода не дала разбираемого JSON; ``raw`` — текст последней.
+
+    Если первая попытка разобралась, а мусор прислал повтор, этого исключения
+    нет — остаётся её вердикт. 12.10 было наоборот: верный ответ «Здравствуйте!
+    …» заблокировал ложный V03, повтор не разобрался, и в журнал как
+    «непарсибельный» ушёл текст первой попытки — настоящая причина пропала.
+    """
+
+    def __init__(self, raw: str) -> None:
+        super().__init__("непарсибельный ответ")
+        self.raw = raw
+
+
 def _lang_code(lang: Lang) -> str:
     """Наш Lang → язык спеки модели (ru|ky)."""
     return "ky" if lang is Lang.KG else "ru"
@@ -369,13 +383,13 @@ class ProcessAiReplyService:
             return await self._escalate(
                 conversation, clinic, "tool_error", {"note": f"provider: {exc}"}
             )
-        if reply is None or verdict is None:
+        except _UnparseableReplyError as exc:
             return await self._escalate(
                 conversation,
                 clinic,
                 "validator_blocked",
-                # Хвост сырого текста — иначе «непарсибельный» нечем разбирать.
-                {"note": "непарсибельный ответ", "raw": (raw_text or "")[:300]},
+                # Хвосты сырого текста — иначе «непарсибельный» нечем разбирать.
+                {"note": "непарсибельный ответ", "raw": exc.raw[:300], "firstRaw": raw_text[:300]},
             )
         if verdict.action is VerdictAction.BLOCK:
             return await self._blocked(conversation, clinic, reply, verdict, model_name)
@@ -471,7 +485,7 @@ class ProcessAiReplyService:
         raw_text: str,
         lang: str | None,
         facts: TurnFacts,
-    ) -> tuple[BotReply | None, Verdict | None]:
+    ) -> tuple[BotReply, Verdict]:
         """Разобрать ответ; один повтор на исправимое (§7, §14), затем как есть.
 
         Повтор получают: битый JSON, язык и длина (V07/V08) и блок по фактам
@@ -479,14 +493,28 @@ class ProcessAiReplyService:
         обычно просто взяла не то или не сослалась на факт. Раньше такой блок
         сразу уводил пациента к администратору фразой «уточню и вернусь».
         Запреты (V04) и чужая клиника (V09) не повторяются — это не опечатка.
+
+        Повтор прислал не JSON — остаётся вердикт первой попытки: в журнале
+        должна быть настоящая причина (код блока и предложенный текст), а не
+        «непарсибельный ответ». :class:`_UnparseableReplyError` — только когда не
+        разобралась ни одна попытка.
         """
         retried: list[str] = []
+        first: tuple[BotReply, Verdict] | None = None
         for attempt in range(2):
             try:
                 reply = parse_reply(raw_text)
             except ReplyParseError as exc:
                 if attempt == 1:
-                    return None, None
+                    if first is None:
+                        raise _UnparseableReplyError(raw_text) from exc
+                    first_reply, first_verdict = first
+                    if first_verdict.action is VerdictAction.REGENERATE:
+                        # Повтор не помог — по §7 дальше эскалация.
+                        first_verdict = Verdict(
+                            VerdictAction.ESCALATE, first_verdict.codes, first_verdict.notes
+                        )
+                    return first_reply, first_verdict
                 raw_text = await self._retry(
                     conversation.clinic_id,
                     system,
@@ -513,6 +541,7 @@ class ProcessAiReplyService:
                     verdict = replace(verdict, retried_codes=retried)
                 return reply, verdict
             retried = list(verdict.codes)
+            first = (reply, verdict)
             logger.info(
                 "ai_reply_regenerate",
                 conversation_id=str(conversation.id),
@@ -529,7 +558,7 @@ class ProcessAiReplyService:
             raw_text = await self._retry(
                 conversation.clinic_id, system, parts, raw_text, instruction
             )
-        return None, None
+        raise _UnparseableReplyError(raw_text)  # недостижимо: вторая попытка всегда возвращает
 
     async def _retry(
         self,
