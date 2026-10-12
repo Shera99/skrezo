@@ -5,15 +5,21 @@
 * интервалы полуоткрытые ``[start, end)`` — встык не считается пересечением;
 * свободное время = окно врача минус обед, отсутствия и занятые приёмы;
 * слот годится, если целиком помещается в свободный интервал.
+
+Эти функции — единственное место, где живут правила доступности: и подбор
+слотов одного врача на день (данные по запросу на врача), и пакетный подбор по
+многим врачам и дням (данные одним заходом), и рабочие минуты в отчётах
+считают их одними и теми же функциями.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from app.modules.schedule.domain.models import DoctorHours, TimeSpan, WorkingHours
+from app.modules.schedule.domain.models import DoctorHours, DoctorSlot, TimeSpan, WorkingHours
 
 # Длительность приёма, когда услуга не указана или у неё не задана длительность.
 DEFAULT_DURATION_MIN = 30
@@ -113,6 +119,48 @@ def subtract(base: Sequence[TimeSpan], busy: Iterable[TimeSpan]) -> list[TimeSpa
     return result
 
 
+def doctor_window(
+    hours: WorkingHours, individual: DoctorHours | None, day: date, tz: ZoneInfo
+) -> TimeSpan | None:
+    """Окно приёма врача на день = часы клиники ∩ график врача (если задан).
+
+    ``individual`` — график врача на этот день недели; ``None`` — своего графика
+    нет, и врач работает по часам клиники.
+    """
+    window = clinic_span(hours, day, tz)
+    if window is not None and individual is not None:
+        span = doctor_span(individual, day, tz)
+        window = intersect(window, span) if span is not None else None
+    return window
+
+
+def doctor_free_time(
+    hours: WorkingHours,
+    individual: DoctorHours | None,
+    day: date,
+    tz: ZoneInfo,
+    blocked: Iterable[TimeSpan],
+) -> list[TimeSpan]:
+    """Свободное время врача за день: окно минус обед клиники и ``blocked``.
+
+    Единое правило для всех потребителей — слотов одного врача на день,
+    пакетного подбора по многим врачам и дням и рабочих минут в отчётах.
+    ``blocked`` — отсутствия и занятые приёмы врача; интервалы, не задевающие
+    окно дня, ни на что не влияют, поэтому пакетный расчёт может передать всё
+    занятое за период, не разрезая его по дням. Границы результата — в
+    таймзоне клиники: из БД интервалы приходят в UTC.
+    """
+    window = doctor_window(hours, individual, day, tz)
+    if window is None:
+        return []
+    taken: list[TimeSpan] = []
+    lunch = break_span(hours, day, tz)
+    if lunch is not None:
+        taken.append(lunch)
+    taken.extend(blocked)
+    return subtract([window], [to_tz(span, tz) for span in taken])
+
+
 def _align_up(moment: datetime, step: timedelta) -> datetime:
     """Ближайшая точка сетки шага (от локальной полуночи) не раньше ``moment``."""
     midnight = moment.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -140,6 +188,26 @@ def slice_slots(
         while start + duration <= span.end:
             slots.append(TimeSpan(start, start + duration))
             start += step
+    return slots
+
+
+def doctor_slots(
+    free_by_doctor: Iterable[tuple[uuid.UUID, Sequence[TimeSpan]]], duration_min: int
+) -> list[DoctorSlot]:
+    """Сетка слотов дня по нескольким врачам — нарезка свободного времени каждого.
+
+    Порядок — по времени, а не по врачам: экран показывает «ближайшее
+    свободное», и порядок врачей в этом вопросе значения не имеет. Сортировка
+    устойчивая: при равном времени слоты идут в порядке ``free_by_doctor``.
+    """
+    duration = timedelta(minutes=duration_min)
+    step = timedelta(minutes=SLOT_STEP_MIN)
+    slots = [
+        DoctorSlot(span=span, doctor_membership_id=doctor)
+        for doctor, free in free_by_doctor
+        for span in slice_slots(free, duration=duration, step=step)
+    ]
+    slots.sort(key=lambda s: (s.span.start, s.span.end))
     return slots
 
 

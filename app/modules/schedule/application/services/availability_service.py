@@ -22,23 +22,24 @@ from app.modules.schedule.domain.availability import (
     clinic_span,
     day_bounds,
     default_working_hours,
-    doctor_span,
+    doctor_free_time,
+    doctor_window,
     fits_window,
-    intersect,
-    subtract,
-    to_tz,
 )
-from app.modules.schedule.domain.models import TimeSpan, WorkingHours
+from app.modules.schedule.domain.models import DoctorHours, TimeSpan, WorkingHours
 from app.modules.schedule.infrastructure.repositories.schedule_repository import ScheduleRepository
 from app.shared.db.models.clinic import DEFAULT_TIMEZONE
 
 
 @dataclass(frozen=True, slots=True)
 class DayContext:
-    """Разобранный день клиники: таймзона, часы, окно врача и обед."""
+    """Разобранный день клиники: таймзона, часы, график врача, его окно и обед."""
 
     tz: ZoneInfo
     hours: WorkingHours
+    #: График врача на этот день недели; ``None`` — работает по часам клиники
+    #: (или клиника в этот день закрыта, и график не поднимался).
+    individual: DoctorHours | None
     window: TimeSpan | None
     break_at: TimeSpan | None
 
@@ -77,32 +78,80 @@ class AvailabilityService:
     ) -> DayContext:
         """Окно приёма врача на день = часы клиники ∩ график врача (если задан)."""
         hours = await self.clinic_hours(clinic_id, day.weekday())
-        window = clinic_span(hours, day, tz)
-        if window is not None and membership_id is not None:
+        individual: DoctorHours | None = None
+        if membership_id is not None and clinic_span(hours, day, tz) is not None:
+            # График врача нужен, только если клиника в этот день работает.
             doctor_hours = await self._schedule.doctor_hours(clinic_id, membership_id)
             individual = doctor_hours.get(day.weekday())
-            if individual is not None:
-                span = doctor_span(individual, day, tz)
-                window = intersect(window, span) if span is not None else None
-        return DayContext(tz=tz, hours=hours, window=window, break_at=break_span(hours, day, tz))
+        return DayContext(
+            tz=tz,
+            hours=hours,
+            individual=individual,
+            window=doctor_window(hours, individual, day, tz),
+            break_at=break_span(hours, day, tz),
+        )
 
     async def free_spans(
         self, clinic_id: uuid.UUID, membership_id: uuid.UUID, day: date, tz: ZoneInfo
     ) -> list[TimeSpan]:
-        """Свободное время врача за день: окно минус обед, отсутствия и занятые приёмы."""
+        """Свободное время врача за день: окно минус обед, отсутствия и занятые приёмы.
+
+        Данные — запросами на этого врача и этот день; для многих врачей и дней
+        есть :meth:`free_spans_many` с тем же правилом расчёта.
+        """
         context = await self.day_context(clinic_id, membership_id, day, tz)
         if context.window is None:
             return []
-
-        blocked: list[TimeSpan] = []
-        if context.break_at is not None:
-            blocked.append(context.break_at)
         time_off = await self._schedule.time_off(clinic_id, [membership_id], day_bounds(day, tz))
-        blocked.extend(time_off.get(membership_id, []))
-        blocked.extend(await self._schedule.busy_spans(clinic_id, membership_id, context.window))
-        # Границы свободных интервалов наследуются от занятых, а те приходят из БД
-        # в UTC — нормализуем, чтобы слоты отдавались в таймзоне клиники.
-        return subtract([context.window], [to_tz(span, tz) for span in blocked])
+        busy = await self._schedule.busy_spans(clinic_id, membership_id, context.window)
+        return doctor_free_time(
+            context.hours,
+            context.individual,
+            day,
+            tz,
+            [*time_off.get(membership_id, []), *busy],
+        )
+
+    async def free_spans_many(
+        self,
+        clinic_id: uuid.UUID,
+        membership_ids: Sequence[uuid.UUID],
+        days: Sequence[date],
+        tz: ZoneInfo,
+    ) -> dict[date, dict[uuid.UUID, list[TimeSpan]]]:
+        """Свободное время каждого врача в каждый из ``days`` — четырьмя запросами.
+
+        То же правило, что у :meth:`free_spans` (:func:`doctor_free_time`), но
+        данные поднимаются заранее на весь период: часы клиники, графики всех
+        врачей, их отсутствия и занятость. Дальше — чистая арифметика в памяти,
+        без единого запроса в цикле: неделя на десяток врачей — не четыре сотни
+        запросов, а четыре.
+        """
+        if not membership_ids or not days:
+            return {day: {} for day in days}
+        configured = await self._schedule.working_hours(clinic_id)
+        individual_hours = await self._schedule.doctor_hours_many(clinic_id, membership_ids)
+        period = TimeSpan(day_bounds(min(days), tz).start, day_bounds(max(days), tz).end)
+        time_off = await self._schedule.time_off(clinic_id, membership_ids, period)
+        busy = await self._schedule.busy_spans_many(clinic_id, membership_ids, period)
+
+        result: dict[date, dict[uuid.UUID, list[TimeSpan]]] = {}
+        for day in days:
+            weekday = day.weekday()
+            hours = configured.get(weekday) or default_working_hours(weekday)
+            result[day] = {
+                membership_id: doctor_free_time(
+                    hours,
+                    individual_hours.get(membership_id, {}).get(weekday),
+                    day,
+                    tz,
+                    # Всё занятое за период: то, что не задевает окно дня,
+                    # на расчёт не влияет.
+                    [*time_off.get(membership_id, []), *busy.get(membership_id, [])],
+                )
+                for membership_id in membership_ids
+            }
+        return result
 
     async def working_minutes(
         self,
@@ -133,22 +182,16 @@ class AvailabilityService:
         while day <= date_to:
             weekday = day.weekday()
             hours = configured.get(weekday) or default_working_hours(weekday)
-            clinic_window = clinic_span(hours, day, tz)
-            if clinic_window is not None:
-                lunch = break_span(hours, day, tz)
+            if clinic_span(hours, day, tz) is not None:
                 for membership_id in membership_ids:
-                    window: TimeSpan | None = clinic_window
-                    individual = individual_hours.get(membership_id, {}).get(weekday)
-                    if individual is not None:
-                        span = doctor_span(individual, day, tz)
-                        window = intersect(clinic_window, span) if span is not None else None
-                    if window is None:
-                        continue
-                    blocked: list[TimeSpan] = [lunch] if lunch is not None else []
-                    blocked.extend(time_off.get(membership_id, []))
-                    result[membership_id] += sum(
-                        _minutes(span) for span in subtract([window], blocked)
+                    free = doctor_free_time(
+                        hours,
+                        individual_hours.get(membership_id, {}).get(weekday),
+                        day,
+                        tz,
+                        time_off.get(membership_id, []),
                     )
+                    result[membership_id] += sum(_minutes(span) for span in free)
             day += timedelta(days=1)
         return result
 

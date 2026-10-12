@@ -550,20 +550,23 @@ class BookingService:
         Прошедшее время свободным не считается: сегодня в 14:35 слоты на утро
         уже недоступны. Без врача и услуги ищем по всем врачам клиники — иначе
         правило подбора слотов («нужен врач или услуга») давало пустой список,
-        и бот говорил, что свободных дней нет.
+        и бот говорил, что свободных дней нет. Все дни считаются одним пакетным
+        подбором (:meth:`_starts_by_day`) — без запросов на каждую пару «врач × день».
         """
-        use_case = self._slots_use_case()
         tz = await self._clinic_tz(clinic_id)
         now = datetime.now(UTC)
-        not_before = earliest_bookable(now)
-        doctors = await self._doctors_to_search(clinic_id, doctor_membership_id, service_id)
+        first = max(date_from, now).astimezone(tz).date()
+        wanted = [first + timedelta(days=offset) for offset in range(min(days, 7))]
+        starts_by_day = await self._starts_by_day(
+            clinic_id,
+            wanted,
+            doctor_membership_id,
+            service_id,
+            not_before=earliest_bookable(now),
+        )
         result: list[dict[str, Any]] = []
-        day = max(date_from, now).astimezone(tz).date()
-        for offset in range(min(days, 7)):
-            current = day + timedelta(days=offset)
-            starts = await self._day_starts(
-                use_case, clinic_id, doctors, current, service_id, not_before=not_before
-            )
+        for current in wanted:
+            starts = starts_by_day.get(current)
             if starts:
                 result.append(
                     {
@@ -583,21 +586,15 @@ class BookingService:
         день, где есть свободное время, — сегодня, если успеваем, — и до
         ``limit`` самых ранних начал в нём. Пусто — свободного времени нет.
         """
-        use_case = self._slots_use_case()
         tz = await self._clinic_tz(clinic_id)
         now = datetime.now(UTC)
-        not_before = earliest_bookable(now)
-        doctors = await self._doctors_to_search(clinic_id, None, None)
         today = now.astimezone(tz).date()
-        for offset in range(days):
-            starts = await self._day_starts(
-                use_case,
-                clinic_id,
-                doctors,
-                today + timedelta(days=offset),
-                None,
-                not_before=not_before,
-            )
+        wanted = [today + timedelta(days=offset) for offset in range(days)]
+        starts_by_day = await self._starts_by_day(
+            clinic_id, wanted, None, None, not_before=earliest_bookable(now)
+        )
+        for current in wanted:
+            starts = starts_by_day.get(current)
             if starts:
                 return [start.astimezone(tz) for start in starts[:limit]]
         return []
@@ -612,46 +609,38 @@ class BookingService:
             ScheduleRepository(self._session), build_availability_service(self._session)
         )
 
-    async def _doctors_to_search(
+    async def _starts_by_day(
         self,
         clinic_id: uuid.UUID,
+        days: list[date],
         doctor_membership_id: uuid.UUID | None,
-        service_id: uuid.UUID | None,
-    ) -> list[uuid.UUID | None]:
-        """Кого перебирать: указанного врача, исполнителей услуги или всех врачей."""
-        if doctor_membership_id is not None or service_id is not None:
-            # Услугу без врача use-case подбирает сам — по её исполнителям.
-            return [doctor_membership_id]
-        rows = (
-            await self._session.execute(
-                select(Membership.id).where(
-                    Membership.clinic_id == clinic_id,
-                    Membership.active.is_(True),
-                    Membership.specialization_id.is_not(None),
-                )
-            )
-        ).scalars()
-        return list(rows)
-
-    @staticmethod
-    async def _day_starts(
-        use_case: Any,
-        clinic_id: uuid.UUID,
-        doctors: list[uuid.UUID | None],
-        day: date,
         service_id: uuid.UUID | None,
         *,
         not_before: datetime,
-    ) -> list[datetime]:
-        """Свободные начала приёма в день по всем ``doctors`` — не раньше ``not_before``."""
-        starts: set[datetime] = set()
-        for doctor_id in doctors:
-            try:
-                plan = await use_case.execute(clinic_id, doctor_id, day, service_id)
-            except AppError:
-                continue
-            starts.update(slot.span.start for slot in plan.slots if slot.span.start >= not_before)
-        return sorted(starts)
+    ) -> dict[date, list[datetime]]:
+        """Свободные начала приёма по дням (по возрастанию) — не раньше ``not_before``.
+
+        Кого смотреть: указанного врача, исполнителей услуги, а без того и
+        другого — всех врачей клиники. Начала разных врачей сливаются: пациенту
+        важно время, врача подберут при записи. Все дни — одним пакетным
+        подбором (``execute_days``): запросов на неделю десяти врачей столько же,
+        сколько на день одного. Чужой врач или услуга — свободного времени нет,
+        а не ошибка хода.
+        """
+        if not days:
+            return {}
+        try:
+            plans = await self._slots_use_case().execute_days(
+                clinic_id, doctor_membership_id, days, service_id, any_doctor=True
+            )
+        except AppError:
+            return {}
+        return {
+            plan.day: sorted(
+                {slot.span.start for slot in plan.slots if slot.span.start >= not_before}
+            )
+            for plan in plans
+        }
 
 
 def earliest_bookable(now: datetime) -> datetime:

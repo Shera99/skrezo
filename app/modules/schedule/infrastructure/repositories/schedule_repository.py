@@ -50,6 +50,23 @@ def _appointment_range() -> ColumnElement[object]:
     return func.appointment_tstzrange(Appointment.scheduled_at, Appointment.duration_min)
 
 
+def _occupying(clinic_id: uuid.UUID, span: TimeSpan) -> tuple[ColumnElement[bool], ...]:
+    """Условия «приём клиники занимает время врача внутри ``span``».
+
+    Общие для занятости одного врача и пакетной выборки по многим — правило
+    «что занимает слот» живёт в одном месте.
+    """
+    return (
+        Appointment.clinic_id == clinic_id,
+        Appointment.status != AppointmentStatus.CANCELLED,
+        # Черновик (дата пуста) слот не занимает: tstzrange(NULL, …) —
+        # безграничный диапазон, он пересёкся бы с любым запросом занятости
+        # и обнулил бы все свободные слоты врача.
+        Appointment.scheduled_at.is_not(None),
+        _appointment_range().op("&&")(func.tstzrange(span.start, span.end)),
+    )
+
+
 class ScheduleRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -267,6 +284,24 @@ class ScheduleRepository:
             for r in rows
         ]
 
+    async def practitioner_ids(self, clinic_id: uuid.UUID) -> list[uuid.UUID]:
+        """Все практикующие врачи клиники, по имени (как колонки календаря).
+
+        Врач = активное членство со специализацией — то же определение, что у
+        :meth:`is_doctor_in_clinic` и колонок «ленты дня».
+        """
+        rows = await self._session.execute(
+            select(Membership.id)
+            .join(Account, Account.id == Membership.account_id)
+            .where(
+                Membership.clinic_id == clinic_id,
+                Membership.active.is_(True),
+                Membership.specialization_id.is_not(None),
+            )
+            .order_by(Account.full_name)
+        )
+        return list(rows.scalars().all())
+
     async def doctors_for_service(
         self, clinic_id: uuid.UUID, service_id: uuid.UUID
     ) -> list[uuid.UUID]:
@@ -277,16 +312,6 @@ class ScheduleRepository:
         пересечение с практикующими: назначенный, но уволенный из клиники сюда
         не попадёт, хотя строка связи и осталась.
         """
-        practitioners = (
-            select(Membership.id)
-            .join(Account, Account.id == Membership.account_id)
-            .where(
-                Membership.clinic_id == clinic_id,
-                Membership.active.is_(True),
-                Membership.specialization_id.is_not(None),
-            )
-            .order_by(Account.full_name)
-        )
         assigned = set(
             (
                 await self._session.execute(
@@ -298,7 +323,7 @@ class ScheduleRepository:
             .scalars()
             .all()
         )
-        all_doctors = list((await self._session.execute(practitioners)).scalars().all())
+        all_doctors = await self.practitioner_ids(clinic_id)
         if not assigned:
             return all_doctors
         return [d for d in all_doctors if d in assigned]
@@ -493,19 +518,41 @@ class ScheduleRepository:
         Диапазонный предикат ловит и приём, начавшийся до ``span.start``.
         """
         stmt = select(Appointment.scheduled_at, Appointment.duration_min).where(
-            Appointment.clinic_id == clinic_id,
-            Appointment.doctor_membership_id == membership_id,
-            Appointment.status != AppointmentStatus.CANCELLED,
-            # Черновик (дата пуста) слот не занимает: tstzrange(NULL, …) —
-            # безграничный диапазон, он пересёкся бы с любым запросом занятости
-            # и обнулил бы все свободные слоты врача.
-            Appointment.scheduled_at.is_not(None),
-            _appointment_range().op("&&")(func.tstzrange(span.start, span.end)),
+            Appointment.doctor_membership_id == membership_id, *_occupying(clinic_id, span)
         )
         if exclude_appointment_id is not None:
             stmt = stmt.where(Appointment.id != exclude_appointment_id)
         rows = (await self._session.execute(stmt)).all()
         return [TimeSpan(start, start + timedelta(minutes=duration)) for start, duration in rows]
+
+    async def busy_spans_many(
+        self, clinic_id: uuid.UUID, membership_ids: Sequence[uuid.UUID], span: TimeSpan
+    ) -> dict[uuid.UUID, list[TimeSpan]]:
+        """Занятые интервалы перечисленных врачей, пересекающие ``span``, — одним запросом.
+
+        Те же правила занятости, что у :meth:`busy_spans`; для подбора слотов
+        по многим врачам и дням разом — без запроса на каждую пару «врач × день».
+        """
+        if not membership_ids:
+            return {}
+        rows = (
+            await self._session.execute(
+                select(
+                    Appointment.doctor_membership_id,
+                    Appointment.scheduled_at,
+                    Appointment.duration_min,
+                ).where(
+                    Appointment.doctor_membership_id.in_(membership_ids),
+                    *_occupying(clinic_id, span),
+                )
+            )
+        ).all()
+        result: dict[uuid.UUID, list[TimeSpan]] = {}
+        for membership_id, start, duration in rows:
+            result.setdefault(membership_id, []).append(
+                TimeSpan(start, start + timedelta(minutes=duration))
+            )
+        return result
 
     async def service_duration(
         self, clinic_id: uuid.UUID, service_id: uuid.UUID
