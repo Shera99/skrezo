@@ -7,6 +7,8 @@
   передача администратору;
 * цифры и «Доктор …» в названии своей клиники не превращают приветствие в
   эскалацию; повтор, приславший не JSON, не прячет настоящую причину блока;
+* передача человеку и шаблоны медфильтра шлют сигналы сокета — открытый чат
+  видит новый статус и сообщение без обновления экрана;
 * кыргызское сообщение переключает язык ответа и служебных шаблонов;
 * сильная зубная боль: ближайшее время + уведомление администратору, диалог
   остаётся у бота;
@@ -29,6 +31,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 
 from app.jobs.tasks import ai as ai_tasks
+from app.modules.ai.application import reply_service
 from app.shared.ai import AiResult, ToolCallRequest
 from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang
 from app.shared.db.models.ai_conversation import AiConversation
@@ -302,7 +305,93 @@ async def test_unparseable_retry_keeps_the_real_block_reason(
     assert message.sent_at is None  # заблокированный ответ пациенту не ушёл
 
 
-# ── 4. Язык по последнему сообщению ─────────────────────────────────────────
+# ── 3a. Сигналы сокета: открытый чат видит передачу и шаблоны ───────────────
+
+_Signals = list[tuple[str, dict[str, Any]]]
+
+
+@pytest.fixture
+def signals(monkeypatch: pytest.MonkeyPatch) -> _Signals:
+    """Сигналы, которые конвейер ответа отправил в шину (вместо pg_notify)."""
+    recorded: _Signals = []
+
+    async def _record(_session: Any, _clinic_id: Any, type_: str, payload: dict[str, Any]) -> None:
+        recorded.append((type_, payload))
+
+    monkeypatch.setattr(reply_service, "publish_realtime", _record)
+    return recorded
+
+
+async def test_escalation_signals_status_and_notice_to_open_screens(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    signals: _Signals,
+) -> None:
+    """Передача человеку: бейдж «у администратора» и «Уточню…» — без обновления экрана."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+
+    await _escalate(admin_client, ctx, fake, phone)
+
+    conversation_id = str((await _conversation(_resources, phone)).id)
+    assert signals == [
+        ("conversation.status", {"conversationId": conversation_id, "status": "escalated"}),
+        ("conversation.message", {"conversationId": conversation_id, "direction": "out"}),
+    ]
+
+
+async def test_urgent_signals_template_and_status(
+    admin_client: AsyncClient, ctx: Ctx, _resources: Resources, signals: _Signals
+) -> None:
+    """Неотложное: шаблон с телефоном клиники и смена статуса видны сразу."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+
+    body = await _simulate(admin_client, ctx, "Щека отекла и температура", phone)
+
+    assert body["outcome"] == "escalated"
+    conversation_id = str((await _conversation(_resources, phone)).id)
+    assert signals == [
+        ("conversation.message", {"conversationId": conversation_id, "direction": "out"}),
+        ("conversation.status", {"conversationId": conversation_id, "status": "escalated"}),
+    ]
+
+
+async def test_complaint_template_signals_message_only(
+    admin_client: AsyncClient, ctx: Ctx, _resources: Resources, signals: _Signals
+) -> None:
+    """Жалоба: шаблон ушёл пациенту, диалог остаётся у бота — статус не трогаем."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+
+    body = await _simulate(admin_client, ctx, "У меня болит зуб уже неделю", phone)
+
+    assert body["outcome"] == "sent"
+    conversation_id = str((await _conversation(_resources, phone)).id)
+    assert signals == [
+        ("conversation.message", {"conversationId": conversation_id, "direction": "out"}),
+    ]
+
+
+async def test_shadow_mode_escalation_signals_status_without_notice(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    signals: _Signals,
+) -> None:
+    """Теневой режим: пациенту ничего не пишем, но статус на экране меняется."""
+    await _set_mode(admin_client, ctx, "shadow")
+    phone = _patient()
+
+    await _escalate(admin_client, ctx, fake, phone)
+
+    conversation_id = str((await _conversation(_resources, phone)).id)
+    assert signals == [
+        ("conversation.status", {"conversationId": conversation_id, "status": "escalated"}),
+    ]
 
 
 async def test_kyrgyz_message_switches_reply_and_templates_language(

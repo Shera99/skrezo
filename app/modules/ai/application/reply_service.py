@@ -626,12 +626,7 @@ class ProcessAiReplyService:
             conversation, reply, verdict, model_name, sent_at, wa_message_id
         )
         if auto:
-            await publish_realtime(
-                self._session,
-                conversation.clinic_id,
-                "conversation.message",
-                {"conversationId": str(conversation.id), "direction": "out"},
-            )
+            await self._signal_message(conversation)
         await self._session.commit()
         return ReplyOutcome(
             status="sent" if auto else "shadow", message_id=message.id, reply=reply.reply
@@ -663,14 +658,35 @@ class ProcessAiReplyService:
             entity_id=conversation.id,
             payload={"messageId": message.id},
         )
+        await self._signal_message(conversation, "draft")
+        await self._session.commit()
+        return ReplyOutcome(status="draft", message_id=message.id, reply=reply.reply)
+
+    async def _signal_message(self, conversation: AiConversation, direction: str = "out") -> None:
+        """Сигнал открытым экранам клиники (Ф4): в диалоге новое сообщение.
+
+        Публикуется в текущей транзакции и уходит вместе с её ``commit()``.
+        """
         await publish_realtime(
             self._session,
             conversation.clinic_id,
             "conversation.message",
-            {"conversationId": str(conversation.id), "direction": "draft"},
+            {"conversationId": str(conversation.id), "direction": direction},
         )
-        await self._session.commit()
-        return ReplyOutcome(status="draft", message_id=message.id, reply=reply.reply)
+
+    async def _signal_status(self, conversation: AiConversation) -> None:
+        """Сигнал открытым экранам клиники (Ф4): статус диалога сменился.
+
+        Без него открытый чат показывал «ведёт бот», хотя диалог уже передан
+        администратору, — до ручного обновления экрана. ``inbox.new`` от
+        события ``ai.escalated`` приходит позже и про сам диалог не говорит.
+        """
+        await publish_realtime(
+            self._session,
+            conversation.clinic_id,
+            "conversation.status",
+            {"conversationId": str(conversation.id), "status": conversation.status.value},
+        )
 
     async def _blocked(
         self,
@@ -753,6 +769,7 @@ class ProcessAiReplyService:
             entity_id=conversation.id,
             payload={"reason": reason},
         )
+        await self._signal_status(conversation)
         if notify_patient and clinic.ai_mode is AiMode.AUTO:
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
             if binding is not None and binding.active:
@@ -772,6 +789,7 @@ class ProcessAiReplyService:
                         sent_at=now,
                     )
                     conversation.last_msg_at = now
+                    await self._signal_message(conversation)
                 except WhatsAppSendError as exc:
                     logger.warning("ai_escalation_notice_failed", error=str(exc))
         await self._session.commit()
@@ -913,6 +931,9 @@ class ProcessAiReplyService:
         )
         # Метка в журнале: этот ответ написал фильтр, а не модель.
         message.validator = {"passed": True, "codes": [], "notes": "medical_filter"}
+        if sent_at is not None:
+            # Как и ответ модели: на экран — только то, что ушло пациенту.
+            await self._signal_message(conversation)
         return sent_at is not None
 
     async def _urgent(
@@ -935,6 +956,7 @@ class ProcessAiReplyService:
             payload={"trigger": medical.label, "proposedMessageId": None},
         )
         conversation.status = AiConversationStatus.ESCALATED
+        await self._signal_status(conversation)
         await emit_event(
             self._session,
             clinic_id=conversation.clinic_id,

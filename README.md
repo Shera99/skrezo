@@ -1601,7 +1601,16 @@ TanStack Query и перечитывает REST, поэтому потерянн
 `appointment.updated {id,fields[]}` · `appointment.moved {id,date,time}` ·
 `appointment.deleted {id}` · `payment.created {appointmentId,amountTiyin}` ·
 `patient.updated {id}` (зарезервирован) · `inbox.new {priority}` ·
-`inbox.read {inboxId}` · `conversation.message {conversationId,direction}`.
+`inbox.read {inboxId}` · `conversation.message {conversationId,direction}`
+(`in` — пациент, `out` — ушло пациенту, `draft` — черновик бота) ·
+`conversation.status {conversationId,status[,autoReturned]}` ·
+`conversation.read {conversationId,unreadCount}`.
+
+Ассистент шлёт `conversation.message out` на всё, что ушло пациенту: ответ
+модели, шаблоны медфильтра и лимита, «Уточню у администратора». На передачу
+человеку (в т.ч. неотложное) — `conversation.status escalated`, в любом режиме,
+даже в теневом, где пациенту ничего не пишется. Открытый чат обновляется сразу,
+не дожидаясь `inbox.new` от события `ai.escalated`.
 
 **Защита (rate-limit).** На Redis, фиксированное окно, 429 `too_many_requests` с
 `retryAfter`: вход (`/auth/login`, по IP+телефон), смена пароля, выпуск кода
