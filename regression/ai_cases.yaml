@@ -646,3 +646,87 @@ cases:
     action: block
     code: V02
   note: UTC-час (03:30 вместо 09:30) — сдвиг на 6 часов не проходит
+- id: med-045
+  kind: medical
+  lang: ru
+  message: Щека отекла со вчерашнего дня
+  expect:
+    medical: urgent
+  note: отёк глаголом — «отекла», а не «отёк»
+- id: med-046
+  kind: medical
+  lang: ru
+  message: Лицо отекло после удаления
+  expect:
+    medical: urgent
+  note: отёк, средний род
+- id: med-047
+  kind: medical
+  lang: ru
+  message: Десна распухла
+  expect:
+    medical: urgent
+  note: «распухла» — в «опух» не входит, ловится отдельно
+- id: med-048
+  kind: medical
+  lang: ru
+  message: Всё распухло вокруг зуба
+  expect:
+    medical: urgent
+  note: отёк, средний род
+- id: med-049
+  kind: medical
+  lang: ru
+  message: Опухшая щека, что делать?
+  expect:
+    medical: urgent
+  note: отёк причастием
+- id: med-050
+  kind: medical
+  lang: ru
+  message: Кровит десна
+  expect:
+    medical: urgent
+  note: кровотечение глаголом «кровит»
+- id: med-051
+  kind: medical
+  lang: ru
+  message: Десна кровоточит третий день
+  expect:
+    medical: urgent
+  note: кровоточивость
+- id: med-052
+  kind: medical
+  lang: ru
+  message: Мне очень больно
+  expect:
+    medical: acute_pain
+  note: «очень больно» = «очень болит» — время сегодня + администратор
+- id: med-053
+  kind: medical
+  lang: ru
+  message: Очень больно, зуб
+  expect:
+    medical: acute_pain
+  note: сильная боль без «мне» — запятая, а не вопрос о процедуре
+- id: med-054
+  kind: medical
+  lang: ru
+  message: Сильно болеть будет после удаления?
+  expect:
+    medical: none
+  note: вопрос о процедуре — отвечает модель
+- id: med-055
+  kind: medical
+  lang: ru
+  message: Удаление прошло не очень больно, спасибо
+  expect:
+    medical: none
+  note: отрицание снимает усилитель — отзыв, а не сильная боль
+- id: med-056
+  kind: medical
+  lang: ru
+  message: Импланты отечественные или импортные?
+  expect:
+    medical: none
+  note: «отечественные» — не «отёчные»
