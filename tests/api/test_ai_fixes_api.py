@@ -593,8 +593,9 @@ async def test_today_slots_skip_past_hours_and_carry_time(
     now = datetime.now(UTC)
     result = call.result
     assert isinstance(result, dict)
-    if datetime.now(_BISHKEK).hour < 23:
-        # Клиника круглосуточная: до 23:00 на сегодня слоты обязаны быть.
+    if datetime.now(_BISHKEK).hour < 22:
+        # Клиника круглосуточная: до 22:00 на сегодня слоты обязаны быть. Позже
+        # отступ (30 мин) + округление + длительность (30 мин) упираются в 23:59.
         assert result["slots"], result
     for slot in result["slots"]:
         starts = datetime.fromisoformat(slot["slot"])
