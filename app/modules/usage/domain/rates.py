@@ -42,6 +42,10 @@ class UsageTotals:
     wa_authentication: int = 0
     wa_billable_other: int = 0
     wa_service_free: int = 0
+    #: Голосовой помощник приложения: обращения и токены (по ставкам модели).
+    voice_calls: int = 0
+    voice_input_tokens: int = 0
+    voice_output_tokens: int = 0
 
     def __add__(self, other: UsageTotals) -> UsageTotals:
         return UsageTotals(
@@ -56,10 +60,11 @@ def estimate_cost_tiyin(totals: UsageTotals, rates: RateCard) -> int:
     самой частой у клиники (напоминания) и потому наименее удивительной.
     """
     cached = min(totals.model_cached_tokens, totals.model_input_tokens)
+    # Голосовой помощник ходит в ту же модель — те же ставки, кэша у него нет.
     model = (
-        (totals.model_input_tokens - cached) * rates.ai_input_per_mtok
+        (totals.model_input_tokens - cached + totals.voice_input_tokens) * rates.ai_input_per_mtok
         + cached * rates.ai_cached_input_per_mtok
-        + totals.model_output_tokens * rates.ai_output_per_mtok
+        + (totals.model_output_tokens + totals.voice_output_tokens) * rates.ai_output_per_mtok
     ) // 1_000_000
     whatsapp = (
         totals.wa_utility * rates.wa_utility

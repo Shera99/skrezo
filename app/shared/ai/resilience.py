@@ -38,6 +38,68 @@ FAILURES_KEY = "ai:provider:failures"
 OPEN_KEY = "ai:provider:open"
 
 
+class CircuitBreaker:
+    """Предохранитель в Redis: N сбоев подряд размыкают цепь на T секунд.
+
+    Состояние общее для всех процессов (API и воркеров). Best-effort: без
+    Redis или при его сбое предохранителя просто нет — вызовы идут как обычно,
+    а не падают из-за него. У каждого контура свои ключи: сбой голосового
+    помощника не должен глушить ассистента пациентов, и наоборот.
+    """
+
+    def __init__(
+        self,
+        redis: Redis | None,
+        *,
+        failures_key: str,
+        open_key: str,
+        threshold: int,
+        open_seconds: int,
+        name: str = "ai",
+    ) -> None:
+        self._redis = redis
+        self._failures_key = failures_key
+        self._open_key = open_key
+        self._threshold = max(1, threshold)
+        self._open_seconds = open_seconds
+        self._name = name
+
+    async def is_open(self) -> bool:
+        if self._redis is None:
+            return False
+        try:
+            return bool(await self._redis.exists(self._open_key))
+        except RedisError as exc:
+            logger.warning("ai_breaker_redis_failed", breaker=self._name, error=str(exc))
+            return False
+
+    async def record_failure(self) -> None:
+        if self._redis is None:
+            return
+        try:
+            failures = int(await self._redis.incr(self._failures_key))
+            await self._redis.expire(self._failures_key, self._open_seconds * 2)
+            if failures >= self._threshold:
+                await self._redis.set(self._open_key, "1", ex=self._open_seconds)
+                await self._redis.delete(self._failures_key)
+                logger.error(
+                    "ai_breaker_opened",
+                    breaker=self._name,
+                    failures=failures,
+                    seconds=self._open_seconds,
+                )
+        except RedisError as exc:
+            logger.warning("ai_breaker_redis_failed", breaker=self._name, error=str(exc))
+
+    async def record_success(self) -> None:
+        if self._redis is None:
+            return
+        try:
+            await self._redis.delete(self._failures_key)
+        except RedisError as exc:
+            logger.warning("ai_breaker_redis_failed", breaker=self._name, error=str(exc))
+
+
 class ResilientProvider:
     """Обёртка над любым :class:`AiProvider`: повторы + предохранитель."""
 
@@ -53,11 +115,15 @@ class ResilientProvider:
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ) -> None:
         self._inner = inner
-        self._redis = redis
         self._retries = max(0, retries)
         self._backoff = backoff_seconds
-        self._threshold = max(1, breaker_threshold)
-        self._open_seconds = breaker_open_seconds
+        self._breaker = CircuitBreaker(
+            redis,
+            failures_key=FAILURES_KEY,
+            open_key=OPEN_KEY,
+            threshold=breaker_threshold,
+            open_seconds=breaker_open_seconds,
+        )
         self._sleep = sleep
         self.model_name = inner.model_name
 
@@ -99,31 +165,10 @@ class ResilientProvider:
     # ── Предохранитель (best-effort: сбой Redis его не роняет) ──────────────
 
     async def _is_open(self) -> bool:
-        if self._redis is None:
-            return False
-        try:
-            return bool(await self._redis.exists(OPEN_KEY))
-        except RedisError as exc:
-            logger.warning("ai_breaker_redis_failed", error=str(exc))
-            return False
+        return await self._breaker.is_open()
 
     async def _record_failure(self) -> None:
-        if self._redis is None:
-            return
-        try:
-            failures = int(await self._redis.incr(FAILURES_KEY))
-            await self._redis.expire(FAILURES_KEY, self._open_seconds * 2)
-            if failures >= self._threshold:
-                await self._redis.set(OPEN_KEY, "1", ex=self._open_seconds)
-                await self._redis.delete(FAILURES_KEY)
-                logger.error("ai_breaker_opened", failures=failures, seconds=self._open_seconds)
-        except RedisError as exc:
-            logger.warning("ai_breaker_redis_failed", error=str(exc))
+        await self._breaker.record_failure()
 
     async def _record_success(self) -> None:
-        if self._redis is None:
-            return
-        try:
-            await self._redis.delete(FAILURES_KEY)
-        except RedisError as exc:
-            logger.warning("ai_breaker_redis_failed", error=str(exc))
+        await self._breaker.record_success()

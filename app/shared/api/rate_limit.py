@@ -20,17 +20,52 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def enforce_rate_limit(redis: Redis, key: str, limit: int, window: int) -> None:
-    """Учесть попытку по ключу; бросить 429 при превышении лимита в окне."""
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window)
+async def enforce_rate_limit(
+    redis: Redis,
+    key: str,
+    limit: int,
+    window: int,
+    *,
+    code: str | None = None,
+    message: str = "Слишком много попыток, попробуйте позже",
+) -> None:
+    """Учесть попытку по ключу; бросить 429 при превышении лимита в окне.
+
+    Срок до сброса окна — и в теле (``retryAfter``), и в заголовке
+    ``Retry-After``: клиент показывает точное «через N секунд», а прокси и
+    HTTP-библиотеки понимают заголовок сами. ``code`` — свой машинный код
+    вместо общего ``too_many_requests`` (например, лимит ассистента).
+    """
+    count = await incr_window(redis, key, window)
     if count > limit:
         ttl = await redis.ttl(key)
-        raise TooManyRequestsError(
-            "Слишком много попыток, попробуйте позже",
-            extra={"retryAfter": ttl if ttl and ttl > 0 else window},
-        )
+        raise too_many_requests(ttl if ttl and ttl > 0 else window, code=code, message=message)
+
+
+async def incr_window(redis: Redis, key: str, window: int) -> int:
+    """Прибавить попытку в фиксированном окне; вернуть счётчик.
+
+    Окно заводится и увеличивается одной транзакцией (``SET NX EX`` + ``INCR``):
+    раньше ``INCR`` и ``EXPIRE`` шли двумя командами, и сбой между ними
+    оставлял ключ без срока — лимит переставал сбрасываться навсегда.
+    """
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.set(key, 0, ex=window, nx=True)
+        pipe.incr(key)
+        _, count = await pipe.execute()
+    return int(count)
+
+
+def too_many_requests(
+    retry_after: int, *, code: str | None = None, message: str = "Слишком много запросов"
+) -> TooManyRequestsError:
+    """429 со сроком повтора — и в теле (``retryAfter``), и в заголовке ``Retry-After``."""
+    return TooManyRequestsError(
+        message,
+        code=code,
+        extra={"retryAfter": retry_after},
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 def ip_rate_limit(*, scope: str, limit: int, window: int) -> Callable[..., Awaitable[None]]:

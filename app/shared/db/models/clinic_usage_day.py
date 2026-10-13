@@ -2,7 +2,8 @@
 
 Строка на клинику в день, счётчики только растут (UPSERT-инкремент). Месяц
 собирается суммой дней. Токены и вызовы модели — от ассистента и резюме
-диалогов; диалог с ассистентом считается один раз за всю жизнь (отметка
+диалогов (голосовой помощник приложения — своими счётчиками ``voice_*``);
+диалог с ассистентом считается один раз за всю жизнь (отметка
 ``ai_conversation.assistant_counted_at``); исходящие WhatsApp — по категориям
 платности из статусов Меты. Сумма в сомах здесь не хранится: её даёт
 прайс-лист из настроек, и она пересчитывается, когда меняются ставки.
@@ -32,6 +33,9 @@ USAGE_COUNTERS: tuple[str, ...] = (
     "wa_authentication",
     "wa_billable_other",
     "wa_service_free",
+    "voice_calls",
+    "voice_input_tokens",
+    "voice_output_tokens",
 )
 
 
@@ -60,6 +64,11 @@ class ClinicUsageDay(Base, UUIDPKMixin):
     wa_authentication: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     wa_billable_other: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     wa_service_free: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    #: Голосовой помощник приложения (``/clinic/llm/generate``) — отдельно от
+    #: ассистента пациентов: другой контур, другая цена вопроса для клиники.
+    voice_calls: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    voice_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    voice_output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

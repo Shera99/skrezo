@@ -13788,6 +13788,280 @@
           }
         ]
       }
+    },
+    "/api/v1/clinic/llm/generate": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Обращение голосового помощника к модели",
+        "description": "Прокси к Gemini для задач приложения: `voice_agent` и `voice_classify`.\n\nТело собирает приложение — задача и поля Gemini (`contents`,\n`systemInstruction`, `tools`, `generationConfig`). Распознавание речи —\nтолько на устройстве: сюда приходит текст, вложения отклоняются. Сервер\nпроверяет тело до обращения к Google, сам выбирает модель, ставит длину\nответа и «размышления», считает лимиты и токены на клинику. Ответ — JSON\nGemini как есть, без стриминга.\n\n**Цикл `voice_agent`.** У моделей Gemini 3 в части с `functionCall`\nприходит `thoughtSignature`: в следующем обращении ответ модели нужно\nположить в `contents` целиком, иначе Google отклонит запрос\n(`422 llm_request_rejected`).\n\n**Лимиты** — каждое обращение: 20 в минуту и 150 в час на сотрудника, 1500 в\nсутки на клинику (числа — в настройках сервера). **Таймаут** одного\nобращения: агент 4 с, классификатор 6 с; повторов нет. Доступ — любой\nсотрудник клиники; в режиме чтения подписки — `403 subscription_inactive`.\nТексты запросов и ответов не логируются и не хранятся.",
+        "operationId": "llm_generate_api_v1_clinic_llm_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "enum": [
+                      "voice_agent",
+                      "voice_classify"
+                    ],
+                    "title": "Task",
+                    "description": "Задача: `voice_agent` — голосовой помощник с инструментами (цикл до 3 обращений на вопрос), `voice_classify` — фраза → JSON без инструментов. От задачи зависят модель, таймаут и потолок ответа",
+                    "examples": [
+                      "voice_agent"
+                    ]
+                  },
+                  "contents": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "title": "Contents",
+                    "description": "Сообщения Gemini (`role` user|model, `parts`), до 12. Части — только `text`, `functionCall`, `functionResponse` (+ `thoughtSignature`). В цикле агента ответ модели кладётся сюда целиком, с `thoughtSignature`"
+                  },
+                  "systemInstruction": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Systeminstruction",
+                    "description": "Системная инструкция приложения: `parts` только с `text`"
+                  },
+                  "tools": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Tools",
+                    "description": "Только `functionDeclarations`, до 16 функций; у `voice_classify` не передаётся"
+                  },
+                  "generationConfig": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Generationconfig",
+                    "description": "Учитываются `responseMimeType`, `responseSchema`, `temperature`; длину ответа, число вариантов и «размышления» задаёт сервер",
+                    "examples": [
+                      {
+                        "responseMimeType": "application/json"
+                      }
+                    ]
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "task",
+                  "contents"
+                ],
+                "title": "LlmGenerateRequestDoc",
+                "description": "Запрос приложения: задача и поля Gemini, которые проходят насквозь.",
+                "examples": [
+                  {
+                    "contents": [
+                      {
+                        "parts": [
+                          {
+                            "text": "Сегодня 2026-10-11, время 09:40.\nВопрос врача: \"сколько сегодня записей\""
+                          }
+                        ],
+                        "role": "user"
+                      }
+                    ],
+                    "systemInstruction": {
+                      "parts": [
+                        {
+                          "text": "<системная инструкция приложения>"
+                        }
+                      ]
+                    },
+                    "task": "voice_agent",
+                    "tools": [
+                      {
+                        "functionDeclarations": [
+                          {
+                            "description": "Обзор дня врача",
+                            "name": "day_overview"
+                          },
+                          {
+                            "description": "Ближайший приём",
+                            "name": "next_appointment"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "contents": [
+                      {
+                        "parts": [
+                          {
+                            "text": "<промпт классификатора> \"пришёл\""
+                          }
+                        ]
+                      }
+                    ],
+                    "generationConfig": {
+                      "responseMimeType": "application/json"
+                    },
+                    "task": "voice_classify"
+                  }
+                ]
+              },
+              "examples": {
+                "voice_agent": {
+                  "summary": "Голосовой помощник",
+                  "value": {
+                    "task": "voice_agent",
+                    "contents": [
+                      {
+                        "role": "user",
+                        "parts": [
+                          {
+                            "text": "Сегодня 2026-10-11, время 09:40.\nВопрос врача: \"сколько сегодня записей\""
+                          }
+                        ]
+                      }
+                    ],
+                    "systemInstruction": {
+                      "parts": [
+                        {
+                          "text": "<системная инструкция приложения>"
+                        }
+                      ]
+                    },
+                    "tools": [
+                      {
+                        "functionDeclarations": [
+                          {
+                            "name": "day_overview",
+                            "description": "Обзор дня врача"
+                          },
+                          {
+                            "name": "next_appointment",
+                            "description": "Ближайший приём"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "voice_classify": {
+                  "summary": "Классификатор фразы",
+                  "value": {
+                    "task": "voice_classify",
+                    "contents": [
+                      {
+                        "parts": [
+                          {
+                            "text": "<промпт классификатора> \"пришёл\""
+                          }
+                        ]
+                      }
+                    ],
+                    "generationConfig": {
+                      "responseMimeType": "application/json"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Ответ Gemini как есть",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmGenerateResponseDoc"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Подписка клиники в режиме чтения (кончился триал или оплата) или сотрудника убрали из клиники (`membership_revoked`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "subscription_inactive",
+                  "message": "Подписка неактивна: доступно только чтение — продлите доступ"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Тело не по контракту (`llm_request_invalid`: задача, поля, части, инструменты, размер) или Google не принял тело (`llm_request_rejected`: чаще всего ответ модели в цикле пересобран без `thoughtSignature`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "llm_request_invalid",
+                  "message": "contents[0].parts[0]: недопустимые поля inlineData — разрешены functionCall, functionResponse, text, thought, thoughtSignature"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Лимит: наш (`llm_quota_exceeded` — 20 обращений в минуту и 150 в час на сотрудника, 1500 в сутки на клинику) или квота ключа у Google (`llm_upstream_busy`). `retryAfter` — через сколько секунд повторить; тот же срок в заголовке `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "description": "Через сколько секунд повторить",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "llm_quota_exceeded",
+                  "message": "Лимит запросов к ассистенту исчерпан",
+                  "retryAfter": 120
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Модель не ответила вовремя или недоступна (`llm_unavailable`), либо помощник не настроен на сервере (`llm_disabled`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "llm_unavailable",
+                  "message": "Ассистент временно недоступен, попробуйте позже"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -21451,6 +21725,77 @@
         ],
         "title": "LedgerResponse"
       },
+      "LlmGenerateResponseDoc": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Candidates",
+            "description": "Варианты ответа (всегда один): `content.parts` — текст или вызов функции"
+          },
+          "usageMetadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usagemetadata",
+            "description": "Токены запроса и ответа — сервер учитывает их на клинику"
+          },
+          "modelVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelversion",
+            "description": "Модель, выбранная сервером"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "candidates"
+        ],
+        "title": "LlmGenerateResponseDoc",
+        "description": "Ответ Gemini ``generateContent`` без изменений (поля ниже — главное).",
+        "examples": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "args": {},
+                        "name": "day_overview"
+                      },
+                      "thoughtSignature": "CiQBVKhc7…"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "modelVersion": "gemini-3.6-flash",
+            "usageMetadata": {
+              "candidatesTokenCount": 9,
+              "promptTokenCount": 812
+            }
+          }
+        ]
+      },
       "LoginRequest": {
         "properties": {
           "phone": {
@@ -28490,6 +28835,30 @@
             "examples": [
               375
             ]
+          },
+          "voiceCalls": {
+            "type": "integer",
+            "title": "Voicecalls",
+            "description": "Обращений голосового помощника приложения к модели (`/clinic/llm/generate`)",
+            "examples": [
+              96
+            ]
+          },
+          "voiceInputTokens": {
+            "type": "integer",
+            "title": "Voiceinputtokens",
+            "description": "Токенов запроса голосового помощника суммарно",
+            "examples": [
+              118000
+            ]
+          },
+          "voiceOutputTokens": {
+            "type": "integer",
+            "title": "Voiceoutputtokens",
+            "description": "Токенов ответа голосового помощника суммарно",
+            "examples": [
+              7400
+            ]
           }
         },
         "type": "object",
@@ -28504,7 +28873,10 @@
           "waMarketing",
           "waAuthentication",
           "waBillableOther",
-          "waServiceFree"
+          "waServiceFree",
+          "voiceCalls",
+          "voiceInputTokens",
+          "voiceOutputTokens"
         ],
         "title": "UsageTotalsOut",
         "description": "Счётчики за период: модель, ассистент, WhatsApp по категориям Меты.\n\nВсе значения — целые счётчики (штуки или токены) за весь запрошенный период.\nПлатные категории WhatsApp — те, что Мета выставляет в счёт; ответы в\nоткрытое окно 24 часов бесплатны и считаются отдельно."
@@ -29105,6 +29477,11 @@
       "x-displayName": "AI-ассистент"
     },
     {
+      "name": "llm",
+      "description": "`POST /clinic/llm/generate` — прокси к модели для задач мобильного приложения: голосовой помощник врача с инструментами (`voice_agent`) и классификатор фразы (`voice_classify`). Речь распознаётся на устройстве — сюда приходит только текст. Сервер проверяет тело, выбирает модель, считает лимиты (на сотрудника и клинику) и токены, держит свой предохранитель; ответ — JSON Gemini как есть. Тексты не логируются.",
+      "x-displayName": "Голосовой помощник"
+    },
+    {
       "name": "whatsapp",
       "description": "Канал WhatsApp Cloud API: вебхук Meta, диалоги пациентов с фильтрами «Ждут ответа» / «Нужен человек», счётчиками и отметкой прочитанного, поиск по переписке, ответы клиники (право `conversations.manage`), медиа и расшифровки голосовых, привязка номера из админки. Свободный текст — только в 24-часовое окно после сообщения пациента; дальше — одобренные шаблоны (те же, что у напоминаний). Не путать с OTP-каналами доставки кодов.",
       "x-displayName": "WhatsApp (переписка)"
@@ -29222,7 +29599,8 @@
         "subscription",
         "clinic-settings",
         "clinic-audit",
-        "push"
+        "push",
+        "llm"
       ]
     },
     {

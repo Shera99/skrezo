@@ -45,6 +45,7 @@ from app.modules.dashboard.presentation.routes import router as dashboard_router
 from app.modules.identity.presentation.routes import onboarding_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.jobs.presentation.routes import router as jobs_router
+from app.modules.llm.presentation.routes import router as llm_router
 from app.modules.patients.presentation.routes import router as patients_router
 from app.modules.payments.presentation.routes import router as payments_router
 from app.modules.push.presentation.routes import router as push_router
@@ -254,6 +255,18 @@ OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "llm",
+        "x-displayName": "Голосовой помощник",
+        "description": (
+            "`POST /clinic/llm/generate` — прокси к модели для задач мобильного "
+            "приложения: голосовой помощник врача с инструментами (`voice_agent`) и "
+            "классификатор фразы (`voice_classify`). Речь распознаётся на устройстве — "
+            "сюда приходит только текст. Сервер проверяет тело, выбирает модель, "
+            "считает лимиты (на сотрудника и клинику) и токены, держит свой "
+            "предохранитель; ответ — JSON Gemini как есть. Тексты не логируются."
+        ),
+    },
+    {
         "name": "whatsapp",
         "x-displayName": "WhatsApp (переписка)",
         "description": (
@@ -419,6 +432,7 @@ OPENAPI_TAG_GROUPS = [
             "clinic-settings",
             "clinic-audit",
             "push",
+            "llm",
         ],
     },
     {
@@ -485,6 +499,8 @@ def create_app() -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            # Срок повтора у 429 браузерный клиент видит и в заголовке.
+            expose_headers=["Retry-After"],
         )
 
     register_exception_handlers(app)
@@ -527,6 +543,7 @@ def create_app() -> FastAPI:
     app.include_router(whatsapp_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(usage_router, prefix=settings.api_v1_prefix)
     app.include_router(ai_router, prefix=settings.api_v1_prefix)
+    app.include_router(llm_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:
         """Схема OpenAPI с группами разделов ReDoc (``x-tagGroups``)."""

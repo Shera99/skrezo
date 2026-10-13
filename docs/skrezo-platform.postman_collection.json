@@ -6496,6 +6496,47 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "llm",
+          "item": [
+            {
+              "name": "Обращение голосового помощника к модели",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/llm/generate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "llm",
+                    "generate"
+                  ]
+                },
+                "description": "Прокси к Gemini для задач приложения: `voice_agent` и `voice_classify`.\n\nТело собирает приложение — задача и поля Gemini (`contents`,\n`systemInstruction`, `tools`, `generationConfig`). Распознавание речи —\nтолько на устройстве: сюда приходит текст, вложения отклоняются. Сервер\nпроверяет тело до обращения к Google, сам выбирает модель, ставит длину\nответа и «размышления», считает лимиты и токены на клинику. Ответ — JSON\nGemini как есть, без стриминга.\n\n**Цикл `voice_agent`.** У моделей Gemini 3 в части с `functionCall`\nприходит `thoughtSignature`: в следующем обращении ответ модели нужно\nположить в `contents` целиком, иначе Google отклонит запрос\n(`422 llm_request_rejected`).\n\n**Лимиты** — каждое обращение: 20 в минуту и 150 в час на сотрудника, 1500 в\nсутки на клинику (числа — в настройках сервера). **Таймаут** одного\nобращения: агент 4 с, классификатор 6 с; повторов нет. Доступ — любой\nсотрудник клиники; в режиме чтения подписки — `403 subscription_inactive`.\nТексты запросов и ответов не логируются и не хранятся.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Сегодня 2026-10-11, время 09:40.\\nВопрос врача: \\\"сколько сегодня записей\\\"\"\n        }\n      ],\n      \"role\": \"user\"\n    }\n  ],\n  \"systemInstruction\": {\n    \"parts\": [\n      {\n        \"text\": \"<системная инструкция приложения>\"\n      }\n    ]\n  },\n  \"task\": \"voice_agent\",\n  \"tools\": [\n    {\n      \"functionDeclarations\": [\n        {\n          \"description\": \"Обзор дня врача\",\n          \"name\": \"day_overview\"\n        },\n        {\n          \"description\": \"Ближайший приём\",\n          \"name\": \"next_appointment\"\n        }\n      ]\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },

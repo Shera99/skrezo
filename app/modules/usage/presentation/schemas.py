@@ -52,6 +52,16 @@ class UsageTotalsOut(CamelModel):
     wa_service_free: int = Field(
         description="Бесплатных: ответы пациенту в открытое окно 24 часов", examples=[375]
     )
+    voice_calls: int = Field(
+        description="Обращений голосового помощника приложения к модели (`/clinic/llm/generate`)",
+        examples=[96],
+    )
+    voice_input_tokens: int = Field(
+        description="Токенов запроса голосового помощника суммарно", examples=[118_000]
+    )
+    voice_output_tokens: int = Field(
+        description="Токенов ответа голосового помощника суммарно", examples=[7_400]
+    )
 
     @classmethod
     def from_totals(cls, t: UsageTotals) -> UsageTotalsOut:

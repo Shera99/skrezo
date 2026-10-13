@@ -45,6 +45,17 @@ class UsageMeter:
             model_cached_tokens=int(usage.get("cached") or 0),
         )
 
+    async def voice_call(self, clinic_id: uuid.UUID, usage: Mapping[str, int] | None) -> None:
+        """Одно обращение голосового помощника приложения: токены запроса и ответа."""
+        usage = usage or {}
+        await self._repository.add(
+            clinic_id,
+            self._today(),
+            voice_calls=1,
+            voice_input_tokens=int(usage.get("input") or 0),
+            voice_output_tokens=int(usage.get("output") or 0),
+        )
+
     async def assistant_reply(self, conversation: AiConversation) -> None:
         """Ответ ассистента (отправленный, черновик или теневой) и диалог — один раз."""
         dialogs = 0

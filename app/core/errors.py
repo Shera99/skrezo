@@ -35,11 +35,14 @@ class AppError(Exception):
         code: str | None = None,
         status_code: int | None = None,
         extra: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.message = message or self.message
         self.code = code or self.code
         self.status_code = status_code or self.status_code
         self.extra = extra or {}
+        #: HTTP-заголовки ответа (например, ``Retry-After`` у 429).
+        self.headers = headers or {}
         super().__init__(self.message)
 
     def to_body(self) -> dict[str, Any]:
@@ -94,6 +97,18 @@ class TooManyRequestsError(AppError):
     message = "Слишком много запросов"
 
 
+class ServiceUnavailableError(AppError):
+    """Временная недоступность своей зависимости (модель не ответила, выключена).
+
+    503, а не 502: клиенту это сигнал «повторите позже», и так же его читают
+    прокси и мобильные клиенты.
+    """
+
+    code = "service_unavailable"
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    message = "Сервис временно недоступен, попробуйте позже"
+
+
 class UpstreamError(AppError):
     """Отказал внешний провайдер (доставка OTP, платёжный шлюз).
 
@@ -111,7 +126,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=exc.to_body())
+        return JSONResponse(
+            status_code=exc.status_code, content=exc.to_body(), headers=exc.headers or None
+        )
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

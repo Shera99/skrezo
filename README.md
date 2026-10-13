@@ -154,6 +154,13 @@ make run           # uvicorn с автоперезагрузкой
 | `DATA_ENCRYPTION_KEY` | ключ Fernet для секретов в БД (токены Meta клиник); несколько через запятую — ротация, шифрует первый | — |
 | `AI_PROVIDER` | провайдер ассистента: `off` \| `gemini` | `off` |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | ключ Google AI Studio и модель | — / `gemini-3.6-flash` |
+| `GEMINI_APP_API_KEY` | ключ голосового помощника приложения (`/clinic/llm/generate`); пусто — `GEMINI_API_KEY`, но только при `AI_PROVIDER=gemini` (`off` выключает и помощника). Ключ из отдельного проекта Google разводит квоты с ассистентом пациентов | — |
+| `LLM_APP_MODEL_AGENT` / `LLM_APP_MODEL_CLASSIFY` | модели задач `voice_agent` / `voice_classify`; пусто — `GEMINI_MODEL` | — |
+| `LLM_APP_TIMEOUT_AGENT_SECONDS` / `LLM_APP_TIMEOUT_CLASSIFY_SECONDS` | таймаут одного обращения | `4` / `6` |
+| `LLM_APP_MAX_OUTPUT_TOKENS_AGENT` / `LLM_APP_MAX_OUTPUT_TOKENS_CLASSIFY` | потолок ответа модели | `512` / `128` |
+| `LLM_APP_LIMIT_PER_MINUTE` / `LLM_APP_LIMIT_PER_HOUR` | лимит обращений сотрудника | `20` / `150` |
+| `LLM_APP_CLINIC_LIMIT_PER_DAY` | лимит обращений клиники в сутки | `1500` |
+| `LLM_APP_MAX_BODY_BYTES` | потолок тела запроса | `65536` |
 | `AI_TEMPERATURE` / `AI_MAX_TOKENS` / `AI_MAX_TOOL_CALLS` | параметры фактических ответов | `0.2` / `1024` / `6` |
 | `AI_RATE_LIMIT_PER_HOUR` | §14: сообщений в час от одного пациента, дальше — человек | `30` |
 | `AI_ESCALATION_RETURN_MINUTES` | §8.4: через сколько минут без ответа сотрудника диалог возвращается боту (если пациент написал после передачи); `0` — не возвращать | `15` |
@@ -950,6 +957,38 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `POST` | `/clinic/devices` | Зарегистрировать/обновить токен устройства (звать при входе и каждом запуске) |
 | `DELETE` | `/clinic/devices/{token}` | Снять токен — **обязательно при выходе из аккаунта** (общий планшет ресепшена) |
 | `PUT` | `/clinic/notifications/prefs` | Отключённые типы и тихие часы (по времени клиники) |
+
+**Голосовой помощник приложения: `POST /clinic/llm/generate`.** Прокси к
+Gemini для двух задач мобильного приложения: `voice_agent` (помощник врача с
+инструментами, цикл до 3 обращений на вопрос) и `voice_classify` (фраза → JSON).
+Речь распознаётся на устройстве, сюда приходит только текст. Тело собирает
+приложение — `task` и поля Gemini (`contents`, `systemInstruction`, `tools`,
+`generationConfig`), — а сервер проверяет его **до** Google: две задачи, только
+текст/вызов функции/результат (`inlineData` — 422), только
+`functionDeclarations` (до 16), до 12 сообщений и 64 КБ; иначе
+`422 llm_request_invalid`. Модель (`LLM_APP_MODEL_AGENT/CLASSIFY`), длину ответа
+и «размышления» ставит сервер; ответ — JSON Gemini как есть, без стриминга. В
+цикле агента ответ модели кладётся в `contents` целиком — с `thoughtSignature`
+Gemini 3, иначе Google отклоняет запрос (`422 llm_request_rejected`).
+
+> **Лимиты** (каждое обращение): 20 в минуту и 150 в час на сотрудника, 1500 в
+> сутки на клинику → `429 llm_quota_exceeded`; квота ключа у Google →
+> `429 llm_upstream_busy`; у обоих `retryAfter` в теле и заголовок
+> `Retry-After`. Таймаут одного обращения — 4 с (агент) и 6 с (классификатор),
+> повторов нет; сбой, таймаут или отказ настройки (ключ, биллинг, регион) —
+> `503 llm_unavailable`, серия таких сбоев размыкает **свой** предохранитель
+> (ассистента пациентов не глушит); неверное тело (`422 llm_request_rejected`)
+> и квота Google (`429`) предохранитель не трогают; нет ключа —
+> `503 llm_disabled`. Доступ — любой сотрудник клиники; режим чтения подписки —
+> `403 subscription_inactive`. Ключ — `GEMINI_APP_API_KEY` (пусто — общий
+> `GEMINI_API_KEY`, но только при `AI_PROVIDER=gemini`). Токены — в дневной учёт клиники отдельными счётчиками
+> `voiceCalls` / `voiceInputTokens` / `voiceOutputTokens`, смета — по ставкам
+> модели. Тексты запросов и ответов не логируются и не хранятся. ⚠️ До реальных
+> клиник ключ — платный: фраза врача и результаты инструментов уходят в Google.
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `POST` | `/clinic/llm/generate` | Обращение голосового помощника к модели (`voice_agent` / `voice_classify`): тело Gemini насквозь, ответ Gemini как есть |
 
 **WhatsApp-канал (Ф1): переписка с пациентами.** Официальный Cloud API Meta —
 не путать с OTP-каналами доставки кодов. Вебхук отвечает 200 мгновенно,
