@@ -143,7 +143,9 @@ async def test_sent_draft_becomes_reply_case_and_model_run_scores_it(
     _resources: Resources,
 ) -> None:
     await _set_mode(admin_client, ctx, "assisted")
-    fake.script = [AiResult(text=_reply_json("Уточню у администратора и напишу."))]
+    # Черновик без «уточню у администратора»: такая фраза без needs_human — уже
+    # передача человеку (V06), а здесь нужен черновик, который правит сотрудник.
+    fake.script = [AiResult(text=_reply_json("Про парковку подскажу чуть позже."))]
     body = await _simulate(admin_client, ctx, PARKING, "+996700400530")
     assert body["outcome"] == "draft", body
     async with _resources.factory() as session:

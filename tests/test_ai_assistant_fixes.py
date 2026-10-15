@@ -207,11 +207,39 @@ def test_unknown_doctor_next_to_own_clinic_name_is_still_v03() -> None:
     assert validate(reply, None, facts).codes == ["V03"]
 
 
-def test_foreign_clinic_next_to_own_clinic_name_is_still_v09() -> None:
-    facts = TurnFacts.build([], [], ["Дентал"], own_clinic="Дентал Плюс")
-    reply = _reply("Мы — «Дентал Плюс», а не «Дентал» на соседней улице.")
+def test_foreign_clinic_next_to_own_clinic_name_is_a_signal() -> None:
+    """Чужое название из своих слов («Дентал» у «Дентал Плюс») не ищется, настоящее — да."""
+    facts = TurnFacts.build([], [], ["Дентал", "Стоматология Аврора"], own_clinic="Дентал Плюс")
+    reply = _reply("Мы — «Дентал Плюс», а не «Стоматология Аврора» на соседней улице.")
 
-    assert validate(reply, None, facts).codes == ["V09"]
+    verdict = validate(reply, None, facts)
+
+    assert verdict.action is VerdictAction.PASS
+    assert list(verdict.signals) == ["V09"]
+    assert "стоматология аврора" in verdict.signals["V09"]
+    assert "дентал'" not in verdict.signals["V09"]
+
+
+def test_own_doctor_named_like_other_clinic_is_not_v09() -> None:
+    """Инцидент 13.10: врач «Aibek» своей клиники и чужая клиника «Aibek»."""
+    facts = TurnFacts.build(["13:00"], ["Aibek"], ["Aibek"])
+    reply = _reply("Отправил кнопку: консультация к врачу Aibek сегодня в 13:00.", facts=["s"])
+
+    verdict = validate(reply, "ru", facts)
+
+    assert verdict.action is VerdictAction.PASS
+    assert verdict.signals == {}
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["Ждём вас с улыбкой!", "Улыбки вам!", "Это smile-friendly клиника."],
+)
+def test_foreign_clinic_is_matched_as_whole_words(reply: str) -> None:
+    """«Улыбка» не находится в «улыбкой», «Smile» — в «smile-friendly» как часть слова."""
+    facts = TurnFacts.build([], [], ["Улыбка", "Smile Friendly Dent"])
+
+    assert validate(_reply(reply), None, facts).signals == {}
 
 
 # ── Язык по последнему сообщению ────────────────────────────────────────────
@@ -399,15 +427,16 @@ def test_fact_blocks_are_fixable() -> None:
     assert not _fixable(Verdict(VerdictAction.ESCALATE, ["V06"]))
 
 
-def test_foreign_clinic_wins_over_invented_price_and_is_not_retried() -> None:
-    """Выдуманная цена рядом с чужой клиникой — V09, а не V01: утечку не прячет повтор."""
+def test_invented_price_next_to_foreign_clinic_is_v01_with_v09_signal() -> None:
+    """Выдуманная цена — блок V01 с повтором; чужая клиника рядом — сигнал, не потерянный."""
     facts = TurnFacts.build(["Чистка — 2 500 сом"], [], ["Стоматология Аврора"])
     reply = _reply("В «Стоматология Аврора» чистка за 9 900 сом.", facts=["s"])
 
     verdict = validate(reply, "ru", facts)
 
-    assert verdict.codes == ["V09"]
-    assert not _fixable(verdict)
+    assert verdict.codes == ["V01"]
+    assert _fixable(verdict)
+    assert "V09" in verdict.signals
 
 
 def test_forbidden_promise_wins_over_invented_price() -> None:
@@ -429,3 +458,22 @@ def test_fix_instruction_names_the_problem() -> None:
     assert "['09:30']" in instruction
     assert "поля time" in instruction
     assert instruction.endswith("Верни строго один JSON.")
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Уточню у администратора и вернусь с ответом.", "Администратордон тактап, жооп берем."],
+)
+def test_handoff_promise_without_needs_human_escalates(text: str) -> None:
+    """Модель видит «уточню у администратора» в истории и может повторить его без needs_human.
+
+    Тогда пациент ждал бы человека, которого никто не позвал: такой ответ — передача (V06).
+    """
+    verdict = validate(_reply(text), None, TurnFacts.build([], []))
+
+    assert verdict.action is VerdictAction.ESCALATE
+    assert verdict.codes == ["V06"]
+
+
+def test_advice_to_ask_admin_is_not_a_handoff_promise() -> None:
+    assert validate(_reply("Цену уточните у администратора на месте."), None).codes == []

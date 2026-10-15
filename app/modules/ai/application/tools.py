@@ -42,8 +42,11 @@ from app.modules.schedule.application.use_cases.get_slots import GetSlotsUseCase
 from app.modules.schedule.infrastructure.repositories.schedule_repository import (
     ScheduleRepository,
 )
+from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
+    WhatsAppRepository,
+)
 from app.shared.ai import AiToolDecl
-from app.shared.db.enums import AppointmentStatus, Lang
+from app.shared.db.enums import AiMessageRole, AppointmentStatus, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.appointment import Appointment
@@ -52,6 +55,7 @@ from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.service import Service
 from app.shared.db.models.specialization_translation import SpecializationTranslation
+from app.shared.realtime import publish_realtime
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
 
 #: Декларации для модели. Описания — на русском: их читает модель, не пациент.
@@ -128,7 +132,8 @@ TOOL_DECLS: list[AiToolDecl] = [
             "Зарезервировать выбранный слот на 10 минут и отправить пациенту "
             "кнопку подтверждения. startsAt — ровно из выдачи "
             "get_available_slots. Запись создаётся ТОЛЬКО после кнопки — "
-            "не обещай, что уже записал."
+            "не обещай, что уже записал. Если у пациента уже есть запись в тот же "
+            "или соседний день, инструмент вернёт existingAppointments вместо кнопки."
         ),
         parameters={
             "type": "object",
@@ -136,6 +141,13 @@ TOOL_DECLS: list[AiToolDecl] = [
                 "doctorId": {"type": "string"},
                 "startsAt": {"type": "string", "description": "ISO из get_available_slots"},
                 "serviceId": {"type": "string"},
+                "secondBooking": {
+                    "type": "boolean",
+                    "description": (
+                        "true — пациент СВОИМ сообщением подтвердил, что нужна ЕЩЁ одна "
+                        "запись при уже существующей (existingAppointments)"
+                    ),
+                },
             },
             "required": ["doctorId", "startsAt"],
         },
@@ -218,6 +230,9 @@ class ToolContext:
     binding_phone_number_id: str | None
     #: Действующие уровни умений (Ф7): off | shadow | assisted | auto.
     skills: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SKILLS))
+    #: В этом ходу модель уже получила existingAppointments: ``secondBooking``
+    #: до нового сообщения пациента не принимается (см. ``_existing_visits``).
+    existing_shown: bool = False
 
     @property
     def clinic_id(self) -> uuid.UUID:
@@ -234,6 +249,20 @@ _BUTTON_TEXTS: dict[str, tuple[str, str]] = {
     HOLD_RESCHEDULE: ("reschedule_button", "reschedule_title"),
     HOLD_CANCEL: ("cancel_button", "cancel_title"),
 }
+
+#: Инструменты, которые отправляют пациенту кнопку подтверждения, и вид кнопки.
+BUTTON_TOOLS: dict[str, str] = {
+    "propose_appointment": HOLD_BOOK,
+    "propose_reschedule": HOLD_RESCHEDULE,
+    "propose_cancel": HOLD_CANCEL,
+}
+
+
+def button_title(tool: str, lang: str) -> str:
+    """Подпись кнопки, которую отправил инструмент: «Подтвердить», «Перенести»…"""
+    _, title_key = _BUTTON_TEXTS[BUTTON_TOOLS.get(tool, HOLD_BOOK)]
+    return booking_text(title_key, lang)
+
 
 #: Что можно звать в сухом прогоне регрессии — ничего не меняет в базе.
 _READ_ONLY_TOOLS = frozenset(
@@ -446,6 +475,9 @@ class ToolExecutor:
         past = self._past_time_error(context, starts_at)
         if past is not None:
             return past
+        existing = await self._existing_visits(context, booking, args, starts_at)
+        if existing is not None:
+            return existing
         result = await booking.propose(
             context.conversation,
             doctor_membership_id=uuid.UUID(str(args["doctorId"])),
@@ -461,6 +493,72 @@ class ToolExecutor:
             "startsAt": starts_at.astimezone(self._clinic_tz(context)).isoformat(),
         }
         return {**card, "buttonSent": button_sent, **self._handoff(context, "booking", card)}
+
+    async def _existing_visits(
+        self,
+        context: ToolContext,
+        booking: BookingService,
+        args: dict[str, Any],
+        starts_at: datetime,
+    ) -> dict[str, Any] | None:
+        """Запись пациента рядом с новой — вместо второй кнопки, пока он не сказал «да».
+
+        Инцидент 13.10.2026: пациент записан на 13:00, пишет «хотел записаться»,
+        и бот молча отправил вторую кнопку — на 13:30. Модель могла не знать о
+        записи (подтверждение кнопкой она не видела), поэтому проверка здесь, а
+        не в промпте.
+
+        Мешает только запись в тот же или соседний день: плановый визит через
+        месяц не повод спрашивать человека с болью «оставить или перенести» —
+        «перенести» он поймёт как «принять раньше» и потеряет плановый визит.
+
+        ``secondBooking=true`` — пациент подтвердил, что нужна ещё одна запись.
+        В том же ходу, где модель только что узнала о записи, флаг не
+        принимается: согласие пациента — это его новое сообщение, а не
+        «исправление» модели повторным вызовом.
+        """
+        patient_id = context.conversation.patient_id
+        if patient_id is None:
+            return None
+        if args.get("secondBooking") is True:
+            if context.existing_shown:
+                return {
+                    "error": (
+                        "secondBooking — только после ответа пациента. Сначала назови "
+                        "ему существующую запись и спроси, нужна ли ещё одна."
+                    )
+                }
+            return None
+        tz = self._clinic_tz(context)
+        day = starts_at.astimezone(tz).date()
+        visits = [
+            visit
+            for visit in await booking.upcoming_visits(context.clinic_id, patient_id)
+            if abs((visit.starts_at.date() - day).days) <= 1
+        ]
+        if not visits:
+            return None
+        context.existing_shown = True
+        return {
+            "error": (
+                "У пациента уже есть запись рядом с этим временем — вторую кнопку не "
+                "отправляй молча. Назови пациенту его запись и спроси: оставить её, "
+                "перенести (propose_reschedule) или нужна ещё одна. Ещё одна — только "
+                "после ответа пациента: тогда propose_appointment с secondBooking=true."
+            ),
+            "existingAppointments": [
+                {
+                    "appointmentId": str(visit.appointment_id),
+                    "startsAt": visit.starts_at.isoformat(),
+                    "date": visit.starts_at.strftime("%d.%m"),
+                    "time": visit.starts_at.strftime("%H:%M"),
+                    "doctorName": visit.doctor_name,
+                    "service": visit.service_name,
+                    "fact": f"appointment:{visit.appointment_id}",
+                }
+                for visit in visits
+            ],
+        }
 
     async def _propose_change(
         self, context: ToolContext, args: dict[str, Any], *, kind: str
@@ -521,6 +619,11 @@ class ToolExecutor:
 
         В shadow/assisted пациент бота не видит; при потолке умения assisted
         (Ф7) кнопку заменяет эскалация — запись подтверждает администратор.
+
+        Сообщение с кнопкой пишется в переписку (инцидент 13.10.2026): без него
+        администратор видел в чате «Подтвердить» пациента из ниоткуда, а модель
+        на следующем ходу не знала, что запись уже предложена, — и предлагала её
+        заново. Галочки доставки тоже находят эту строку по ``wa_message_id``.
         """
         skill = "booking" if kind == HOLD_BOOK else "changes"
         if context.skills.get(skill, "auto") != "auto" or context.binding_phone_number_id is None:
@@ -531,12 +634,27 @@ class ToolExecutor:
             summary=result.card.get("service") or "Приём",
             when=when.astimezone(self._clinic_tz(context)).strftime("%d.%m %H:%M"),
         )
-        await context.wa_client.send_confirm_button(
+        sent = await context.wa_client.send_confirm_button(
             context.binding_phone_number_id,
             context.conversation.wa_phone,
             body,
             result.confirmation_id,
             booking_text(title_key, lang),
+        )
+        now = datetime.now(UTC)
+        await WhatsAppRepository(self._session).add_message(
+            context.conversation,
+            role=AiMessageRole.SYSTEM,
+            body=body,
+            wa_message_id=sent.wa_message_id,
+            sent_at=now,
+        )
+        context.conversation.last_msg_at = now
+        await publish_realtime(
+            self._session,
+            context.clinic_id,
+            "conversation.message",
+            {"conversationId": str(context.conversation.id), "direction": "out"},
         )
         return True
 

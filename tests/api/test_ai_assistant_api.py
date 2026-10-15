@@ -45,7 +45,6 @@ from tests.api.conftest import (
     Ctx,
     _FakeProvider,
     _patch_job,
-    _phone,
     _reply_json,
     _set_mode,
     _simulate,
@@ -1171,7 +1170,7 @@ async def test_silence_of_busy_clinic_is_flagged(
     assert ctx.clinic_id in report.silent_clinics
 
 
-# ── 12. Идентификация пациента (§6.5) и V09 ─────────────────────────────────
+# ── 12. Идентификация пациента (§6.5) ─────────────────────────────────
 
 
 async def test_new_patient_card_is_marked_as_assistant(
@@ -1269,29 +1268,3 @@ async def test_same_name_returns_possible_duplicate(
     result = _tool_result(fake.calls[1]["parts"], "create_patient")
     assert result["possibleDuplicate"] is True
     assert result["existing"] is False  # карточки бот не объединяет
-
-
-async def test_other_clinic_mention_is_blocked(
-    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
-) -> None:
-    """V09: упоминание чужой клиники не уходит пациенту."""
-    city = (await admin_client.get(f"{API}/admin/refs/cities")).json()[0]["id"]
-    other = await admin_client.post(
-        f"{API}/admin/clients",
-        json={
-            "type": "clinic",
-            "adminFullName": "Чужой Владелец",
-            "adminPhone": _phone(),
-            "name": "Стоматология Аврора",
-            "cityId": city,
-            "businessPhone": "0700000001",
-            "seats": 3,
-        },
-    )
-    assert other.status_code == 201, other.text
-
-    await _set_mode(admin_client, ctx, "auto")
-    fake.script = [AiResult(text=_reply_json("Попробуйте Стоматология Аврора, там дешевле."))]
-    body = await _simulate(admin_client, ctx, "А где ещё лечат?", "+996700200084")
-    assert body["outcome"] == "escalated"
-    assert body["escalationReason"] == "validator_blocked"

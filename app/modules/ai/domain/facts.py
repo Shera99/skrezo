@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 
 #: Пробел-разделитель тысяч («2 500», в т.ч. неразрывный) — часть записи числа.
 #: Ровно три цифры после пробела обязательны: иначе «04 10:00» склеивалось бы
@@ -34,6 +35,10 @@ _DOT_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?\b")
 #: Без ключевого слова имён не ищем — иначе любое слово с большой буквы
 #: (город, название клиники, «Здравствуйте») стало бы «именем врача».
 _DOCTOR_MENTION = re.compile(r"(?i:врач|доктор|дарыгер)\w*\s+((?:[А-ЯЁ][а-яё]+\s*){1,3})")
+
+#: Слово названия — буквы и цифры подряд: кавычки, дефисы и пробелы между
+#: словами в названии клиники и в ответе модели бывают любыми.
+_WORD = re.compile(r"\w+")
 
 #: Числа короче трёх цифр на цену не похожи («40 минут», «2 зуба») — не проверяем.
 _PRICE_LIKE_MIN_DIGITS = 3
@@ -66,6 +71,17 @@ def _dates(text: str) -> set[str]:
     return found
 
 
+def _words(text: str) -> list[str]:
+    return [word.lower() for word in _WORD.findall(text)]
+
+
+@lru_cache(maxsize=1024)
+def _whole_words(name: str) -> re.Pattern[str]:
+    """Название целыми словами: «улыбка» не находится в «улыбкой», «dent» — в «dental»."""
+    body = r"\W+".join(re.escape(word) for word in name.split())
+    return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
+
+
 def _mentioned_doctors(text: str) -> set[str]:
     names: set[str] = set()
     for chunk in _DOCTOR_MENTION.findall(text):
@@ -96,6 +112,7 @@ class TurnFacts:
         foreign_clinics: Iterable[str] = (),
         own_clinic: str | None = None,
     ) -> TurnFacts:
+        doctor_names = [name for name in doctors if name]
         numbers: set[str] = set()
         times: set[str] = set()
         dates: set[str] = set()
@@ -111,11 +128,8 @@ class TurnFacts:
             numbers=frozenset(numbers),
             times=frozenset(times),
             dates=frozenset(dates),
-            doctors=frozenset(name.lower() for name in doctors if name),
-            # Короткие названия отсеиваем: «Дент» встретится в обычной фразе.
-            foreign_clinics=frozenset(
-                name.strip().lower() for name in foreign_clinics if name and len(name.strip()) >= 5
-            ),
+            doctors=frozenset(name.lower() for name in doctor_names),
+            foreign_clinics=_foreign_names(foreign_clinics, [own_clinic or "", *doctor_names]),
             own_clinic=(own_clinic or "").strip() or None,
         )
 
@@ -141,9 +155,8 @@ class TurnFacts:
         return (_times(text) - self.times) | (_dates(text) - self.dates)
 
     def foreign_mentions(self, text: str) -> set[str]:
-        """Названия чужих клиник, найденные в ответе (V09)."""
-        lowered = text.lower()
-        return {name for name in self.foreign_clinics if name in lowered}
+        """Названия чужих клиник, найденные в ответе целыми словами (V09)."""
+        return {name for name in self.foreign_clinics if _whole_words(name).search(text)}
 
     def unknown_doctors(self, text: str) -> set[str]:
         return {name for name in _mentioned_doctors(text) if not self._known_name(name)}
@@ -159,3 +172,26 @@ class TurnFacts:
                 if stem >= 3 and word[:stem] == token[:stem]:
                     return True
         return False
+
+
+def _foreign_names(names: Iterable[str], own: Iterable[str]) -> frozenset[str]:
+    """Названия чужих клиник, которые стоит искать в ответе (V09).
+
+    Отсеиваются названия, целиком составленные из своих слов — названия своей
+    клиники и имён своих врачей. Инцидент 13.10.2026: на платформе есть
+    клиника «Aibek», и каждый ответ «запись к врачу Aibek» снимался как
+    упоминание чужой клиники. Отличить своего врача от чужой клиники с тем же
+    именем по тексту нельзя, а свой врач в ответе — норма.
+
+    Короткие названия (меньше пяти букв) тоже не ищем: «Дент» встретится в
+    обычной фразе.
+    """
+    own_words = {word for name in own for word in _words(name)}
+    found: set[str] = set()
+    for raw in names:
+        words = _words(raw or "")
+        name = " ".join(words)
+        if len(name) < 5 or set(words) <= own_words:
+            continue
+        found.add(name)
+    return frozenset(found)

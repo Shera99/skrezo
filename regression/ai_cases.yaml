@@ -513,9 +513,9 @@ cases:
   - Стоматология Аврора
   usedFacts: []
   expect:
-    action: block
-    code: V09
-  note: упоминание чужой клиники — утечка или выдумка
+    action: pass
+    signal: V09
+  note: упоминание чужой клиники — сигнал нам, ответ не блокируется (решение 14.10)
 - id: val-021
   kind: validator
   lang: ky
@@ -632,8 +632,9 @@ cases:
   - s
   expect:
     action: block
-    code: V09
-  note: чужая клиника важнее выдуманной цены — повтор не должен прятать утечку
+    code: V01
+    signal: V09
+  note: выдуманная цена — блок V01, чужая клиника рядом — сигнал, а не потерянный повтор
 - id: val-028
   kind: validator
   lang: ru
@@ -757,3 +758,45 @@ cases:
     action: block
     code: V03
   note: выдуманный врач рядом с названием клиники ловится как раньше
+- id: val-032
+  kind: validator
+  lang: ru
+  reply: Отправил кнопку подтверждения записи на консультацию к врачу Aibek сегодня в 13:00.
+  facts:
+  - 'слот: 2026-10-13T13:00:00+06:00'
+  doctors:
+  - Aibek
+  foreignClinics:
+  - Aibek
+  usedFacts:
+  - s
+  expect:
+    action: pass
+  note: инцидент 13.10 — свой врач Aibek совпал с названием чужой клиники (был ложный V09)
+- id: val-033
+  kind: validator
+  lang: ru
+  reply: Ждём вас с улыбкой!
+  foreignClinics:
+  - Улыбка
+  expect:
+    action: pass
+  note: название чужой клиники ищется целыми словами — «улыбкой» не «Улыбка»
+- id: prm-007
+  kind: prompt
+  lang: ru
+  contains: Снова звать человека — только по новой причине
+  note: инцидент 13.10 — после возврата боту модель звала администратора на каждое «Здравствуйте»
+- id: prm-008
+  kind: prompt
+  lang: ru
+  contains: Вместо кнопки пришёл existingAppointments
+  note: инцидент 13.10 — бот предложил вторую запись пациенту, уже записанному на сегодня
+- id: val-034
+  kind: validator
+  lang: ru
+  reply: Уточню у администратора и вернусь с ответом.
+  expect:
+    action: escalate
+    code: V06
+  note: обещание уточнить без needs_human — передача человеку, иначе пациент ждёт впустую

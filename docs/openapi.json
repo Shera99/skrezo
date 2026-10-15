@@ -23963,7 +23963,7 @@
           "validatorBlocked": {
             "type": "integer",
             "title": "Validatorblocked",
-            "description": "Ответов, снятых валидатором (V01–V05, V09)"
+            "description": "Ответов, снятых валидатором (V01–V05; V09 — до 14.10.2026, дальше сигнал)"
           },
           "needsHuman": {
             "type": "integer",

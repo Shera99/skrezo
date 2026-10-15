@@ -543,7 +543,9 @@ class AutonomyMetricsOut(CamelModel):
 
 
 class QualityMetricsOut(CamelModel):
-    validator_blocked: int = Field(description="Ответов, снятых валидатором (V01–V05, V09)")
+    validator_blocked: int = Field(
+        description="Ответов, снятых валидатором (V01–V05; V09 — до 14.10.2026, дальше сигнал)"
+    )
     needs_human: int = Field(description="Честных «не знаю» модели (V06) — ушли человеку")
     fact_errors: int = Field(
         description="Фактических ошибок: цена/время/врач не из фактов (V01–V03)"

@@ -74,6 +74,8 @@ def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
     expected = str(expect["action"])
     if expect.get("code"):
         expected = f"{expected}/{expect['code']}"
+    if expect.get("signal"):
+        expected = f"{expected}+{expect['signal']}"
 
     reply = BotReply(
         reply=str(case["reply"]),
@@ -86,7 +88,7 @@ def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
     )
     facts = TurnFacts.build(
         list(case.get("facts") or []),
-        _CASE_DOCTORS,
+        list(case.get("doctors") or _CASE_DOCTORS),
         list(case.get("foreignClinics") or []),
         own_clinic=case.get("clinicName"),
     )
@@ -94,6 +96,9 @@ def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
     actual = verdict.action.value
     if verdict.codes:
         actual = f"{actual}/{verdict.codes[0]}"
+    if verdict.signals:
+        # Сигнал без блока (V09) — тоже часть ожидания: пропавший сигнал — регресс.
+        actual = f"{actual}+{','.join(sorted(verdict.signals))}"
     return CaseResult(case["id"], actual == expected, expected, actual, note)
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -25,11 +25,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.ai.application.booking import BookingService
+from app.modules.ai.application.booking import CONFIRM_PREFIX, BookingService, UpcomingVisit
 from app.modules.ai.application.knowledge_gaps import KnowledgeGapService
 from app.modules.ai.application.regression_cases import RegressionCaseService
 from app.modules.ai.application.summary import recent_summaries
-from app.modules.ai.application.tools import ToolContext, ToolExecutor, tool_decls_for
+from app.modules.ai.application.tools import (
+    BUTTON_TOOLS,
+    ToolContext,
+    ToolExecutor,
+    button_title,
+    tool_decls_for,
+)
 from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.language import detect_lang
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
@@ -41,7 +47,12 @@ from app.modules.ai.domain.prompt import (
 )
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
 from app.modules.ai.domain.skills import effective_skills
-from app.modules.ai.domain.texts import medical_text, service_text, slots_phrase
+from app.modules.ai.domain.texts import (
+    medical_text,
+    service_text,
+    slots_phrase,
+    visit_phrase,
+)
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
 from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
@@ -61,12 +72,17 @@ from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
+from app.shared.db.models.slot_hold import SlotHold
 from app.shared.realtime import publish_realtime
 from app.shared.whatsapp_cloud import WhatsAppCloudClient, WhatsAppSendError
 
 logger = structlog.get_logger(__name__)
 
-#: Сколько чужих клиник тянем для V09 — проверка подстрокой, список короткий.
+#: Коды «формы» ответа (язык V07, длина V08): не исправились повтором — это
+#: не просьба о человеке, и при ушедшей кнопке хватает подсказки нажать её.
+_FORMAT_CODES = frozenset({"V07", "V08"})
+
+#: Сколько чужих клиник тянем для сигнала V09 (поиск целыми словами).
 _FOREIGN_LIMIT = 500
 
 #: Шаблон «уточню у администратора» — двуязычный, моделью НЕ переводится (§10.2).
@@ -159,6 +175,15 @@ def _fix_instruction(verdict: Verdict) -> str:
     """Подсказка модели для повтора: что именно не сошлось с фактами хода."""
     hints = [_FIX_HINTS[code].format(notes=verdict.notes or "—") for code in verdict.codes]
     return " ".join([*hints, "Верни строго один JSON."])
+
+
+@dataclass(frozen=True, slots=True)
+class _SentButton:
+    """Кнопка подтверждения, ушедшая пациенту в этом ходу."""
+
+    tool: str
+    #: ``hold:<uuid>`` резерва — по нему видно, нажал ли пациент кнопку.
+    confirmation_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +292,10 @@ class ProcessAiReplyService:
 
         :class:`AiProviderUnavailableError` отсюда пробрасывается: решение «отложить
         и повторить» принимает координатор задания, а не этот слой.
+
+        Если в ходе уже ушла кнопка подтверждения, а текст не получился (снят
+        валидатором, не разобран, модель сбилась), пациенту уходит подсказка
+        нажать кнопку, а не «уточню у администратора» (:meth:`_button_reply`).
         """
         # §10.2: язык хода — язык последнего сообщения пациента (детектор уже
         # переключил на него диалог). Не распознан — язык диалога; а до первого
@@ -296,6 +325,8 @@ class ProcessAiReplyService:
         escalate_call: dict[str, Any] | None = None
         raw_text: str | None = None
         model_name = provider.model_name
+        #: Кнопка подтверждения, уже ушедшая пациенту в этом ходу.
+        button: _SentButton | None = None
         try:
             for _ in range(settings.ai_max_tool_calls + 1):
                 # Ф8: отпустить соединение с БД на время вызова модели — секунды
@@ -323,6 +354,13 @@ class ProcessAiReplyService:
                 outcome = await executor.execute(
                     conversation.id, tool_context, call.name, call.args
                 )
+                if (
+                    call.name in BUTTON_TOOLS
+                    and isinstance(outcome, dict)
+                    and outcome.get("buttonSent") is True
+                ):
+                    confirmation = outcome.get("confirmationId")
+                    button = _SentButton(call.name, str(confirmation) if confirmation else None)
                 # Инструмент может потребовать человека сам (§6.5 «чужой
                 # телефон», Ф7 «запись подтверждает администратор»): такие
                 # случаи не отдаём на усмотрение модели.
@@ -343,12 +381,19 @@ class ProcessAiReplyService:
                 parts.append(AiMessagePart(role="tool", tool_name=call.name, tool_result=outcome))
             else:
                 # Потолок вызовов — модель зациклилась на инструментах.
+                if button is not None:
+                    return await self._button_reply(conversation, clinic, button, "tool loop limit")
                 return await self._escalate(
                     conversation, clinic, "tool_error", {"note": "tool loop limit"}
                 )
-        except AiProviderUnavailableError:
-            raise
         except AiProviderError as exc:
+            # Кнопка уже у пациента — откладывать ход нельзя: повтор пропустил
+            # бы его как отвеченный, а последняя попытка (give_up) ответила бы
+            # «уточню у администратора» при живой кнопке.
+            if button is not None:
+                return await self._button_reply(conversation, clinic, button, f"provider: {exc}")
+            if isinstance(exc, AiProviderUnavailableError):
+                raise
             logger.warning("ai_provider_error", error=str(exc))
             return await self._escalate(
                 conversation, clinic, "tool_error", {"note": f"provider: {exc}"}
@@ -366,6 +411,8 @@ class ProcessAiReplyService:
                 conversation, clinic, reason, {"note": escalate_call.get("note")}
             )
         if raw_text is None:
+            if button is not None:
+                return await self._button_reply(conversation, clinic, button, "no text")
             return await self._escalate(
                 conversation, clinic, "tool_error", {"note": "модель не дала текста"}
             )
@@ -375,15 +422,19 @@ class ProcessAiReplyService:
             reply, verdict = await self._parse_and_validate(
                 conversation, system, parts, raw_text, lang, facts
             )
-        except AiProviderUnavailableError:
-            raise
         except AiProviderError as exc:
             # Перегенерация упёрлась в провайдера — раньше это роняло задание.
+            if button is not None:
+                return await self._button_reply(conversation, clinic, button, f"provider: {exc}")
+            if isinstance(exc, AiProviderUnavailableError):
+                raise
             logger.warning("ai_provider_error", error=str(exc))
             return await self._escalate(
                 conversation, clinic, "tool_error", {"note": f"provider: {exc}"}
             )
         except _UnparseableReplyError as exc:
+            if button is not None:
+                return await self._button_reply(conversation, clinic, button, "unparseable")
             return await self._escalate(
                 conversation,
                 clinic,
@@ -392,8 +443,17 @@ class ProcessAiReplyService:
                 {"note": "непарсибельный ответ", "raw": exc.raw[:300], "firstRaw": raw_text[:300]},
             )
         if verdict.action is VerdictAction.BLOCK:
-            return await self._blocked(conversation, clinic, reply, verdict, model_name)
+            return await self._blocked(
+                conversation, clinic, reply, verdict, model_name, button=button
+            )
         if verdict.action is VerdictAction.ESCALATE:
+            if button is not None and set(verdict.codes) <= _FORMAT_CODES:
+                # Язык или длина не исправились повтором — это не просьба о
+                # человеке: кнопка у пациента, достаточно подсказки нажать её.
+                await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
+                return await self._button_reply(
+                    conversation, clinic, button, f"format: {', '.join(verdict.codes)}"
+                )
             return await self._needs_human(conversation, clinic, reply, verdict, model_name)
         return await self._deliver(conversation, clinic, reply, verdict, model_name)
 
@@ -449,11 +509,15 @@ class ProcessAiReplyService:
                 # Голосовое участвует в диалоге расшифровкой (§11).
                 parts.append(AiMessagePart(role="user", text=message.transcript or message.body))
             elif (
-                message.role in (AiMessageRole.BOT, AiMessageRole.ADMIN)
+                message.role in (AiMessageRole.BOT, AiMessageRole.ADMIN, AiMessageRole.SYSTEM)
                 and message.sent_at is not None
             ):
-                # Отправленные ответы бота и человека — «наша сторона» диалога:
-                # модель обязана видеть, что клиника уже сказала пациенту.
+                # Всё, что клиника отправила пациенту, — «наша сторона» диалога:
+                # ответы бота и человека, а также служебные сообщения — «уточню
+                # у администратора», кнопка и «готово, вы записаны», напоминания.
+                # Инцидент 13.10.2026: служебных модель не видела и, не зная о
+                # подтверждённой записи, предлагала вторую, а на «Здравствуйте»
+                # после «позовите админа» снова звала человека.
                 parts.append(AiMessagePart(role="model", text=message.body))
         if not parts or parts[-1].role != "user":
             parts.append(AiMessagePart(role="user", text=""))
@@ -492,7 +556,8 @@ class ProcessAiReplyService:
         (V01–V03, V05) — модель видит верные цены и слоты в контексте хода и
         обычно просто взяла не то или не сослалась на факт. Раньше такой блок
         сразу уводил пациента к администратору фразой «уточню и вернусь».
-        Запреты (V04) и чужая клиника (V09) не повторяются — это не опечатка.
+        Запреты (V04) не повторяются — это не опечатка. Сигналы первой попытки
+        (V09) остаются в итоговом вердикте, даже если повтор прошёл.
 
         Повтор прислал не JSON — остаётся вердикт первой попытки: в журнале
         должна быть настоящая причина (код блока и предложенный текст), а не
@@ -511,9 +576,7 @@ class ProcessAiReplyService:
                     first_reply, first_verdict = first
                     if first_verdict.action is VerdictAction.REGENERATE:
                         # Повтор не помог — по §7 дальше эскалация.
-                        first_verdict = Verdict(
-                            VerdictAction.ESCALATE, first_verdict.codes, first_verdict.notes
-                        )
+                        first_verdict = replace(first_verdict, action=VerdictAction.ESCALATE)
                     return first_reply, first_verdict
                 raw_text = await self._retry(
                     conversation.clinic_id,
@@ -528,17 +591,19 @@ class ProcessAiReplyService:
             if not retryable or attempt == 1:
                 if verdict.action is VerdictAction.REGENERATE:
                     # Повтор не помог — по §7 дальше эскалация.
-                    verdict = Verdict(VerdictAction.ESCALATE, verdict.codes, verdict.notes)
+                    verdict = replace(verdict, action=VerdictAction.ESCALATE)
                 if retried and verdict.action is VerdictAction.PASS:
                     # Метка в журнале: ответ прошёл со второй попытки.
-                    verdict = Verdict(
-                        VerdictAction.PASS, notes=f"после повтора: {', '.join(retried)}"
-                    )
+                    verdict = replace(verdict, notes=f"после повтора: {', '.join(retried)}")
                 if retried:
                     # Коды первой попытки — при ЛЮБОМ исходе повтора: выдумку,
                     # после которой модель сказала «не знаю», лестница доверия
                     # тоже обязана посчитать фактической ошибкой.
                     verdict = replace(verdict, retried_codes=retried)
+                if first is not None and first[1].signals:
+                    # Сигнал первой попытки (V09) не теряется, даже если
+                    # переписанный ответ чист: выдумку модель всё равно сделала.
+                    verdict = replace(verdict, signals={**first[1].signals, **verdict.signals})
                 return reply, verdict
             retried = list(verdict.codes)
             first = (reply, verdict)
@@ -695,8 +760,14 @@ class ProcessAiReplyService:
         reply: BotReply,
         verdict: Verdict,
         model_name: str,
+        *,
+        button: _SentButton | None = None,
     ) -> ReplyOutcome:
-        """Валидатор заблокировал: ответ в журнал (sent_at=null) + эскалация."""
+        """Валидатор заблокировал: ответ в журнал (sent_at=null) + эскалация.
+
+        Кнопка подтверждения в этом ходу уже ушла — вместо эскалации подсказка
+        нажать её: снятый текст лишь пересказывал кнопку (:meth:`_button_reply`).
+        """
         message = await self._save_bot_message(conversation, reply, verdict, model_name, None, None)
         if not reply.used_facts:
             # Ответ без единого факта = модели не хватило знаний — в очередь (Ф6).
@@ -709,6 +780,10 @@ class ProcessAiReplyService:
             await RegressionCaseService(self._session).from_incident(
                 conversation, question=question, proposed=reply.reply, codes=list(verdict.codes)
             )
+        if button is not None:
+            return await self._button_reply(
+                conversation, clinic, button, f"validator: {', '.join(verdict.codes)}"
+            )
         return await self._escalate(
             conversation,
             clinic,
@@ -716,6 +791,47 @@ class ProcessAiReplyService:
             {"codes": verdict.codes, "notes": verdict.notes, "proposed": reply.reply},
             proposed_message_id=message.id,
         )
+
+    async def _button_reply(
+        self, conversation: AiConversation, clinic: Clinic, button: _SentButton, why: str
+    ) -> ReplyOutcome:
+        """Кнопка уже у пациента, а текст хода не вышел — подсказка вместо передачи.
+
+        Инцидент 13.10.2026: кнопка записи ушла, валидатор снял текст, и
+        пациент получил одновременно кнопку и «уточню у администратора»; он
+        нажал её и записался, а диалог висел у администратора со срочным пушем
+        без причины. Кнопка сама называет услугу и время, поэтому достаточно
+        шаблона «нажмите «Подтвердить»». Шаблон не ушёл — прежняя передача
+        человеку. Пациент успел нажать кнопку, пока шёл повтор, — подсказка
+        после «готово, вы записаны» выглядела бы поломкой, её не шлём.
+        """
+        logger.warning(
+            "ai_button_fallback", conversation_id=str(conversation.id), tool=button.tool, why=why
+        )
+        if await self._button_pressed(button):
+            await self._session.commit()
+            return ReplyOutcome(status="skipped", note="кнопка уже нажата")
+        lang = _lang_code(conversation.lang)
+        body = service_text("button_sent", lang).format(title=button_title(button.tool, lang))
+        sent = await self._send_filter_reply(conversation, clinic, body, note="button_fallback")
+        if not sent:
+            return await self._escalate(
+                conversation, clinic, "tool_error", {"note": f"после кнопки: {why}"}
+            )
+        await self._session.commit()
+        return ReplyOutcome(status="sent", reply=body)
+
+    async def _button_pressed(self, button: _SentButton) -> bool:
+        """Нажал ли пациент кнопку: резерв ``hold:<uuid>`` уже израсходован."""
+        raw = (button.confirmation_id or "").removeprefix(CONFIRM_PREFIX)
+        try:
+            hold_id = uuid.UUID(raw)
+        except ValueError:
+            return False
+        consumed = (
+            await self._session.execute(select(SlotHold.consumed_at).where(SlotHold.id == hold_id))
+        ).scalar_one_or_none()
+        return consumed is not None
 
     async def _needs_human(
         self,
@@ -901,12 +1017,19 @@ class ProcessAiReplyService:
         )
 
     async def _send_filter_reply(
-        self, conversation: AiConversation, clinic: Clinic, body: str
+        self,
+        conversation: AiConversation,
+        clinic: Clinic,
+        body: str,
+        *,
+        note: str = "medical_filter",
     ) -> bool:
-        """Отправить шаблон фильтра пациенту и записать его в диалог.
+        """Отправить шаблон (не ответ модели) пациенту и записать его в диалог.
 
         Уходит только в ``auto``: в теневом режиме пациент бота ещё не видел,
         писать ему от имени клиники нельзя. Возвращает, ушло ли сообщение.
+        ``note`` — метка в журнале, кто написал текст: медфильтр, подсказка
+        после кнопки.
         """
         sent_at: datetime | None = None
         wa_message_id: str | None = None
@@ -929,8 +1052,8 @@ class ProcessAiReplyService:
             wa_message_id=wa_message_id,
             sent_at=sent_at,
         )
-        # Метка в журнале: этот ответ написал фильтр, а не модель.
-        message.validator = {"passed": True, "codes": [], "notes": "medical_filter"}
+        # Метка в журнале: этот ответ написал шаблон, а не модель.
+        message.validator = {"passed": True, "codes": [], "notes": note}
         if sent_at is not None:
             # Как и ответ модели: на экран — только то, что ушло пациенту.
             await self._signal_message(conversation)
@@ -976,22 +1099,54 @@ class ProcessAiReplyService:
     async def _complaint(
         self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
     ) -> ReplyOutcome:
-        """§9.1: состояние не обсуждаем — зовём к врачу и сразу даём слоты."""
+        """§9.1: состояние не обсуждаем — зовём к врачу и сразу даём слоты.
+
+        Пациент уже записан на сегодня или завтра — новое время не предлагаем,
+        а напоминаем его запись: врач посмотрит жалобу на приёме.
+        """
         lang = _lang_code(conversation.lang)
-        slots = await self._nearest_slots(clinic, lang)
-        body = (
-            medical_text("complaint", lang).format(slots=slots)
-            if slots
-            else medical_text("complaint_no_slots", lang)
-        )
+        visit = await self._soon_visit(conversation, clinic)
+        if visit is not None:
+            today = datetime.now(_clinic_zone(clinic)).date()
+            body = medical_text("complaint_booked", lang).format(
+                visit=visit_phrase(visit.starts_at, visit.doctor_name, lang, today=today)
+            )
+        else:
+            slots = await self._nearest_slots(clinic, lang)
+            body = (
+                medical_text("complaint", lang).format(slots=slots)
+                if slots
+                else medical_text("complaint_no_slots", lang)
+            )
         auto = await self._send_filter_reply(conversation, clinic, body)
         await self._session.commit()
         logger.info(
             "ai_medical_complaint",
             conversation_id=str(conversation.id),
             trigger=medical.label,
+            booked=visit is not None,
         )
         return ReplyOutcome(status="sent" if auto else "shadow", reply=body)
+
+    async def _soon_visit(
+        self, conversation: AiConversation, clinic: Clinic
+    ) -> UpcomingVisit | None:
+        """Ближайшая запись пациента на сегодня или завтра (по часам клиники).
+
+        Инцидент 13.10.2026: пациент, записанный на 13:00, написал «сильно
+        болит», и шаблон предложил ему 13:30, 13:45, 14:00 — как незнакомцу.
+        Запись дальше завтрашнего дня не мешает предложить время раньше: с
+        болью ждать неделю никто не должен.
+        """
+        if conversation.patient_id is None:
+            return None
+        zone = _clinic_zone(clinic)
+        today = datetime.now(zone).date()
+        until = datetime.combine(today + timedelta(days=2), time.min, tzinfo=zone)
+        visits = await BookingService(self._session).upcoming_visits(
+            clinic.id, conversation.patient_id, until=until, limit=1
+        )
+        return visits[0] if visits else None
 
     async def _nearest_slots(self, clinic: Clinic, lang: str) -> str:
         """«сегодня в 15:00, 15:30, 16:00» — ближайшее свободное время по всем врачам.
@@ -1015,8 +1170,12 @@ class ProcessAiReplyService:
         администратору — уведомление ``ai.urgent_booking``: он может позвонить
         сам. Диалог остаётся у бота — «давайте на 15:00» он ведёт к записи.
         Не ушло или нет свободного времени — передача человеку (см. ниже).
+        Пациент уже записан на сегодня или завтра — :meth:`_acute_pain_booked`.
         """
         lang = _lang_code(conversation.lang)
+        visit = await self._soon_visit(conversation, clinic)
+        if visit is not None:
+            return await self._acute_pain_booked(conversation, clinic, medical, visit, lang)
         slots = await self._nearest_slots(clinic, lang)
         body = (
             medical_text("acute_pain", lang).format(slots=slots)
@@ -1052,6 +1211,58 @@ class ProcessAiReplyService:
             "acute_pain",
             {"trigger": medical.label, "slots": slots or None},
             notify_patient=False,
+        )
+
+    async def _acute_pain_booked(
+        self,
+        conversation: AiConversation,
+        clinic: Clinic,
+        medical: MedicalVerdict,
+        visit: UpcomingVisit,
+        lang: str,
+    ) -> ReplyOutcome:
+        """Сильная боль у пациента с записью на сегодня или завтра.
+
+        Пациенту — его запись, «администратор в курсе» и, если есть, свободное
+        время раньше записи с вопросом о переносе. Администратору — тот же
+        ``ai.urgent_booking`` с записью: решить, принять ли раньше, может только
+        он. Шаблон не ушёл — передача человеку, как и без записи.
+        """
+        today = datetime.now(_clinic_zone(clinic)).date()
+        starts = await BookingService(self._session).earliest_slots(clinic.id)
+        slots = slots_phrase([s for s in starts if s < visit.starts_at], lang, today=today)
+        body = medical_text("acute_pain_booked", lang).format(
+            visit=visit_phrase(visit.starts_at, visit.doctor_name, lang, today=today)
+        )
+        if slots:
+            body += medical_text("earlier_slots", lang).format(slots=slots)
+        sent = await self._send_filter_reply(conversation, clinic, body)
+        logger.info(
+            "ai_medical_acute_pain",
+            conversation_id=str(conversation.id),
+            trigger=medical.label,
+            booked=True,
+            has_slots=bool(slots),
+            sent=sent,
+        )
+        payload = {
+            "trigger": medical.label,
+            "appointmentId": str(visit.appointment_id),
+            "slots": slots or None,
+        }
+        if sent:
+            await emit_event(
+                self._session,
+                clinic_id=conversation.clinic_id,
+                type_="ai.urgent_booking",
+                entity_type="conversation",
+                entity_id=conversation.id,
+                payload=payload,
+            )
+            await self._session.commit()
+            return ReplyOutcome(status="sent", reply=body)
+        return await self._escalate(
+            conversation, clinic, "acute_pain", payload, notify_patient=False
         )
 
     async def _follow_lang(self, conversation: AiConversation, detected: str | None) -> None:
@@ -1092,6 +1303,8 @@ class ProcessAiReplyService:
                 "codes": verdict.codes,
                 "notes": verdict.notes,
                 **({"retriedCodes": verdict.retried_codes} if verdict.retried_codes else {}),
+                # V09 и прочие сигналы без блока: ответ ушёл, но нам есть что знать.
+                **({"signals": verdict.signals} if verdict.signals else {}),
             },
             # Ф5: уверенность — метка кабинета «уверенный ответ» / «проверьте текст».
             confidence=reply.confidence,

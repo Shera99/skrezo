@@ -68,6 +68,17 @@ class ProposeResult:
     card: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class UpcomingVisit:
+    """Будущая запись пациента — для защиты от второй записи и шаблонов фильтра."""
+
+    appointment_id: uuid.UUID
+    #: Начало приёма во времени клиники.
+    starts_at: datetime
+    doctor_name: str | None
+    service_name: str | None
+
+
 class BookingService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -417,6 +428,50 @@ class BookingService:
                 service_name = row[0]
                 price_som = format_som(row[1])
         return doctor_name, service_name, price_som
+
+    async def upcoming_visits(
+        self,
+        clinic_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        *,
+        until: datetime | None = None,
+        limit: int = 5,
+    ) -> list[UpcomingVisit]:
+        """Будущие действующие записи пациента в клинике, ближайшие первыми.
+
+        Действующие — те, что можно перенести или отменить
+        (:data:`CHANGEABLE_STATUSES`): черновик времени не занимает, а
+        завершённый, отменённый и неявка — уже не «запись». ``until`` —
+        верхняя граница начала (шаблонам фильтра нужны только сегодня и завтра).
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            select(Appointment.id, Appointment.scheduled_at, Account.full_name, Service.name)
+            .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
+            .outerjoin(Account, Account.id == Membership.account_id)
+            .outerjoin(Service, Service.id == Appointment.service_id)
+            .where(
+                Appointment.clinic_id == clinic_id,
+                Appointment.patient_id == patient_id,
+                Appointment.status.in_(CHANGEABLE_STATUSES),
+                Appointment.scheduled_at > now,
+            )
+            .order_by(Appointment.scheduled_at)
+            .limit(limit)
+        )
+        if until is not None:
+            stmt = stmt.where(Appointment.scheduled_at < until)
+        rows = (await self._session.execute(stmt)).all()
+        tz = await self._clinic_tz(clinic_id)
+        return [
+            UpcomingVisit(
+                appointment_id=row[0],
+                starts_at=row[1].astimezone(tz),
+                doctor_name=(row[2] or "").strip() or None,
+                service_name=row[3],
+            )
+            for row in rows
+        ]
 
     # ── Подтверждение (зовёт ТОЛЬКО обработчик кнопки, не модель) ───────────
 

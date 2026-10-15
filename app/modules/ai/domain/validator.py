@@ -7,15 +7,24 @@
   показали. Это единственная защита от выдуманной цены — сама модель о своей
   выдумке не сообщит;
 * V04 — запрещённые утверждения (гарантии, «не больно», препараты);
-* V09 — упоминание чужой клиники: блок и оповещение нам;
+* V09 — упоминание чужой клиники: сигнал нам, ответ НЕ блокируется
+  (решение 14.10.2026 — см. ниже);
 * V05 — конкретика (числа, время) при пустом ``used_facts``;
-* V06 — ``confidence=low`` / ``needs_human`` → эскалация;
+* V06 — ``confidence=low`` / ``needs_human`` / «уточню у администратора» в
+  тексте → эскалация;
 * V07 — язык ответа не совпал с языком диалога → одна перегенерация;
 * V08 — длина > 1000 символов → одна перегенерация.
 
 Название своей клиники из проверок содержания (V01–V05, V09) исключено: это
 не утверждение бота, а в названии бывает что угодно — цифры, «Доктор …»,
 чужое слово.
+
+V09 — сигнал, а не блок: ложные срабатывания уводили к администратору
+обычную запись (13.10.2026: врач клиники «Aibek» совпал с названием чужой
+клиники), а инструменты модели чужих клиник не видят — утечки между
+клиниками через ответ быть не может. Код пишется в ``signals`` вердикта и в
+журнал ответа, в лог — ошибкой: о такой выдумке узнаём мы, пациента она не
+задерживает.
 
 Блок V01–V03 и V05 — тоже не мгновенная эскалация: конвейер ответа
 (``reply_service``) один раз просит модель переписать ответ с подсказкой, что
@@ -29,7 +38,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 import structlog
@@ -56,6 +65,8 @@ class Verdict:
     #: Выдумка, исправленная повтором, остаётся фактической ошибкой для лестницы
     #: доверия: модель её совершила, просто пациент её не увидел.
     retried_codes: list[str] = field(default_factory=list)
+    #: Сигналы без блока (V09): код → пояснение. Ответ уходит, мы узнаём.
+    signals: dict[str, str] = field(default_factory=dict)
 
 
 #: Запрещённые шаблоны (§7.2): гарантии результата, обещание «не больно»,
@@ -69,6 +80,11 @@ _FORBIDDEN: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"\b(анальгин|ибупрофен|кетанов|нурофен|парацетамол|антибиотик\w*)\b", re.I),
     ),
 ]
+
+#: Обещание «уточню у администратора» — это передача человеку. Без
+#: ``needs_human`` пациент ждал бы ответа, а человека никто бы не позвал: модель
+#: видит такую фразу в истории (служебное сообщение) и может её повторить.
+_HANDOFF = re.compile(r"\bуточню\s+у\s+администратор|администратордон\s+тактап", re.I)
 
 #: Конкретика: числа от 3 цифр (цены) и время HH:MM — при пустых фактах блок.
 _SPECIFICS = re.compile(r"\d{3,}|(?<!\d)\d{1,2}:\d{2}(?!\d)")
@@ -97,18 +113,24 @@ def validate(
     # чужой клиникой «Дентал» (V09). Приветствие «Я ассистент клиники «…»» из-за
     # этого уходило администратору. Язык (V07) и длина (V08) — по полному тексту.
     text = facts.without_own_clinic(reply.reply) if facts else reply.reply
-    # Чужая клиника (V09) и запреты (V04) — раньше сверки фактов: блок по фактам
-    # конвейер повторяет, и при обратном порядке выдуманная цена рядом с чужим
-    # названием ушла бы на повтор, а сигнал об утечке между клиниками — потерялся.
-    if facts is not None:
-        foreign = facts.foreign_mentions(text)
-        if foreign:
-            # V09 — единственное правило, о котором узнаём и мы: упоминание чужой
-            # клиники значит либо утечку контекста, либо галлюцинацию промпта.
-            logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
-            return Verdict(
-                VerdictAction.BLOCK, ["V09"], notes=f"чужая клиника: {sorted(foreign)[:2]}"
-            )
+    verdict = _verdict(reply, conversation_lang, facts, text)
+    foreign = facts.foreign_mentions(text) if facts is not None else set()
+    if not foreign:
+        return verdict
+    # V09 — сигнал при любом вердикте: выдумка с чужим названием, снятая по
+    # фактам, тоже должна дойти до нас.
+    logger.error("ai_v09_foreign_clinic", clinics=sorted(foreign)[:3])
+    return replace(
+        verdict, signals={**verdict.signals, "V09": f"чужая клиника: {sorted(foreign)[:2]}"}
+    )
+
+
+def _verdict(
+    reply: BotReply, conversation_lang: str | None, facts: TurnFacts | None, text: str
+) -> Verdict:
+    """Блокирующие и мягкие правила по тексту без названия своей клиники."""
+    # Запреты (V04) — раньше сверки фактов: блок по фактам конвейер повторяет,
+    # а обещание «не больно» не опечатка, и повтор его бы только спрятал.
     for label, pattern in _FORBIDDEN:
         if pattern.search(text):
             return Verdict(VerdictAction.BLOCK, ["V04"], notes=f"forbidden:{label}")
@@ -120,6 +142,8 @@ def validate(
         return Verdict(VerdictAction.BLOCK, ["V05"], notes="конкретика без used_facts")
     if reply.confidence == "low" or reply.needs_human:
         return Verdict(VerdictAction.ESCALATE, ["V06"], notes=reply.human_reason)
+    if _HANDOFF.search(text):
+        return Verdict(VerdictAction.ESCALATE, ["V06"], notes="обещание уточнить у администратора")
     if conversation_lang is not None and reply.lang != conversation_lang:
         return Verdict(VerdictAction.REGENERATE, ["V07"], notes=f"{reply.lang}≠{conversation_lang}")
     if len(reply.reply) > _MAX_REPLY_LEN:
