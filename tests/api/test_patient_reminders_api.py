@@ -57,6 +57,9 @@ class _FakeWa:
     async def send_confirm_button(self, *args: Any, **kwargs: Any) -> SentMessage:
         return SentMessage(wa_message_id="fake-btn")
 
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        return None
+
     async def check_token(self, phone_number_id: str) -> bool:
         return True
 

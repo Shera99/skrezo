@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import time as time_mod
 import uuid
 from collections.abc import Mapping
@@ -49,6 +50,7 @@ from app.shared.ai import AiToolDecl
 from app.shared.db.enums import AiMessageRole, AppointmentStatus, Lang
 from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
@@ -141,6 +143,13 @@ TOOL_DECLS: list[AiToolDecl] = [
                 "doctorId": {"type": "string"},
                 "startsAt": {"type": "string", "description": "ISO из get_available_slots"},
                 "serviceId": {"type": "string"},
+                "note": {
+                    "type": "string",
+                    "description": (
+                        "Жалоба, номер зуба или вторая процедура словами пациента — "
+                        "врач увидит в записи"
+                    ),
+                },
                 "secondBooking": {
                     "type": "boolean",
                     "description": (
@@ -249,6 +258,9 @@ _BUTTON_TEXTS: dict[str, tuple[str, str]] = {
     HOLD_RESCHEDULE: ("reschedule_button", "reschedule_title"),
     HOLD_CANCEL: ("cancel_button", "cancel_title"),
 }
+
+#: Число в пожелании пациента: номер зуба, количество.
+_NOTE_NUMBER = re.compile(r"\d+")
 
 #: Инструменты, которые отправляют пациенту кнопку подтверждения, и вид кнопки.
 BUTTON_TOOLS: dict[str, str] = {
@@ -478,11 +490,20 @@ class ToolExecutor:
         existing = await self._existing_visits(context, booking, args, starts_at)
         if existing is not None:
             return existing
+        invented = await self._invented_note_numbers(context, args.get("note"))
+        if invented:
+            return {
+                "error": (
+                    f"В note числа {', '.join(invented)}, которых пациент не писал. "
+                    "Перепиши note словами пациента — номер зуба врач увидит в записи."
+                )
+            }
         result = await booking.propose(
             context.conversation,
             doctor_membership_id=uuid.UUID(str(args["doctorId"])),
             starts_at=starts_at,
             service_id=uuid.UUID(str(args["serviceId"])) if args.get("serviceId") else None,
+            note=str(args["note"]) if args.get("note") else None,
         )
         try:
             button_sent = await self._send_button(context, HOLD_BOOK, result, starts_at)
@@ -493,6 +514,27 @@ class ToolExecutor:
             "startsAt": starts_at.astimezone(self._clinic_tz(context)).isoformat(),
         }
         return {**card, "buttonSent": button_sent, **self._handoff(context, "booking", card)}
+
+    async def _invented_note_numbers(self, context: ToolContext, note: Any) -> list[str]:
+        """Числа из ``note``, которых нет в сообщениях пациента этого диалога.
+
+        Пожелание уходит врачу с подписью «со слов пациента»: «8 зуб»,
+        пересказанный как «18 зуб», — неверный зуб в записи. Сверяются только
+        числа (номер зуба, количество): слова модель вправе пересказать.
+        """
+        numbers = set(_NOTE_NUMBER.findall(str(note or "")))
+        if not numbers:
+            return []
+        said = (
+            await self._session.execute(
+                select(func.coalesce(AiMessage.transcript, AiMessage.body)).where(
+                    AiMessage.conversation_id == context.conversation.id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                )
+            )
+        ).scalars()
+        known = {n for text in said for n in _NOTE_NUMBER.findall(text or "")}
+        return sorted(numbers - known)
 
     async def _existing_visits(
         self,

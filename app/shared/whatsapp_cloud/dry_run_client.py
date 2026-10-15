@@ -66,6 +66,10 @@ class DryRunWhatsAppClient:
     ) -> SentMessage:
         return self._sent("button", to=to_phone, button_id=button_id, text=body)
 
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        # Пробный прогон пациенту ничего не показывает — и «печатает…» тоже.
+        logger.info("wa_cloud_dry_run", kind="typing", message_id=message_id)
+
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         return await self._inner.fetch_media(media_id)
 

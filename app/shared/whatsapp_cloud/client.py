@@ -91,6 +91,14 @@ class WhatsAppCloudClient(Protocol):
         """
         ...
 
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        """Отметить входящее прочитанным и показать пациенту «печатает…».
+
+        Индикатор держится до нашего ответа, но не дольше 25 секунд (правило
+        Meta). Лучшее из возможного: сбой не роняет ход ассистента, только лог.
+        """
+        ...
+
     async def check_token(self, phone_number_id: str) -> bool:
         """Токен ещё жив? (§13.5) Дешёвый запрос профиля номера в Graph API."""
         ...

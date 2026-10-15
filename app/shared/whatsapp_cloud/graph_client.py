@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -24,6 +25,8 @@ from app.shared.whatsapp_cloud.client import (
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 15.0
+#: «Печатает…» — косметика: ждать её дольше пары секунд значит задержать ответ.
+_TYPING_TIMEOUT = 3.0
 
 #: Плейсхолдеры тела шаблона Meta: {{1}}, {{2}}, …
 _PLACEHOLDER_RE = re.compile(r"\{\{(\d+)\}\}")
@@ -167,6 +170,25 @@ class GraphWhatsAppClient:
                 },
             },
         )
+
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        url = f"{self._api_url}/{phone_number_id}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+            "typing_indicator": {"type": "text"},
+        }
+        try:
+            # Потолок на весь запрос: timeout httpx — на каждую фазу отдельно
+            # (соединение, отправка, ответ), и ход ждал бы до трёх таких пауз.
+            async with asyncio.timeout(_TYPING_TIMEOUT):
+                resp = await self._client.post(url, json=payload, headers=self._headers())
+        except (httpx.HTTPError, TimeoutError) as exc:
+            logger.warning("wa_cloud_typing_failed", error=type(exc).__name__)
+            return
+        if resp.status_code >= 400:
+            logger.warning("wa_cloud_typing_failed", status=resp.status_code, body=resp.text[:300])
 
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         try:

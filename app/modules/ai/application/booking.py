@@ -53,6 +53,10 @@ logger = structlog.get_logger(__name__)
 HOLD_TTL = timedelta(minutes=10)
 #: Префикс id кнопки подтверждения в WhatsApp.
 CONFIRM_PREFIX = "hold:"
+#: Сколько символов пожелания пациента хранить: комментарий врачу, не переписка.
+NOTE_MAX_LEN = 300
+#: Комментарий приёма, созданного ассистентом.
+_BOOKED_COMMENT = "Запись через WhatsApp-ассистента"
 #: Виды предложения (Ф7): новая запись, перенос, отмена — одна кнопка.
 HOLD_BOOK = "book"
 HOLD_RESCHEDULE = "reschedule"
@@ -92,8 +96,12 @@ class BookingService:
         doctor_membership_id: uuid.UUID,
         starts_at: datetime,
         service_id: uuid.UUID | None,
+        note: str | None = None,
     ) -> ProposeResult:
         """Мягко зарезервировать слот и собрать карточку подтверждения.
+
+        ``note`` — пожелание пациента его словами (жалоба, номер зуба, вторая
+        процедура): хранится в резерве и уходит в комментарий приёма.
 
         Слот перепроверяется здесь же (`ensure_bookable`): модель могла держать
         устаревшую выдачу. Ошибки уходят наружу :class:`AppError` — executor
@@ -136,6 +144,7 @@ class BookingService:
             starts_at=starts_at,
             duration_min=duration,
             summary=summary,
+            note=_clean_note(note),
             expires_at=datetime.now(UTC) + HOLD_TTL,
         )
         self._session.add(hold)
@@ -554,7 +563,7 @@ class BookingService:
                     appointment_type=AppointmentType.TREATMENT,
                     scheduled_at=hold.starts_at,
                     duration_min=hold.duration_min,
-                    comment="Запись через WhatsApp-ассистента",
+                    comment=booked_comment(hold.note),
                     items=items,
                     status=AppointmentStatus.SCHEDULED,
                 ),
@@ -720,3 +729,17 @@ async def hold_count_alive(session: AsyncSession, conversation_id: uuid.UUID) ->
             )
         )
     ).scalar_one()
+
+
+def _clean_note(note: str | None) -> str | None:
+    """Пожелание пациента без лишних пробелов и не длиннее :data:`NOTE_MAX_LEN`."""
+    text = " ".join((note or "").split())
+    return text[:NOTE_MAX_LEN] or None
+
+
+def booked_comment(note: str | None) -> str:
+    """Комментарий приёма от ассистента: откуда запись и что сказал пациент."""
+    if not note:
+        return _BOOKED_COMMENT
+    # «записал ассистент» — пересказ модели, а не дословная цитата пациента.
+    return f"{_BOOKED_COMMENT}. Со слов пациента (записал ассистент): {note}"

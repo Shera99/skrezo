@@ -301,12 +301,15 @@ class AiRepository:
         выключать возврат. Условия — все сразу:
 
         * диалог ``escalated``, ассистент клиники не выключен;
-        * последняя открытая эскалация старше ``cutoff`` и не «липкая»
-          (:data:`STICKY_ESCALATIONS`);
-        * пациент **написал после неё**, и не раньше ``waiting_since`` (окно 24 ч).
-          Без нового сообщения возвращать нечего: бот снова взялся бы за то, что
-          уже передал человеку (фото, ошибка отправки), и эскалировал бы его по
-          кругу каждые 15 минут с critical-пушем;
+        * последняя открытая эскалация не «липкая» (:data:`STICKY_ESCALATIONS`);
+        * пациент **написал после неё**, и его первое такое сообщение не новее
+          ``cutoff``: 15 минут дают сотруднику с момента, когда пациент снова
+          ждёт, а не с момента передачи. Решение 15.10.2026 — раньше пациент,
+          написавший через час после передачи, через минуту снова попадал к
+          боту, и администратор не успевал ответить. Без нового сообщения
+          возвращать нечего: бот снова взялся бы за то, что уже передал
+          человеку (фото, ошибка отправки), и эскалировал бы его по кругу;
+        * последнее сообщение пациента не раньше ``waiting_since`` (окно 24 ч);
         * сотрудник после неё ничего не написал — разговор ведёт человек.
 
         ``conversation_id`` — перепроверка одного диалога уже под блокировкой.
@@ -321,6 +324,16 @@ class AiRepository:
             .distinct(AiEscalation.conversation_id)
             .order_by(AiEscalation.conversation_id, AiEscalation.created_at.desc())
             .subquery()
+        )
+        waited = (
+            select(AiMessage.id)
+            .where(
+                AiMessage.conversation_id == AiConversation.id,
+                AiMessage.role == AiMessageRole.PATIENT,
+                AiMessage.created_at > latest.c.created_at,
+                AiMessage.created_at <= cutoff,
+            )
+            .exists()
         )
         staff_replied = (
             select(AiMessage.id)
@@ -338,9 +351,8 @@ class AiRepository:
             .where(
                 AiConversation.status == AiConversationStatus.ESCALATED,
                 Clinic.ai_mode != AiMode.OFF,
-                latest.c.created_at <= cutoff,
                 latest.c.reason.not_in(STICKY_ESCALATIONS),
-                AiConversation.last_patient_msg_at > latest.c.created_at,
+                waited,
                 AiConversation.last_patient_msg_at >= waiting_since,
                 ~staff_replied,
             )

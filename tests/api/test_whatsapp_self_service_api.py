@@ -140,6 +140,9 @@ class RecordingWa:
     async def send_confirm_button(self, phone_number_id: str, *args: Any) -> SentMessage:
         return SentMessage(wa_message_id=f"wamid.btn-{_digits()}")
 
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        return None
+
     async def fetch_media(self, media_id: str) -> DownloadedMedia | None:
         return None
 

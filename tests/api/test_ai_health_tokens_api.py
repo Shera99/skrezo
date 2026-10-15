@@ -31,6 +31,9 @@ class _CountingWa:
     async def send_confirm_button(self, *a: Any, **k: Any) -> SentMessage:
         return SentMessage(wa_message_id="x")
 
+    async def send_typing(self, phone_number_id: str, message_id: str) -> None:
+        return None
+
     async def fetch_media(self, media_id: str) -> Any:
         return None
 

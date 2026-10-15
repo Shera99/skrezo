@@ -49,7 +49,8 @@ _seq = itertools.count(1)
 _BISHKEK = ZoneInfo("Asia/Bishkek")
 
 _FALLBACK = "Отправил подтверждение отдельным сообщением — нажмите в нём «Подтвердить»."
-_ESCALATION_NOTICE = "Уточню у администратора и вернусь с ответом."
+#: Шаблон передачи по просьбе пациента (вне рабочих часов — с хвостом).
+_ASKED_NOTICE = "Позвал администратора — он ответит вам здесь."
 
 
 def _patient() -> str:
@@ -210,7 +211,8 @@ async def test_model_sees_handoff_notice_after_return_to_bot(
     again = await _simulate(admin_client, ctx, "Здравствуйте", phone)
 
     assert again["outcome"] == "sent"
-    assert _ESCALATION_NOTICE in _model_texts(fake.calls[-1]["parts"])
+    seen = _model_texts(fake.calls[-1]["parts"])
+    assert any(text.startswith(_ASKED_NOTICE) for text in seen), seen
     assert "Снова звать человека — только по новой причине" in fake.calls[-1]["system"]
 
 

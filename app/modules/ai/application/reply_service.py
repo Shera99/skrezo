@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
@@ -37,6 +38,7 @@ from app.modules.ai.application.tools import (
     tool_decls_for,
 )
 from app.modules.ai.domain.facts import TurnFacts
+from app.modules.ai.domain.handoff import next_opening
 from app.modules.ai.domain.language import detect_lang
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import (
@@ -48,7 +50,9 @@ from app.modules.ai.domain.prompt import (
 from app.modules.ai.domain.reply import BotReply, ReplyParseError, parse_reply
 from app.modules.ai.domain.skills import effective_skills
 from app.modules.ai.domain.texts import (
+    is_handoff_notice,
     medical_text,
+    opening_phrase,
     service_text,
     slots_phrase,
     visit_phrase,
@@ -59,8 +63,14 @@ from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import 
     KnowledgeGapRepository,
 )
 from app.modules.push.application.outbox import emit_event
+from app.modules.schedule.domain.availability import default_working_hours
+from app.modules.schedule.domain.models import WorkingHours
+from app.modules.schedule.infrastructure.repositories.schedule_repository import (
+    ScheduleRepository,
+)
 from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.application.services.credentials import client_for
+from app.modules.whatsapp.domain.window import WINDOW
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -84,12 +94,6 @@ _FORMAT_CODES = frozenset({"V07", "V08"})
 
 #: Сколько чужих клиник тянем для сигнала V09 (поиск целыми словами).
 _FOREIGN_LIMIT = 500
-
-#: Шаблон «уточню у администратора» — двуязычный, моделью НЕ переводится (§10.2).
-_ESCALATION_TEXTS: dict[str, str] = {
-    "ru": "Уточню у администратора и вернусь с ответом.",
-    "ky": "Администратордон тактап, жооп берем.",
-}
 
 #: Язык спеки (ru|ky) → наш Lang для conversation/patient.
 _SPEC_TO_LANG = {"ru": Lang.RU, "ky": Lang.KG}
@@ -220,8 +224,11 @@ class ProcessAiReplyService:
         clinic = await self._session.get(Clinic, conversation.clinic_id)
         if clinic is None or clinic.ai_mode is AiMode.OFF:
             return ReplyOutcome(status="skipped")
+        if conversation.status is AiConversationStatus.ESCALATED:
+            # Человек ведёт разговор, бот молчит до возврата (§8.4) — кроме
+            # неотложного: его шаблон не ждёт ни администратора, ни возврата.
+            return await self._urgent_while_escalated(conversation, clinic)
         if conversation.status is not AiConversationStatus.ACTIVE:
-            # escalated: человек ведёт разговор, бот молчит до возврата (§8.4).
             return ReplyOutcome(status="skipped")
         last = await self._last_patient_message(conversation)
         if last is None:
@@ -269,6 +276,7 @@ class ProcessAiReplyService:
             logger.warning("ai_provider_missing", clinic_id=str(clinic.id))
             return ReplyOutcome(status="skipped")
 
+        await self._show_typing(clinic, last)
         try:
             return await self._converse(
                 conversation, clinic, self._provider, detected_lang=detected
@@ -279,6 +287,47 @@ class ProcessAiReplyService:
             logger.warning("ai_provider_unavailable", error=str(exc))
             await self._session.commit()
             return ReplyOutcome(status="deferred", note=str(exc))
+
+    async def _urgent_while_escalated(
+        self, conversation: AiConversation, clinic: Clinic
+    ) -> ReplyOutcome:
+        """Неотложное в диалоге у администратора — шаблон §9.2 сразу.
+
+        Бот в переданном диалоге молчит, а возвращается к нему только через
+        15 минут после сообщения пациента (решение 15.10.2026). Для «сильное
+        кровотечение» это слишком долго: раньше старая передача возвращалась
+        боту на ближайшем тике, и шаблон с телефоном клиники уходил за минуту.
+        Поэтому неотложное разбирается и здесь: телефон клиники пациенту,
+        ``ai.urgent`` (critical) администратору. Всё остальное ждёт человека.
+        """
+        last = await self._last_patient_message(conversation)
+        if last is None or await self._repository.answered_after(conversation.id, last.id):
+            return ReplyOutcome(status="skipped")
+        if _unreadable_reason(last) is not None:
+            return ReplyOutcome(status="skipped")
+        medical = classify(last.transcript or last.body)
+        if medical.kind is not MedicalKind.URGENT:
+            return ReplyOutcome(status="skipped")
+        await self._follow_lang(conversation, detect_lang(last.transcript or last.body))
+        return await self._urgent(conversation, clinic, medical)
+
+    async def _show_typing(self, clinic: Clinic, message: AiMessage) -> None:
+        """«Печатает…» пациенту, пока модель думает (решение 15.10.2026).
+
+        Ход с подбором времени занимает 10–15 секунд, и всё это время пациент
+        видел только серые галочки — будто его не слышат. Сообщение заодно
+        отмечается прочитанным. Только в ``auto``: в «Проверяю» и теневом
+        режиме отвечает человек, и «прочитано ботом» было бы неправдой.
+        Сбой индикатора ход не задерживает — клиент глушит его сам.
+        """
+        if clinic.ai_mode is not AiMode.AUTO or not message.wa_message_id:
+            return
+        binding = await self._whatsapp.binding_by_clinic(clinic.id)
+        if binding is None or not binding.active:
+            return
+        await client_for(self._wa, binding).send_typing(
+            binding.phone_number_id, message.wa_message_id
+        )
 
     async def _converse(
         self,
@@ -866,7 +915,8 @@ class ProcessAiReplyService:
         """Эскалация §8.2: карточка + событие + пауза бота + фраза пациенту.
 
         Шаблон пациенту уходит только в ``auto`` (в shadow пациент бота ещё не
-        видел — писать ему от имени клиники нельзя) и моделью не переводится.
+        видел — писать ему от имени клиники нельзя) и моделью не переводится;
+        какой именно — решает :meth:`_handoff_notice`.
         ``notify_patient=False`` — когда пациенту уже написали своим шаблоном
         (лимит §14): два извинения подряд выглядят поломкой.
         """
@@ -888,19 +938,17 @@ class ProcessAiReplyService:
         await self._signal_status(conversation)
         if notify_patient and clinic.ai_mode is AiMode.AUTO:
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
-            if binding is not None and binding.active:
-                lang = "ky" if conversation.lang is Lang.KG else "ru"
+            notice = await self._handoff_notice(conversation, clinic, reason)
+            if binding is not None and binding.active and notice is not None:
                 try:
                     sent = await client_for(self._wa, binding).send_text(
-                        binding.phone_number_id,
-                        conversation.wa_phone,
-                        _ESCALATION_TEXTS[lang],
+                        binding.phone_number_id, conversation.wa_phone, notice
                     )
                     now = datetime.now(UTC)
                     await self._whatsapp.add_message(
                         conversation,
                         role=AiMessageRole.SYSTEM,
-                        body=_ESCALATION_TEXTS[lang],
+                        body=notice,
                         wa_message_id=sent.wa_message_id,
                         sent_at=now,
                     )
@@ -910,6 +958,64 @@ class ProcessAiReplyService:
                     logger.warning("ai_escalation_notice_failed", error=str(exc))
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
+
+    async def _handoff_notice(
+        self, conversation: AiConversation, clinic: Clinic, reason: str
+    ) -> str | None:
+        """Что сказать пациенту при передаче человеку; ``None`` — ничего.
+
+        Решение 15.10.2026 (переписка 13.10: одна и та же фраза шесть раз за
+        час, в том числе на «позовите администратора»):
+
+        * пациент сам просил человека — «позвал администратора», а не «уточню»;
+        * последнее, что клиника ему написала, — уже наш шаблон передачи:
+          короткое «администратор уже в курсе», а если и оно было последним —
+          тишина, повторять нечего;
+        * клиника сейчас закрыта — когда она снова на связи («завтра с 09:00»).
+        """
+        last = await self._last_clinic_message(conversation)
+        if last is not None and is_handoff_notice(last.body, waiting_only=True):
+            return None
+        if last is not None and is_handoff_notice(last.body):
+            key = "handoff_waiting"
+        else:
+            key = "handoff_asked" if reason == "patient_asked" else "handoff"
+        lang = _lang_code(conversation.lang)
+        notice = service_text(key, lang)
+        zone = _clinic_zone(clinic)
+        now = datetime.now(zone)
+        opening = next_opening(await self._hours_for(clinic.id), now)
+        if opening is not None:
+            notice += service_text("after_hours", lang).format(
+                when=opening_phrase(opening, lang, today=now.date())
+            )
+        return notice
+
+    async def _last_clinic_message(self, conversation: AiConversation) -> AiMessage | None:
+        """Последнее, что клиника отправила пациенту в этом эпизоде (бот, человек, служебное).
+
+        Эпизод — окно WhatsApp (24 ч): диалог на номер один и постоянный, и
+        «администратор уже в курсе» месячной давности не должно глушить
+        передачу по новому обращению.
+        """
+        return (
+            await self._session.execute(
+                select(AiMessage)
+                .where(
+                    AiMessage.conversation_id == conversation.id,
+                    AiMessage.role != AiMessageRole.PATIENT,
+                    AiMessage.sent_at.is_not(None),
+                    AiMessage.sent_at >= datetime.now(UTC) - WINDOW,
+                )
+                .order_by(AiMessage.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    async def _hours_for(self, clinic_id: uuid.UUID) -> Callable[[int], WorkingHours]:
+        """График клиники по дням недели; дня нет в базе — график по умолчанию."""
+        by_day = await ScheduleRepository(self._session).working_hours(clinic_id)
+        return lambda weekday: by_day.get(weekday) or default_working_hours(weekday)
 
     async def turn_facts(
         self, clinic: Clinic, system: str, parts: list[AiMessagePart]

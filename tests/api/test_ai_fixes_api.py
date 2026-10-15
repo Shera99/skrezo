@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.jobs.tasks import ai as ai_tasks
 from app.modules.ai.application import reply_service
@@ -416,7 +416,8 @@ async def test_kyrgyz_message_switches_reply_and_templates_language(
     ]
     escalated = await _simulate(admin_client, ctx, "Канча турат рассрочка?", phone)
     assert escalated["outcome"] == "escalated"
-    assert escalated["messages"][-1]["body"] == "Администратордон тактап, жооп берем."
+    # Вне рабочих часов к шаблону добавляется, когда клиника откроется.
+    assert escalated["messages"][-1]["body"].startswith("Администратордон тактап, жооп берем.")
 
 
 async def test_unrecognised_message_keeps_dialog_language(
@@ -659,14 +660,44 @@ async def _escalated_and_waiting(
     *,
     minutes_ago: int,
 ) -> AiConversation:
-    """Диалог передан администратору ``minutes_ago`` минут назад, пациент ждёт ответа."""
+    """Пациент ждёт ответа ``minutes_ago`` минут: написал после передачи администратору.
+
+    15 минут автовозврата считаются от этого сообщения (решение 15.10.2026),
+    поэтому в прошлое сдвигается и оно, а передача — на минуту раньше него.
+    """
     phone = _patient()
     await _escalate(admin_client, ctx, fake, phone)
     conversation = await _conversation(res, phone)
-    await _backdate_escalations(res, conversation.id, minutes=minutes_ago)
+    await _backdate_escalations(res, conversation.id, minutes=minutes_ago + 1)
     waiting = await _simulate(admin_client, ctx, "Здравствуйте", phone)  # пишет в пустоту
     assert waiting["outcome"] == "skipped"
+    await _backdate_waiting(res, conversation.id, minutes=minutes_ago)
     return conversation
+
+
+async def _backdate_waiting(res: Resources, conversation_id: uuid.UUID, minutes: int) -> None:
+    """Сдвинуть последнее сообщение пациента на ``minutes`` в прошлое."""
+    shift = timedelta(minutes=minutes)
+    async with res.factory() as session:
+        last_id = (
+            await session.execute(
+                select(func.max(AiMessage.id)).where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.role == AiMessageRole.PATIENT,
+                )
+            )
+        ).scalar_one()
+        await session.execute(
+            update(AiMessage)
+            .where(AiMessage.id == last_id)
+            .values(created_at=AiMessage.created_at - shift)
+        )
+        await session.execute(
+            update(AiConversation)
+            .where(AiConversation.id == conversation_id)
+            .values(last_patient_msg_at=AiConversation.last_patient_msg_at - shift)
+        )
+        await session.commit()
 
 
 async def test_dialog_returns_to_bot_after_15_minutes_and_answers_waiting_patient(
@@ -698,6 +729,35 @@ async def test_dialog_returns_to_bot_after_15_minutes_and_answers_waiting_patien
     replies = await _bot_messages(_resources, conversation.id)
     assert replies[-1].body == "Здравствуйте! Чем могу помочь?"
     assert replies[-1].sent_at is not None
+
+
+async def test_return_counts_15_minutes_from_patient_message_not_handoff(
+    admin_client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Передача час назад, пациент написал только что — у администратора ещё 15 минут.
+
+    Решение 15.10.2026: раньше такой диалог через минуту забирал бот, и
+    сотрудник не успевал ответить на новое сообщение.
+    """
+    _patch_job(monkeypatch, ai_tasks, fake, _resources)
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    await _escalate(admin_client, ctx, fake, phone)
+    conversation = await _conversation(_resources, phone)
+    await _backdate_escalations(_resources, conversation.id, minutes=60)
+    waiting = await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    assert waiting["outcome"] == "skipped"
+
+    assert await ai_tasks.return_escalations_to_bot({}) == 0
+    assert (await _conversation(_resources, phone)).status is AiConversationStatus.ESCALATED
+
+    await _backdate_waiting(_resources, conversation.id, minutes=16)
+    fake.script = [AiResult(text=_reply_json("Здравствуйте! Чем могу помочь?"))]
+    assert await ai_tasks.return_escalations_to_bot({}) == 1
 
 
 async def test_dialog_without_new_patient_message_is_not_returned(
@@ -917,6 +977,8 @@ async def test_orphan_escalation_of_past_episode_does_not_block_return(
     await _escalate(admin_client, ctx, fake, phone)  # новый эпизод — новая передача
     await _backdate_escalations(_resources, conversation.id, minutes=20)
     await _simulate(admin_client, ctx, "Здравствуйте", phone)
+    # 15 минут — от сообщения пациента после передачи (решение 15.10.2026).
+    await _backdate_waiting(_resources, conversation.id, minutes=16)
     fake.script = [AiResult(text=_reply_json("Здравствуйте! Слушаю вас."))]
 
     assert await ai_tasks.return_escalations_to_bot({}) == 1

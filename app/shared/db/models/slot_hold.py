@@ -49,6 +49,9 @@ class SlotHold(Base, UUIDPKMixin):
     duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
     # Человекочитаемая карточка — то, что видел пациент при подтверждении.
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    # Пожелание пациента его словами (жалоба, зуб, вторая процедура) — уйдёт
+    # в комментарий приёма, чтобы врач увидел его до визита.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     appointment_id: Mapped[uuid.UUID | None] = mapped_column(

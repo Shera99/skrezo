@@ -214,6 +214,25 @@ _MEDICAL: dict[str, dict[str, str]] = {
 
 #: Служебные шаблоны конвейера (§14) — тоже не пишутся моделью.
 _SERVICE: dict[str, dict[str, str]] = {
+    # Передача человеку (§8.2) — по причине (решение 15.10.2026): на «позовите
+    # администратора» «уточню и вернусь с ответом» звучало как отказ.
+    "handoff": {
+        "ru": "Уточню у администратора и вернусь с ответом.",
+        "ky": "Администратордон тактап, жооп берем.",
+    },
+    "handoff_asked": {
+        "ru": "Позвал администратора — он ответит вам здесь.",
+        "ky": "Администраторду чакырдым — ал сизге ушул жерден жооп берет.",
+    },
+    # Пациент уже слышал о передаче: та же фраза ещё раз выглядит автоматом.
+    "handoff_waiting": {
+        "ru": "Администратор уже в курсе — ответит здесь.",
+        "ky": "Администратор кабардар — ушул жерден жооп берет.",
+    },
+    "after_hours": {
+        "ru": " Сейчас клиника закрыта — ответим в рабочее время: {when}.",
+        "ky": " Азыр клиника иштебейт — иш убактысында жооп беребиз: {when}.",
+    },
     # Кнопка подтверждения уже ушла, а текст хода не получился: подсказка
     # вместо «уточню у администратора» (инцидент 13.10.2026).
     "button_sent": {
@@ -256,6 +275,34 @@ _WHEN: dict[str, dict[str, str]] = {
     "tomorrow": {"ru": "завтра в", "ky": "эртең саат"},
     "date": {"ru": "{date} в", "ky": "{date} саат"},
 }
+
+
+#: Начала шаблонов передачи на всех языках — узнать их в переписке.
+_HANDOFF_KEYS = ("handoff", "handoff_asked", "handoff_waiting")
+
+
+def is_handoff_notice(body: str, *, waiting_only: bool = False) -> bool:
+    """Сообщение — наш шаблон передачи человеку (с хвостом «клиника закрыта» или без)."""
+    keys = ("handoff_waiting",) if waiting_only else _HANDOFF_KEYS
+    return any(body.startswith(text) for key in keys for text in _SERVICE[key].values())
+
+
+#: «сегодня с 09:00» / «бүгүн, 09:00» — когда клиника снова на связи.
+_OPENING: dict[str, dict[str, str]] = {
+    "today": {"ru": "сегодня с {time}", "ky": "бүгүн, {time}"},
+    "tomorrow": {"ru": "завтра с {time}", "ky": "эртең, {time}"},
+    "date": {"ru": "{date} с {time}", "ky": "{date}, {time}"},
+}
+
+
+def opening_phrase(opens_at: datetime, lang: str, *, today: date) -> str:
+    """Открытие клиники фразой: «завтра с 09:00». ``opens_at`` — во времени клиники."""
+    day = opens_at.date()
+    key = "today" if day == today else "tomorrow" if day == today + timedelta(days=1) else "date"
+    entry = _OPENING[key]
+    return (entry.get(lang) or entry["ru"]).format(
+        date=day.strftime("%d.%m"), time=opens_at.strftime("%H:%M")
+    )
 
 
 #: «, врач Асанова» / «, дарыгер Асанова» — хвост фразы о записи.
