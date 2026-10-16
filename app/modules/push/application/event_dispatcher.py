@@ -406,28 +406,21 @@ class EventDispatcher:
 
         Врач — только своего приёма («свои» из §4): фильтр применяется здесь,
         а не на клиенте. Менеджер/владелец — по системной роли живого членства.
+
+        Нет ни одного живого менеджера — его события получает владелец
+        (решение 17.10.2026). Иначе у соло-врача и в клинике без менеджера
+        «пациент ждёт человека», черновик бота и «пациент снова пишет» не
+        доходили ни до кого: ни инбокса, ни пуша.
         """
         recipients: dict[uuid.UUID, _Recipient] = {}
 
-        need_roles = spec.audience & {Audience.MANAGER, Audience.OWNER}
+        need_roles = set(spec.audience & {Audience.MANAGER, Audience.OWNER})
         if need_roles:
-            conditions: list[ColumnElement[bool]] = []
-            if Audience.OWNER in need_roles:
-                conditions.append(Role.is_owner.is_(True))
-            if Audience.MANAGER in need_roles:
-                conditions.append(Role.key == "manager")
-            rows = await self._session.execute(
-                select(Membership.account_id, Account.lang)
-                .join(Role, Role.id == Membership.role_id)
-                .join(Account, Account.id == Membership.account_id)
-                .where(
-                    Membership.clinic_id == event.clinic_id,
-                    Membership.active.is_(True),
-                    or_(*conditions),
-                )
-            )
-            for account_id, lang in rows:
-                recipients[account_id] = _Recipient(account_id=account_id, lang=lang)
+            members = await self._role_members(event.clinic_id, need_roles)
+            if not members and need_roles == {Audience.MANAGER}:
+                members = await self._role_members(event.clinic_id, {Audience.OWNER})
+            for member_id, member_lang in members:
+                recipients[member_id] = _Recipient(account_id=member_id, lang=member_lang)
 
         if Audience.ACCOUNT in spec.audience:
             raw = event.payload.get("accountId")
@@ -455,6 +448,27 @@ class EventDispatcher:
             if row is not None:
                 recipients[row[0]] = _Recipient(account_id=row[0], lang=row[1])
         return list(recipients.values())
+
+    async def _role_members(
+        self, clinic_id: uuid.UUID, roles: set[Audience]
+    ) -> list[tuple[uuid.UUID, Lang]]:
+        """Живые члены клиники с системной ролью менеджера и/или владельца."""
+        conditions: list[ColumnElement[bool]] = []
+        if Audience.OWNER in roles:
+            conditions.append(Role.is_owner.is_(True))
+        if Audience.MANAGER in roles:
+            conditions.append(Role.key == "manager")
+        rows = await self._session.execute(
+            select(Membership.account_id, Account.lang)
+            .join(Role, Role.id == Membership.role_id)
+            .join(Account, Account.id == Membership.account_id)
+            .where(
+                Membership.clinic_id == clinic_id,
+                Membership.active.is_(True),
+                or_(*conditions),
+            )
+        )
+        return [(account_id, lang) for account_id, lang in rows]
 
     # ── Отложенные пуши (normal) ────────────────────────────────────────────
 

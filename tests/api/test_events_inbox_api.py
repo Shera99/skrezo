@@ -261,16 +261,65 @@ async def test_reprocessing_is_idempotent(
 async def test_unknown_type_does_not_block_queue(
     client: AsyncClient, ctx: Ctx, _resources: Resources
 ) -> None:
-    """Незнакомый тип (ai.* до Ф2) помечается обработанным, доставки нет."""
+    """Незнакомый тип (новое событие раньше каталога) помечается обработанным, доставки нет."""
     async with _resources.factory() as session:
-        session.add(Event(clinic_id=ctx.clinic_id, type="ai.escalated"))
+        session.add(Event(clinic_id=ctx.clinic_id, type="ai.not_in_catalog"))
         await session.commit()
     assert await _dispatch(_resources) == 1
     async with _resources.factory() as session:
         event = (
-            await session.execute(select(Event).where(Event.type == "ai.escalated"))
+            await session.execute(select(Event).where(Event.type == "ai.not_in_catalog"))
         ).scalar_one()
         assert event.processed_at is not None
+    assert (await _inbox(client, ctx.owner_headers))["unreadCount"] == 0
+
+
+async def _add_manager(client: AsyncClient, ctx: Ctx) -> dict[str, str]:
+    """Сотрудник с системной ролью «менеджер»; вернуть его заголовок авторизации."""
+    roles = (await client.get(f"{API}/clinic/roles", headers=ctx.owner_headers)).json()["items"]
+    manager = next(r for r in roles if r["key"] == "manager")
+    phone = _phone()
+    added = await client.post(
+        f"{API}/clinic/staff",
+        headers=ctx.owner_headers,
+        json={"fullName": "Менеджер Инбокс", "phone": phone, "roleId": manager["id"]},
+    )
+    assert added.status_code == 201, added.text
+    return await otp_login(client, phone)
+
+
+@pytest.mark.parametrize("type_", ["ai.escalated", "ai.draft_ready", "conversation.waiting"])
+async def test_manager_events_reach_owner_when_clinic_has_no_manager(
+    client: AsyncClient, ctx: Ctx, _resources: Resources, type_: str
+) -> None:
+    """Нет менеджера — «пациент ждёт человека» получает владелец (решение 17.10.2026).
+
+    Раньше у соло-врача и в клинике без менеджера такие события не доходили
+    ни до кого: событие обработано, а инбокс и пуш пусты.
+    """
+    async with _resources.factory() as session:
+        session.add(Event(clinic_id=ctx.clinic_id, type=type_))
+        await session.commit()
+
+    assert await _dispatch(_resources) == 1
+
+    box = await _inbox(client, ctx.owner_headers)
+    assert [item["type"] for item in box["items"]] == [type_]
+    assert (await _inbox(client, ctx.doctor_headers))["unreadCount"] == 0  # врачу — нет
+
+
+async def test_manager_events_skip_owner_when_manager_exists(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Есть живой менеджер — передача человеку только ему, владельца не дёргаем."""
+    manager_headers = await _add_manager(client, ctx)
+    async with _resources.factory() as session:
+        session.add(Event(clinic_id=ctx.clinic_id, type="ai.escalated"))
+        await session.commit()
+
+    assert await _dispatch(_resources) == 1
+
+    assert (await _inbox(client, manager_headers))["unreadCount"] == 1
     assert (await _inbox(client, ctx.owner_headers))["unreadCount"] == 0
 
 
