@@ -10973,6 +10973,283 @@
         }
       }
     },
+    "/api/v1/clinic/whatsapp/templates/variable-sources": {
+      "get": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Источники значений переменных шаблона",
+        "description": "Откуда кабинет может брать значение переменной шаблона: имя пациента,\nданные клиники, ближайшая запись, долг или `manual` (вводит сотрудник).\nВыбор сохраняется ручкой `PATCH /clinic/whatsapp/templates/{templateId}`.",
+        "operationId": "list_variable_sources_api_v1_clinic_whatsapp_templates_variable_sources_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Пункты выбора с подписями на языке запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableSourcesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinic/whatsapp/templates/{template_id}": {
+      "patch": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Название, подписи и источники переменных своего шаблона",
+        "description": "Клиника объясняет свой шаблон: понятное название, подписи переменных и\nоткуда брать значение каждой (`variableSources`) — тогда кабинет заполняет\nих сам (`GET …/templates/{templateId}/prefill`). Списков ровно по числу\nпеременных; поле не передано — не меняется; `title: null` возвращает имя\nиз Meta. Синхронизация с Meta подписи и источники не стирает. Общий шаблон\nплатформы — 403 `template_shared`.",
+        "operationId": "set_template_labels_api_v1_clinic_whatsapp_templates__template_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          },
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateLabelsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Шаблон после правки",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Общий шаблон платформы — его подписывает Skrezo",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "template_shared"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Шаблон не найден (`template_not_found`)"
+          },
+          "422": {
+            "description": "Подписей или источников не столько, сколько переменных (`labels_count_mismatch` / `sources_count_mismatch`)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "sources_count_mismatch",
+                  "message": "Шаблон ждёт 2 источников, передано 1",
+                  "expected": 2
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinic/conversations/{conversation_id}/templates/{template_id}/prefill": {
+      "get": {
+        "tags": [
+          "whatsapp"
+        ],
+        "summary": "Значения переменных шаблона для диалога",
+        "description": "Предзаполнение формы отправки шаблона: по источнику каждой переменной\nбэк берёт значение из карточки пациента этого диалога, данных клиники,\nближайшей будущей записи (дата `ДД.ММ.ГГГГ`, время, врач) и долга (сом).\nНе нашлось или источник `manual` — `value: null`, поле заполняет\nсотрудник. Значения можно поправить: отправка (`POST …/templates`)\nпо-прежнему берёт их из запроса.",
+        "operationId": "prefill_template_api_v1_clinic_conversations__conversation_id__templates__template_id__prefill_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          },
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Язык ответа: kg|kz|ru|en",
+              "title": "Lang"
+            },
+            "description": "Язык ответа: kg|kz|ru|en"
+          },
+          {
+            "name": "accept-language",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Language"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Переменные с подписями и найденными значениями",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePrefillResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Диалог или шаблон не найден"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinic/conversations/{conversation_id}/messages/{message_id}/media": {
       "get": {
         "tags": [
@@ -11389,7 +11666,7 @@
           "whatsapp-admin"
         ],
         "summary": "Название и подписи переменных общего шаблона",
-        "description": "Задать понятное название и подписи переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
+        "description": "Задать понятное название, подписи и источники значений переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
         "operationId": "admin_set_template_labels_api_v1_admin_whatsapp_templates__template_id__patch",
         "security": [
           {
@@ -23875,6 +24152,55 @@
         "title": "PlatformUsageResponse",
         "description": "Использование по всем клиникам за месяц — основа для цен и пакетов."
       },
+      "PrefilledVariableOut": {
+        "properties": {
+          "placeholder": {
+            "type": "string",
+            "title": "Placeholder",
+            "examples": [
+              "{{1}}"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Подпись поля",
+            "examples": [
+              "Имя пациента"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/VariableSource",
+            "examples": [
+              "patient_name"
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value",
+            "description": "Значение для этого диалога; null — не нашлось (нет карточки пациента, будущей записи, долга) или источник `manual`: поле заполняет сотрудник",
+            "examples": [
+              "Айбек"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "placeholder",
+          "label",
+          "source",
+          "value"
+        ],
+        "title": "PrefilledVariableOut",
+        "description": "Переменная шаблона с найденным значением."
+      },
       "PrefsResponse": {
         "properties": {
           "disabled": {
@@ -27037,11 +27363,32 @@
                 "Дата и время"
               ]
             ]
+          },
+          "variableSources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VariableSource"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variablesources",
+            "description": "Источник значения каждой переменной по порядку плейсхолдеров — ровно столько, сколько переменных; не передано — не меняются",
+            "examples": [
+              [
+                "patient_name",
+                "clinic_name"
+              ]
+            ]
           }
         },
         "type": "object",
         "title": "TemplateLabelsRequest",
-        "description": "Название и подписи переменных общего шаблона платформы (правит Skrezo)."
+        "description": "Название, подписи и источники переменных шаблона.\n\nОбщий шаблон платформы правит Skrezo (`PATCH /admin/whatsapp/templates/{id}`),\nсвой шаблон — клиника (`PATCH /clinic/whatsapp/templates/{id}`)."
       },
       "TemplateOut": {
         "properties": {
@@ -27097,11 +27444,25 @@
             },
             "type": "array",
             "title": "Variablelabels",
-            "description": "Подписи переменных по порядку плейсхолдеров («Имя», «Дата и время»); без подписи — сам плейсхолдер `{{1}}`",
+            "description": "Подписи переменных по порядку плейсхолдеров («Имя», «Дата и время»); без своей подписи — подпись источника значения («Имя пациента»), без источника — сам плейсхолдер `{{1}}`",
             "examples": [
               [
                 "Имя",
                 "Дата и время"
+              ]
+            ]
+          },
+          "variableSources": {
+            "items": {
+              "$ref": "#/components/schemas/VariableSource"
+            },
+            "type": "array",
+            "title": "Variablesources",
+            "description": "Откуда кабинет берёт значение каждой переменной при отправке (`GET …/templates/{templateId}/prefill`), по порядку плейсхолдеров; `manual` — сотрудник вводит сам. Список источников — `GET /clinic/whatsapp/templates/variable-sources`",
+            "examples": [
+              [
+                "patient_name",
+                "appointment_date"
               ]
             ]
           },
@@ -27154,11 +27515,49 @@
           "bodyPreview",
           "variables",
           "variableLabels",
+          "variableSources",
           "status",
           "shared"
         ],
         "title": "TemplateOut",
         "description": "Одобренный (или ожидающий) шаблон WhatsApp."
+      },
+      "TemplatePrefillResponse": {
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Templateid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "examples": [
+              "Приветствие"
+            ]
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/PrefilledVariableOut"
+            },
+            "type": "array",
+            "title": "Variables"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "description": "Все значения найдены — шаблон можно отправить без ввода"
+          }
+        },
+        "type": "object",
+        "required": [
+          "templateId",
+          "title",
+          "variables",
+          "complete"
+        ],
+        "title": "TemplatePrefillResponse",
+        "description": "Предзаполненные переменные шаблона — подставить в поля перед отправкой."
       },
       "TemplatesResponse": {
         "properties": {
@@ -28935,6 +29334,64 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VariableSource": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "patient_name",
+          "patient_full_name",
+          "clinic_name",
+          "clinic_phone",
+          "clinic_address",
+          "doctor_name",
+          "appointment_date",
+          "appointment_time",
+          "debt_amount"
+        ],
+        "title": "VariableSource",
+        "description": "Источник значения переменной шаблона."
+      },
+      "VariableSourceOut": {
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/VariableSource",
+            "examples": [
+              "patient_name"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Подпись на языке запроса",
+            "examples": [
+              "Имя пациента"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "VariableSourceOut",
+        "description": "Источник значения переменной — пункт выбора в кабинете."
+      },
+      "VariableSourcesResponse": {
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/VariableSourceOut"
+            },
+            "type": "array",
+            "title": "List"
+          }
+        },
+        "type": "object",
+        "required": [
+          "list"
+        ],
+        "title": "VariableSourcesResponse"
       },
       "WhatsAppAppSyncOut": {
         "properties": {

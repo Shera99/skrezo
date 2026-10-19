@@ -12,6 +12,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime, tzinfo
 
+from app.modules.whatsapp.domain.template_sources import (
+    VariableSource,
+    normalize_sources,
+    source_label,
+)
 from app.shared.db.enums import Lang
 from app.shared.i18n.messages import translate
 
@@ -32,16 +37,30 @@ def template_title(meta_name: str, title: str | None) -> str:
     return title.strip() if title and title.strip() else meta_name
 
 
-def variable_labels(variables: Sequence[object], labels: Sequence[object]) -> list[str]:
-    """Подписи переменных по порядку плейсхолдеров; без подписи — сам ``{{n}}``.
+def variable_labels(
+    variables: Sequence[object],
+    labels: Sequence[object],
+    sources: Sequence[object] = (),
+    lang: Lang = Lang.RU,
+) -> list[str]:
+    """Подписи переменных по порядку плейсхолдеров.
 
-    Длина всегда равна числу переменных: подписи, оставшиеся от прежней версии
-    шаблона с другим числом переменных, обрезаются, недостающие заполняются.
+    Своя подпись важнее всего; без неё — подпись источника значения («Имя
+    пациента»), а без источника — сам ``{{n}}``. Длина всегда равна числу
+    переменных: подписи от прежней версии шаблона обрезаются, недостающие
+    заполняются.
     """
-    return [
-        str(labels[i]) if i < len(labels) and str(labels[i]).strip() else f"{{{{{v}}}}}"
-        for i, v in enumerate(variables)
-    ]
+    kinds = normalize_sources(variables, sources)
+    result: list[str] = []
+    for i, v in enumerate(variables):
+        own = str(labels[i]).strip() if i < len(labels) else ""
+        if own:
+            result.append(own)
+        elif kinds[i] is not VariableSource.MANUAL:
+            result.append(source_label(kinds[i], lang))
+        else:
+            result.append(f"{{{{{v}}}}}")
+    return result
 
 
 # Статусы Meta, у которых причина — своя строка каталога; прочие не-approved

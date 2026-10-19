@@ -9,8 +9,10 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from app.modules.whatsapp.application.use_cases.connection_status import ConnectionStatus
+from app.modules.whatsapp.application.use_cases.prefill_template import TemplatePrefill
 from app.modules.whatsapp.domain.connection import reconnect_message
 from app.modules.whatsapp.domain.models import ConversationRow
+from app.modules.whatsapp.domain.template_sources import VariableSource, normalize_sources
 from app.modules.whatsapp.domain.templates import (
     template_title,
     unavailable_reason,
@@ -334,9 +336,19 @@ class TemplateOut(CamelModel):
     variable_labels: list[str] = Field(
         description=(
             "Подписи переменных по порядку плейсхолдеров («Имя», «Дата и время»); без "
-            "подписи — сам плейсхолдер `{{1}}`"
+            "своей подписи — подпись источника значения («Имя пациента»), без "
+            "источника — сам плейсхолдер `{{1}}`"
         ),
         examples=[["Имя", "Дата и время"]],
+    )
+    variable_sources: list[VariableSource] = Field(
+        description=(
+            "Откуда кабинет берёт значение каждой переменной при отправке "
+            "(`GET …/templates/{templateId}/prefill`), по порядку плейсхолдеров; "
+            "`manual` — сотрудник вводит сам. Список источников — "
+            "`GET /clinic/whatsapp/templates/variable-sources`"
+        ),
+        examples=[["patient_name", "appointment_date"]],
     )
     status: str = Field(
         description="approved | pending | rejected | paused | disabled; отправка — только approved"
@@ -367,7 +379,10 @@ class TemplateOut(CamelModel):
             category=t.category,
             body_preview=t.body_preview,
             variables=[str(v) for v in t.variables],
-            variable_labels=variable_labels(t.variables, t.variable_labels),
+            variable_labels=variable_labels(
+                t.variables, t.variable_labels, t.variable_sources, lang
+            ),
+            variable_sources=normalize_sources(t.variables, t.variable_sources),
             status=t.status,
             status_changed_at=t.status_changed_at,
             unavailable_reason=unavailable_reason(t.status, t.status_changed_at, lang, tz),
@@ -376,7 +391,11 @@ class TemplateOut(CamelModel):
 
 
 class TemplateLabelsRequest(CamelModel):
-    """Название и подписи переменных общего шаблона платформы (правит Skrezo)."""
+    """Название, подписи и источники переменных шаблона.
+
+    Общий шаблон платформы правит Skrezo (`PATCH /admin/whatsapp/templates/{id}`),
+    свой шаблон — клиника (`PATCH /clinic/whatsapp/templates/{id}`).
+    """
 
     title: str | None = Field(
         default=None,
@@ -392,10 +411,67 @@ class TemplateLabelsRequest(CamelModel):
         ),
         examples=[["Имя", "Дата и время"]],
     )
+    variable_sources: list[VariableSource] | None = Field(
+        default=None,
+        description=(
+            "Источник значения каждой переменной по порядку плейсхолдеров — ровно "
+            "столько, сколько переменных; не передано — не меняются"
+        ),
+        examples=[["patient_name", "clinic_name"]],
+    )
 
 
 class TemplatesResponse(CamelModel):
     list: list[TemplateOut]
+
+
+class VariableSourceOut(CamelModel):
+    """Источник значения переменной — пункт выбора в кабинете."""
+
+    key: VariableSource = Field(examples=["patient_name"])
+    label: str = Field(description="Подпись на языке запроса", examples=["Имя пациента"])
+
+
+class VariableSourcesResponse(CamelModel):
+    list: list[VariableSourceOut]
+
+
+class PrefilledVariableOut(CamelModel):
+    """Переменная шаблона с найденным значением."""
+
+    placeholder: str = Field(examples=["{{1}}"])
+    label: str = Field(description="Подпись поля", examples=["Имя пациента"])
+    source: VariableSource = Field(examples=["patient_name"])
+    value: str | None = Field(
+        description=(
+            "Значение для этого диалога; null — не нашлось (нет карточки пациента, "
+            "будущей записи, долга) или источник `manual`: поле заполняет сотрудник"
+        ),
+        examples=["Айбек"],
+    )
+
+
+class TemplatePrefillResponse(CamelModel):
+    """Предзаполненные переменные шаблона — подставить в поля перед отправкой."""
+
+    template_id: uuid.UUID
+    title: str = Field(examples=["Приветствие"])
+    variables: list[PrefilledVariableOut]
+    complete: bool = Field(description="Все значения найдены — шаблон можно отправить без ввода")
+
+    @classmethod
+    def from_prefill(cls, prefill: TemplatePrefill) -> TemplatePrefillResponse:
+        return cls(
+            template_id=prefill.template_id,
+            title=prefill.title,
+            variables=[
+                PrefilledVariableOut(
+                    placeholder=v.placeholder, label=v.label, source=v.source, value=v.value
+                )
+                for v in prefill.variables
+            ],
+            complete=prefill.complete,
+        )
 
 
 class SendTemplateRequest(CamelModel):

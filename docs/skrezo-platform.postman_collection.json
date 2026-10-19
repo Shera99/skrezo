@@ -2634,6 +2634,115 @@
               "response": []
             },
             {
+              "name": "Источники значений переменных шаблона",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/variable-sources?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "whatsapp",
+                    "templates",
+                    "variable-sources"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Откуда кабинет может брать значение переменной шаблона: имя пациента,\nданные клиники, ближайшая запись, долг или `manual` (вводит сотрудник).\nВыбор сохраняется ручкой `PATCH /clinic/whatsapp/templates/{templateId}`."
+              },
+              "response": []
+            },
+            {
+              "name": "Название, подписи и источники переменных своего шаблона",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/whatsapp/templates/{{template_id}}?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "whatsapp",
+                    "templates",
+                    "{{template_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Клиника объясняет свой шаблон: понятное название, подписи переменных и\nоткуда брать значение каждой (`variableSources`) — тогда кабинет заполняет\nих сам (`GET …/templates/{templateId}/prefill`). Списков ровно по числу\nпеременных; поле не передано — не меняется; `title: null` возвращает имя\nиз Meta. Синхронизация с Meta подписи и источники не стирает. Общий шаблон\nплатформы — 403 `template_shared`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Напоминание о приёме\",\n  \"variableLabels\": [\n    \"Имя\",\n    \"Дата и время\"\n  ],\n  \"variableSources\": [\n    \"patient_name\",\n    \"clinic_name\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Значения переменных шаблона для диалога",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/clinic/conversations/{{conversation_id}}/templates/{{template_id}}/prefill?lang=string",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "clinic",
+                    "conversations",
+                    "{{conversation_id}}",
+                    "templates",
+                    "{{template_id}}",
+                    "prefill"
+                  ],
+                  "query": [
+                    {
+                      "key": "lang",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Язык ответа: kg|kz|ru|en"
+                    }
+                  ]
+                },
+                "description": "Предзаполнение формы отправки шаблона: по источнику каждой переменной\nбэк берёт значение из карточки пациента этого диалога, данных клиники,\nближайшей будущей записи (дата `ДД.ММ.ГГГГ`, время, врач) и долга (сом).\nНе нашлось или источник `manual` — `value: null`, поле заполняет\nсотрудник. Значения можно поправить: отправка (`POST …/templates`)\nпо-прежнему берёт их из запроса."
+              },
+              "response": []
+            },
+            {
               "name": "Вложение сообщения (голосовое, снимок, документ)",
               "request": {
                 "method": "GET",
@@ -2862,10 +2971,10 @@
                     }
                   ]
                 },
-                "description": "Задать понятное название и подписи переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
+                "description": "Задать понятное название, подписи и источники значений переменных общего шаблона.\n\nПодписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422\n`labels_count_mismatch`. `title: null` возвращает имя из Meta; поле\n`variableLabels` не передано — подписи не меняются.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Напоминание о приёме\",\n  \"variableLabels\": [\n    \"Имя\",\n    \"Дата и время\"\n  ]\n}",
+                  "raw": "{\n  \"title\": \"Напоминание о приёме\",\n  \"variableLabels\": [\n    \"Имя\",\n    \"Дата и время\"\n  ],\n  \"variableSources\": [\n    \"patient_name\",\n    \"clinic_name\"\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"

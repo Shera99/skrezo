@@ -17,12 +17,20 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.whatsapp.domain.models import ConversationCounters, ConversationRow
-from app.shared.db.enums import AiConversationStatus, AiMessageRole, WhatsAppMode
+from app.shared.db.enums import (
+    AiConversationStatus,
+    AiMessageRole,
+    AppointmentStatus,
+    WhatsAppMode,
+)
+from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
+from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.clinic import DEFAULT_TIMEZONE, Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.event import Event
+from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
 from app.shared.db.models.whatsapp_contact import WhatsAppContact
 from app.shared.db.models.whatsapp_history_message import WhatsAppHistoryMessage
@@ -687,6 +695,35 @@ class WhatsAppRepository:
                 )
             )
         ).scalar_one_or_none()
+
+    async def next_visit(
+        self, clinic_id: uuid.UUID, patient_id: uuid.UUID
+    ) -> tuple[datetime, str | None] | None:
+        """Ближайшая будущая запись пациента в клинике: начало (UTC) и имя врача.
+
+        Только действующие записи (``scheduled``/``confirmed``): черновик без
+        даты, отменённая и прошедшая для «напоминаем о приёме» не годятся.
+        """
+        row = (
+            await self._session.execute(
+                select(Appointment.scheduled_at, Account.full_name)
+                .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
+                .outerjoin(Account, Account.id == Membership.account_id)
+                .where(
+                    Appointment.clinic_id == clinic_id,
+                    Appointment.patient_id == patient_id,
+                    Appointment.status.in_(
+                        (AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED)
+                    ),
+                    Appointment.scheduled_at > datetime.now(UTC),
+                )
+                .order_by(Appointment.scheduled_at)
+                .limit(1)
+            )
+        ).first()
+        if row is None or row[0] is None:
+            return None
+        return row[0], (row[1] or "").strip() or None
 
     async def common_templates(self) -> list[WhatsAppTemplate]:
         """Общие шаблоны платформы (``clinic_id IS NULL``) — каталог для админки."""

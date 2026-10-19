@@ -64,10 +64,16 @@ class WhatsAppTemplate(Base, UUIDPKMixin, TimestampMixin):
     status_changed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Понятное название и подписи переменных — только у общих шаблонов платформы
-    # (их пишет команда Skrezo в админке). У шаблона клиники показывается имя из
-    # Meta, а подписи — сами плейсхолдеры.
+    # Понятное название и подписи переменных: у общих шаблонов платформы их пишет
+    # команда Skrezo в админке, у шаблонов клиники — сама клиника (с 19.10.2026).
+    # Без них показывается имя из Meta и сами плейсхолдеры.
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     variable_labels: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    # Откуда брать значение каждой переменной для предзаполнения при отправке
+    # (``whatsapp/domain/template_sources.py``); пустой список — все «вручную».
+    # Синхронизация с Meta его не трогает, как и подписи.
+    variable_sources: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )

@@ -95,20 +95,27 @@ async def admin_set_template_labels(
     use_case: SetTemplateLabelsUseCase = Depends(get_set_template_labels_use_case),
     audit: AuditService = Depends(get_audit_service),
 ) -> TemplateOut:
-    """Задать понятное название и подписи переменных общего шаблона.
+    """Задать понятное название, подписи и источники значений переменных общего шаблона.
 
     Подписей — ровно по числу переменных (`{{1}}`, `{{2}}` → две), иначе 422
     `labels_count_mismatch`. `title: null` возвращает имя из Meta; поле
     `variableLabels` не передано — подписи не меняются.
     """
     template = await use_case.execute(
-        template_id, title=body.title, variable_labels=body.variable_labels
+        template_id,
+        title=body.title,
+        variable_labels=body.variable_labels,
+        variable_sources=body.variable_sources,
     )
     await audit.record(
         actor_id=actor,
         action="whatsapp_template.labels",
         entity_type="whatsapp_template",
         entity_id=template.id,
-        payload={"title": template.title, "variableLabels": list(template.variable_labels)},
+        payload={
+            "title": template.title,
+            "variableLabels": list(template.variable_labels),
+            "variableSources": list(template.variable_sources),
+        },
     )
     return TemplateOut.from_orm_template(template, lang=lang)

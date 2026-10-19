@@ -22,6 +22,7 @@ from app.modules.whatsapp.application.use_cases.list_conversations import (
 )
 from app.modules.whatsapp.application.use_cases.list_history import ListHistoryUseCase
 from app.modules.whatsapp.application.use_cases.mark_read import MarkConversationReadUseCase
+from app.modules.whatsapp.application.use_cases.prefill_template import PrefillTemplateUseCase
 from app.modules.whatsapp.application.use_cases.refresh_connection import (
     RefreshConnectionUseCase,
 )
@@ -108,6 +109,13 @@ def get_set_template_labels_use_case(
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> SetTemplateLabelsUseCase:
     return SetTemplateLabelsUseCase(session, repository)
+
+
+def get_prefill_template_use_case(
+    session: AsyncSession = Depends(get_session),
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+) -> PrefillTemplateUseCase:
+    return PrefillTemplateUseCase(session, repository)
 
 
 def get_onboarding_client() -> MetaOnboardingClient | None:
