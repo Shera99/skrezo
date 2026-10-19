@@ -191,6 +191,18 @@ class MessageOut(CamelModel):
     sent_at: datetime | None = Field(
         default=None, description="null — не отправлено (теневой режим, черновик или блок)"
     )
+    delivery_error: str | None = Field(
+        default=None,
+        description=(
+            "Почему WhatsApp не доставил это сообщение — текст для сотрудника. Есть у "
+            "исходящих, которые Meta отклонила при отправке (тогда `sentAt = null`) или "
+            "позже статусом `failed`. null — доставка не падала"
+        ),
+        examples=[
+            "WhatsApp не доставил сообщение: номер пациента не в списке разрешённых "
+            "получателей — WhatsApp клиники подключён в тестовом режиме Meta"
+        ],
+    )
     created_at: datetime
 
     @classmethod
@@ -209,6 +221,7 @@ class MessageOut(CamelModel):
             reviewed_at=m.reviewed_at,
             original_body=m.original_body,
             sent_at=m.sent_at,
+            delivery_error=m.delivery_error,
             created_at=m.created_at,
         )
 

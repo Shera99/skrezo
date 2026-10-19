@@ -92,6 +92,9 @@ class AiMessage(Base):
     #: Категория платности Меты (utility / marketing / authentication / service).
     wa_pricing_category: Mapped[str | None] = mapped_column(Text, nullable=True)
     wa_billable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    #: Почему WhatsApp не доставил: отказ при отправке или статус ``failed`` —
+    #: объяснение для чата клиники (см. ``whatsapp/domain/delivery.py``).
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     used_facts: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB, nullable=True)
     validator: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model: Mapped[str | None] = mapped_column(Text, nullable=True)

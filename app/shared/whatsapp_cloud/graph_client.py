@@ -57,6 +57,22 @@ def _parse_template(row: dict[str, Any]) -> TemplateInfo:
     )
 
 
+def _meta_error(resp: httpx.Response) -> tuple[int | None, str | None]:
+    """Код и текст ошибки Meta: ``{"error": {"code", "message", "error_data": {"details"}}}``."""
+    try:
+        error = resp.json().get("error") or {}
+    except ValueError, AttributeError:
+        return None, None
+    if not isinstance(error, dict):
+        return None, None
+    raw_code = error.get("code")
+    code = raw_code if isinstance(raw_code, int) else None
+    data = error.get("error_data")
+    details = data.get("details") if isinstance(data, dict) else None
+    detail = str(details or error.get("message") or "")[:300] or None
+    return code, detail
+
+
 class GraphWhatsAppClient:
     """Клиент Cloud API поверх httpx (async)."""
 
@@ -94,7 +110,14 @@ class GraphWhatsAppClient:
             # Тело ошибки Meta — в лог целиком: код у них внутри JSON, и без
             # него «400» не говорит ничего (окно закрыто? номер не в WA?).
             logger.error("wa_cloud_send_failed", status=resp.status_code, body=resp.text[:500])
-            raise WhatsAppSendError(f"Graph API {resp.status_code}")
+            code, detail = _meta_error(resp)
+            suffix = f" ({code}: {detail})" if code is not None else ""
+            raise WhatsAppSendError(
+                f"Graph API {resp.status_code}{suffix}",
+                status=resp.status_code,
+                code=code,
+                detail=detail,
+            )
         data = resp.json()
         try:
             return SentMessage(wa_message_id=data["messages"][0]["id"])

@@ -22097,6 +22097,21 @@
             "title": "Sentat",
             "description": "null — не отправлено (теневой режим, черновик или блок)"
           },
+          "deliveryError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliveryerror",
+            "description": "Почему WhatsApp не доставил это сообщение — текст для сотрудника. Есть у исходящих, которые Meta отклонила при отправке (тогда `sentAt = null`) или позже статусом `failed`. null — доставка не падала",
+            "examples": [
+              "WhatsApp не доставил сообщение: номер пациента не в списке разрешённых получателей — WhatsApp клиники подключён в тестовом режиме Meta"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",

@@ -24,7 +24,16 @@ from app.shared.db.models.kb_document import KbDocument
 #: сотрудник сказал «отвечаю сам», у пациента неотложное или сильная боль без
 #: свободного времени — нужен человек; поток сообщений (§14) — бот уже
 #: извинился один раз, и возврат означал бы новое извинение каждые 15 минут.
-STICKY_ESCALATIONS = ("manual_takeover", "urgent_medical", "acute_pain", "rate_limited")
+#: Передачи, которые автовозврат не снимает: человек решил вести сам, здоровье,
+#: поток сообщений и постоянный отказ WhatsApp (``delivery_failed``) — там бот
+#: всё равно не дозвонится до пациента, пока причину не исправят.
+STICKY_ESCALATIONS = (
+    "manual_takeover",
+    "urgent_medical",
+    "acute_pain",
+    "rate_limited",
+    "delivery_failed",
+)
 
 
 class AiRepository:

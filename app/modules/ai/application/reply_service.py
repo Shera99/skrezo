@@ -70,6 +70,7 @@ from app.modules.schedule.infrastructure.repositories.schedule_repository import
 )
 from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.application.services.credentials import client_for
+from app.modules.whatsapp.domain.delivery import DeliveryFailure, describe_failure
 from app.modules.whatsapp.domain.window import WINDOW
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -179,6 +180,14 @@ def _fix_instruction(verdict: Verdict) -> str:
     """Подсказка модели для повтора: что именно не сошлось с фактами хода."""
     hints = [_FIX_HINTS[code].format(notes=verdict.notes or "—") for code in verdict.codes]
     return " ".join([*hints, "Верни строго один JSON."])
+
+
+@dataclass(frozen=True, slots=True)
+class _TemplateSend:
+    """Ушёл ли шаблон пациенту и, если нет, почему WhatsApp его не принял."""
+
+    sent: bool
+    failure: DeliveryFailure | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -729,8 +738,15 @@ class ProcessAiReplyService:
                     binding.phone_number_id, conversation.wa_phone, reply.reply
                 )
             except WhatsAppSendError as exc:
-                return await self._escalate(
-                    conversation, clinic, "tool_error", {"note": f"send: {exc}"}
+                # Ответ модели не теряется: сотрудник видит в чате, что хотел
+                # сказать бот и почему WhatsApp это не принял (16.10.2026).
+                failure = _failure_of(exc)
+                message = await self._save_bot_message(
+                    conversation, reply, verdict, model_name, None, None
+                )
+                message.delivery_error = failure.text
+                return await self._delivery_failed(
+                    conversation, clinic, failure, proposed_message_id=message.id
                 )
             sent_at = datetime.now(UTC)
             wa_message_id = sent.wa_message_id
@@ -862,8 +878,10 @@ class ProcessAiReplyService:
             return ReplyOutcome(status="skipped", note="кнопка уже нажата")
         lang = _lang_code(conversation.lang)
         body = service_text("button_sent", lang).format(title=button_title(button.tool, lang))
-        sent = await self._send_filter_reply(conversation, clinic, body, note="button_fallback")
-        if not sent:
+        result = await self._send_filter_reply(conversation, clinic, body, note="button_fallback")
+        if result.failure is not None:
+            return await self._delivery_failed(conversation, clinic, result.failure)
+        if not result.sent:
             return await self._escalate(
                 conversation, clinic, "tool_error", {"note": f"после кнопки: {why}"}
             )
@@ -956,8 +974,50 @@ class ProcessAiReplyService:
                     await self._signal_message(conversation)
                 except WhatsAppSendError as exc:
                     logger.warning("ai_escalation_notice_failed", error=str(exc))
+                    unsent = await self._whatsapp.add_message(
+                        conversation,
+                        role=AiMessageRole.SYSTEM,
+                        body=notice,
+                        wa_message_id=None,
+                        sent_at=None,
+                    )
+                    unsent.delivery_error = _failure_of(exc).text
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
+
+    async def _delivery_failed(
+        self,
+        conversation: AiConversation,
+        clinic: Clinic,
+        failure: DeliveryFailure,
+        *,
+        proposed_message_id: int | None = None,
+    ) -> ReplyOutcome:
+        """WhatsApp не принял наше сообщение — передать человеку с понятной причиной.
+
+        Переписка 16.10.2026: Meta четырнадцать раз отклонила ответы одному
+        пациенту (номер не в списке разрешённых), и каждое его сообщение и каждый
+        возврат боту стоили обращения к модели и новой передачи «tool_error» без
+        объяснения. Теперь:
+
+        * постоянный отказ — причина ``delivery_failed``, «липкая»: автовозврат
+          её не снимает, бот молчит и модель не зовётся, пока сотрудник не
+          вернёт диалог сам (значит, причину исправили). Шаблон пациенту не
+          шлём — он упёрся бы в тот же отказ;
+        * временный (сеть, лимит Meta) — прежняя ``tool_error``: бот попробует
+          снова после автовозврата.
+
+        Объяснение отказа — в ``payload.note`` и у самого сообщения в чате.
+        """
+        reason = "delivery_failed" if failure.permanent else "tool_error"
+        return await self._escalate(
+            conversation,
+            clinic,
+            reason,
+            {"note": failure.text, "waCode": failure.code},
+            proposed_message_id=proposed_message_id,
+            notify_patient=not failure.permanent,
+        )
 
     async def _handoff_notice(
         self, conversation: AiConversation, clinic: Clinic, reason: str
@@ -1129,16 +1189,18 @@ class ProcessAiReplyService:
         body: str,
         *,
         note: str = "medical_filter",
-    ) -> bool:
+    ) -> _TemplateSend:
         """Отправить шаблон (не ответ модели) пациенту и записать его в диалог.
 
         Уходит только в ``auto``: в теневом режиме пациент бота ещё не видел,
-        писать ему от имени клиники нельзя. Возвращает, ушло ли сообщение.
+        писать ему от имени клиники нельзя. Возвращает, ушло ли сообщение, а
+        при отказе WhatsApp — его причину (она же остаётся у сообщения в чате).
         ``note`` — метка в журнале, кто написал текст: медфильтр, подсказка
         после кнопки.
         """
         sent_at: datetime | None = None
         wa_message_id: str | None = None
+        failure: DeliveryFailure | None = None
         if clinic.ai_mode is AiMode.AUTO:
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
             if binding is not None and binding.active:
@@ -1151,6 +1213,7 @@ class ProcessAiReplyService:
                     conversation.last_msg_at = sent_at
                 except WhatsAppSendError as exc:
                     logger.warning("ai_medical_reply_failed", error=str(exc))
+                    failure = _failure_of(exc)
         message = await self._whatsapp.add_message(
             conversation,
             role=AiMessageRole.BOT,
@@ -1160,10 +1223,12 @@ class ProcessAiReplyService:
         )
         # Метка в журнале: этот ответ написал шаблон, а не модель.
         message.validator = {"passed": True, "codes": [], "notes": note}
+        if failure is not None:
+            message.delivery_error = failure.text
         if sent_at is not None:
             # Как и ответ модели: на экран — только то, что ушло пациенту.
             await self._signal_message(conversation)
-        return sent_at is not None
+        return _TemplateSend(sent=sent_at is not None, failure=failure)
 
     async def _urgent(
         self, conversation: AiConversation, clinic: Clinic, medical: MedicalVerdict
@@ -1176,13 +1241,17 @@ class ProcessAiReplyService:
             if phone
             else medical_text("urgent_no_phone", lang)
         )
-        await self._send_filter_reply(conversation, clinic, body)
+        result = await self._send_filter_reply(conversation, clinic, body)
         # Бот замолкает: уточняющих вопросов при неотложном не задают.
         self._repository.add_escalation(
             conversation.id,
             conversation.clinic_id,
             reason="urgent_medical",
-            payload={"trigger": medical.label, "proposedMessageId": None},
+            payload={
+                "trigger": medical.label,
+                "proposedMessageId": None,
+                **({"note": result.failure.text} if result.failure else {}),
+            },
         )
         conversation.status = AiConversationStatus.ESCALATED
         await self._signal_status(conversation)
@@ -1224,7 +1293,11 @@ class ProcessAiReplyService:
                 if slots
                 else medical_text("complaint_no_slots", lang)
             )
-        auto = await self._send_filter_reply(conversation, clinic, body)
+        result = await self._send_filter_reply(conversation, clinic, body)
+        if result.failure is not None:
+            # Раньше отказ WhatsApp здесь превращался в «shadow»: пациент без
+            # ответа, и никто об этом не знал.
+            return await self._delivery_failed(conversation, clinic, result.failure)
         await self._session.commit()
         logger.info(
             "ai_medical_complaint",
@@ -1232,7 +1305,7 @@ class ProcessAiReplyService:
             trigger=medical.label,
             booked=visit is not None,
         )
-        return ReplyOutcome(status="sent" if auto else "shadow", reply=body)
+        return ReplyOutcome(status="sent" if result.sent else "shadow", reply=body)
 
     async def _soon_visit(
         self, conversation: AiConversation, clinic: Clinic
@@ -1288,15 +1361,15 @@ class ProcessAiReplyService:
             if slots
             else medical_text("acute_pain_no_slots", lang)
         )
-        sent = await self._send_filter_reply(conversation, clinic, body)
+        result = await self._send_filter_reply(conversation, clinic, body)
         logger.info(
             "ai_medical_acute_pain",
             conversation_id=str(conversation.id),
             trigger=medical.label,
             has_slots=bool(slots),
-            sent=sent,
+            sent=result.sent,
         )
-        if sent and slots:
+        if result.sent and slots:
             await emit_event(
                 self._session,
                 clinic_id=conversation.clinic_id,
@@ -1315,7 +1388,11 @@ class ProcessAiReplyService:
             conversation,
             clinic,
             "acute_pain",
-            {"trigger": medical.label, "slots": slots or None},
+            {
+                "trigger": medical.label,
+                "slots": slots or None,
+                **({"note": result.failure.text} if result.failure else {}),
+            },
             notify_patient=False,
         )
 
@@ -1342,21 +1419,22 @@ class ProcessAiReplyService:
         )
         if slots:
             body += medical_text("earlier_slots", lang).format(slots=slots)
-        sent = await self._send_filter_reply(conversation, clinic, body)
+        result = await self._send_filter_reply(conversation, clinic, body)
         logger.info(
             "ai_medical_acute_pain",
             conversation_id=str(conversation.id),
             trigger=medical.label,
             booked=True,
             has_slots=bool(slots),
-            sent=sent,
+            sent=result.sent,
         )
         payload = {
             "trigger": medical.label,
             "appointmentId": str(visit.appointment_id),
             "slots": slots or None,
+            **({"note": result.failure.text} if result.failure else {}),
         }
-        if sent:
+        if result.sent:
             await emit_event(
                 self._session,
                 clinic_id=conversation.clinic_id,
@@ -1435,6 +1513,11 @@ class ProcessAiReplyService:
             patient = await self._session.get(Patient, conversation.patient_id)
             if patient is not None and patient.preferred_lang is None:
                 patient.preferred_lang = lang
+
+
+def _failure_of(exc: WhatsAppSendError) -> DeliveryFailure:
+    """Отказ Graph API → объяснение для чата и постоянство ошибки."""
+    return describe_failure(status=exc.status, code=exc.code, detail=exc.detail)
 
 
 def _unreadable_reason(message: AiMessage | None) -> str | None:

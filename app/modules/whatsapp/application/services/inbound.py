@@ -36,6 +36,7 @@ from app.modules.usage.application.services.usage_meter import UsageMeter
 from app.modules.whatsapp.application.services.app_webhooks import AppWebhooks
 from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.services.media import media_duration_seconds, save_media
+from app.modules.whatsapp.domain.delivery import describe_failure
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -226,6 +227,11 @@ class InboundProcessor:
         if _STATUS_RANK.get(new_status, 0) > _STATUS_RANK.get(message.wa_status or "", 0):
             message.wa_status = new_status
             message.wa_status_at = _message_ts(status_item)
+        if new_status == "failed":
+            # Многие отказы (нет WhatsApp у номера, закрыто окно) Meta сообщает не
+            # ответом на отправку, а позже — статусом с кодом. Без объяснения в
+            # чате клиники сообщение выглядело бы доставленным.
+            message.delivery_error = _failed_status_reason(status_item)
         pricing = status_item.get("pricing") or {}
         billable: bool | None = None
         category: str | None = None
@@ -491,3 +497,17 @@ class InboundProcessor:
         await self._repository.set_transcript(
             message_id, text=result.text, confidence=result.confidence
         )
+
+
+def _failed_status_reason(status_item: dict[str, Any]) -> str:
+    """Статус ``failed`` → объяснение для чата клиники по коду ошибки Meta."""
+    errors = status_item.get("errors") or []
+    error = errors[0] if errors and isinstance(errors[0], dict) else {}
+    raw_code = error.get("code")
+    data = error.get("error_data")
+    detail = (data.get("details") if isinstance(data, dict) else None) or error.get("title")
+    return describe_failure(
+        status=400,
+        code=raw_code if isinstance(raw_code, int) else None,
+        detail=str(detail)[:300] if detail else None,
+    ).text

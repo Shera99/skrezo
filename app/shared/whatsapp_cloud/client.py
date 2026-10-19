@@ -11,7 +11,26 @@ from typing import Protocol
 
 
 class WhatsAppSendError(Exception):
-    """Graph API отказал или не ответил — сообщение не отправлено."""
+    """Graph API отказал или не ответил — сообщение не отправлено.
+
+    ``status`` — HTTP-статус ответа (``None`` — сеть или таймаут), ``code`` и
+    ``detail`` — код и текст ошибки Meta из тела ответа. Без кода «400» не
+    говорит ничего: номер не в списке разрешённых, у номера нет WhatsApp,
+    закрыто окно — у каждого случая своё действие для клиники.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        code: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.detail = detail
 
 
 @dataclass(frozen=True, slots=True)
