@@ -233,12 +233,14 @@ erDiagram
         uuid patient_id FK
         uuid clinic_id FK "кто загрузил"
         uuid appointment_id FK "nullable"
-        enum kind "images|files"
+        enum kind "images|files|ct"
+        smallint_array tooth_numbers "зубы FDI; пусто — общий файл"
+        date taken_date "nullable: дата самого снимка"
         text original_name "как прислали"
         text stored_path "путь в хранилище, имя генерируем мы"
         text mime
-        int size_bytes
-        text comment "nullable"
+        bigint size_bytes
+        text comment "nullable: описание файла"
         uuid uploaded_by_membership_id FK "nullable"
         timestamptz created_at
         timestamptz deleted_at "nullable: мягкое удаление"
@@ -475,7 +477,7 @@ erDiagram
 | `clinic_application_status` | `pending`, `reviewed`, `rejected` | clinic_application |
 | `cancel_reason` | `patient_request`, `patient_illness`, `clinic_reschedule`, `doctor_unavailable`, `duplicate`, `other` | appointment |
 | `job_run_status` | `running`, `ok`, `failed` | job_run |
-| `file_kind` | `images`, `files` | patient_file |
+| `file_kind` | `images`, `files`, `ct` (КТ: DICOM или ZIP исследования) | patient_file |
 
 ---
 

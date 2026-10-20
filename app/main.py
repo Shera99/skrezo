@@ -66,6 +66,7 @@ from app.modules.whatsapp.presentation.routes import router as whatsapp_router
 from app.realtime import build_asgi, sio
 from app.realtime.listener import run_realtime_listener
 from app.shared.http import close_shared_clients
+from app.shared.storage.upload_guard import UploadGuardMiddleware
 
 OPENAPI_DESCRIPTION = """
 Бэкенд **платформенной зоны Skrezo** (админ-панель команды) и **рабочего
@@ -491,6 +492,11 @@ def create_app() -> FastAPI:
         # иначе спека уедет в соседний сервис, живущий на том же домене.
         root_path=settings.root_path,
     )
+
+    # Раньше CORS: добавленный позже middleware оборачивает предыдущие, и отказ
+    # фильтра (401/413) тоже уходит с CORS-заголовками — иначе браузер покажет
+    # вместо него «ошибку сети».
+    app.add_middleware(UploadGuardMiddleware)
 
     if settings.cors_origins:
         app.add_middleware(

@@ -4316,8 +4316,8 @@
         "tags": [
           "patients"
         ],
-        "summary": "Загрузить файл в карту пациента",
-        "description": "Снимок или документ в карту пациента (multipart).\n\nТип определяется **по содержимому**, а не по заголовку запроса: клиент\nназывает тип сам, и `image/jpeg` с чем угодно внутри — это то, что потом\nскачает сотрудник. Поддерживаются JPEG, PNG, WebP, HEIC и PDF.\n\nИмя файла на диске генерируем мы (uuid + расширение); присланное имя\nхранится отдельно и только для показа — иначе `../` в имени уводит запись за\nпределы хранилища.\n\n⚠️ Пациент **глобальный**, поэтому файл увидят все клиники, которые его\nлечат, — как и сквозную историю зуба. Кто загрузил, видно в `clinicId`.",
+        "summary": "Загрузить файл в карту пациента или к зубам",
+        "description": "Снимок, документ или КТ в карту пациента (multipart).\n\nФайл кладётся либо в карту целиком (общий снимок, например КТ всей\nчелюсти), либо к зубам — тогда он показывается у них в формуле. Один файл\nможет относиться к нескольким зубам: прицельный снимок обычно захватывает\nсоседние.\n\nТип определяется **по содержимому**, а не по заголовку запроса: клиент\nназывает тип сам, и `image/jpeg` с чем угодно внутри — это то, что потом\nскачает сотрудник. Поддерживаются JPEG, PNG, WebP, HEIC, PDF и КТ:\nодиночный DICOM-файл или ZIP-архив исследования. У КТ свой потолок размера\n(`UPLOAD_CT_MAX_BYTES`, по умолчанию 1 ГиБ), у остальных — 20 МБ. Архив КТ\nне распаковывается, но должен содержать DICOM и не содержать программ\n(программу просмотра с диска из архива нужно убрать).\n\nИмя файла на диске генерируем мы (uuid + расширение); присланное имя\nхранится отдельно и только для показа — иначе `../` в имени уводит запись за\nпределы хранилища.\n\n⚠️ Пациент **глобальный**, поэтому файл увидят все клиники, которые его\nлечат, — как и сквозную историю зуба. Править и удалять его сможет только\nзагрузившая клиника.",
         "operationId": "upload_patient_file_api_v1_clinic_patients__patient_id__files_post",
         "security": [
           {
@@ -4369,12 +4369,98 @@
             }
           },
           "422": {
-            "description": "Неподдерживаемый тип, пустой или слишком большой файл",
+            "description": "Неподдерживаемый тип, пустой или слишком большой файл; архив КТ без DICOM, с программой внутри, с паролем или повреждённый; неверный номер зуба; дата снимка из будущего",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unsupported_file_type": {
+                    "value": {
+                      "error": "unsupported_file_type",
+                      "message": "Такой тип файла не поддерживается: только JPEG, PNG, WebP, HEIC, PDF и КТ (DICOM или ZIP-архив с DICOM)"
+                    }
+                  },
+                  "file_too_large": {
+                    "value": {
+                      "error": "file_too_large",
+                      "message": "Файл больше 20 МБ"
+                    }
+                  },
+                  "archive_has_executable": {
+                    "value": {
+                      "error": "archive_has_executable",
+                      "message": "В архиве есть программа или скрипт — загрузите только снимки исследования (без программы просмотра)"
+                    }
+                  },
+                  "archive_without_dicom": {
+                    "value": {
+                      "error": "archive_without_dicom",
+                      "message": "В архиве нет снимков DICOM — для КТ нужен экспорт исследования в DICOM"
+                    }
+                  },
+                  "archive_unsupported_compression": {
+                    "value": {
+                      "error": "archive_unsupported_compression",
+                      "message": "Архив сжат неподдерживаемым способом — пересоберите его как обычный ZIP"
+                    }
+                  },
+                  "archive_too_many_entries": {
+                    "value": {
+                      "error": "archive_too_many_entries",
+                      "message": "В архиве больше 20000 файлов — это не похоже на одно исследование"
+                    }
+                  },
+                  "archive_encrypted": {
+                    "value": {
+                      "error": "archive_encrypted",
+                      "message": "Архив защищён паролем — загрузите его без пароля"
+                    }
+                  },
+                  "invalid_archive": {
+                    "value": {
+                      "error": "invalid_archive",
+                      "message": "Архив повреждён"
+                    }
+                  },
+                  "empty_file": {
+                    "value": {
+                      "error": "empty_file",
+                      "message": "Файл пустой"
+                    }
+                  },
+                  "invalid_tooth": {
+                    "value": {
+                      "error": "invalid_tooth",
+                      "message": "Некорректный номер зуба (FDI): 19"
+                    }
+                  },
+                  "taken_date_in_future": {
+                    "value": {
+                      "error": "taken_date_in_future",
+                      "message": "Дата снимка не может быть в будущем"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нет access-токена или он невалиден. Проверяется ДО приёма тела: файл без токена на сервер не загружается вовсе",
             "content": {
               "application/json": {
                 "example": {
-                  "error": "unsupported_file_type",
-                  "message": "Такой тип файла не поддерживается: только JPEG, PNG, WebP, HEIC и PDF"
+                  "error": "invalid_token",
+                  "message": "Невалидный токен"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`Content-Length` больше лимита КТ — отказ до приёма тела",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "file_too_large",
+                  "message": "Файл больше 1024 МБ"
                 }
               }
             }
@@ -4386,7 +4472,7 @@
           "patients"
         ],
         "summary": "Файлы пациента",
-        "description": "Список файлов карты; ``appointmentId`` сужает до одного приёма.",
+        "description": "Файлы карты пациента с отбором по источнику, зубу и приёму.\n\nПо умолчанию — только файлы **этой клиники**. Файлы других клиник, которые\nлечат того же пациента, — по `source=others` (или `all`): в ответе у\nкаждого есть `isOwn` и `clinicName`. `othersCount` — сколько под тем же\nотбором чужих файлов, чтобы показать «есть N файлов из других клиник», не\nзагружая их.\n\nСортировка — по дате снимка (`takenDate`, а если её нет — по дате\nзагрузки), свежие сверху.",
         "operationId": "list_patient_files_api_v1_clinic_patients__patient_id__files_get",
         "security": [
           {
@@ -4405,6 +4491,47 @@
             }
           },
           {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/FileSource",
+              "description": "Чьи файлы: `own` — этой клиники (по умолчанию), `others` — других клиник, `all` — все",
+              "default": "own"
+            },
+            "description": "Чьи файлы: `own` — этой клиники (по умолчанию), `others` — других клиник, `all` — все"
+          },
+          {
+            "name": "tooth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Только файлы этого зуба (FDI)",
+              "title": "Tooth"
+            },
+            "description": "Только файлы этого зуба (FDI)"
+          },
+          {
+            "name": "general",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Только общие файлы пациента (без привязки к зубам)",
+              "default": false,
+              "title": "General"
+            },
+            "description": "Только общие файлы пациента (без привязки к зубам)"
+          },
+          {
             "name": "appointmentId",
             "in": "query",
             "required": false,
@@ -4418,13 +4545,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Только файлы этого приёма",
               "title": "Appointmentid"
-            }
+            },
+            "description": "Только файлы этого приёма"
           }
         ],
         "responses": {
           "200": {
-            "description": "Метаданные файлов (свежие сверху)",
+            "description": "Метаданные файлов (свежие по дате снимка сверху)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4445,11 +4574,22 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Неверный номер зуба либо `tooth` вместе с `general=true`",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "examples": {
+                  "invalid_tooth": {
+                    "value": {
+                      "error": "invalid_tooth",
+                      "message": "Некорректный номер зуба (FDI): 19"
+                    }
+                  },
+                  "conflicting_filters": {
+                    "value": {
+                      "error": "conflicting_filters",
+                      "message": "Нельзя одновременно просить файлы зуба и только общие"
+                    }
+                  }
                 }
               }
             }
@@ -4463,7 +4603,7 @@
           "patients"
         ],
         "summary": "Скачать файл пациента",
-        "description": "Отдать содержимое файла.\n\nЗаголовок ``Content-Disposition: attachment`` и запрет угадывания типа\n(``nosniff``) стоят намеренно: файл открывается на нашем домене, где у\nсотрудника живая сессия, и показывать его инлайн — лишний риск.",
+        "description": "Отдать содержимое файла (в том числе загруженного другой клиникой).\n\nЗаголовок ``Content-Disposition: attachment`` и запрет угадывания типа\n(``nosniff``) стоят намеренно: файл открывается на нашем домене, где у\nсотрудника живая сессия, и показывать его инлайн — лишний риск.\n\nИмя для скачивания — присланное, но с расширением по **настоящему** типу\n(`viewer.exe`, прошедший как DICOM, скачается как `viewer.dcm`): иначе\nчужая клиника получала бы запускаемый файл.",
         "operationId": "download_patient_file_api_v1_clinic_patients__patient_id__files__file_id__get",
         "security": [
           {
@@ -4524,12 +4664,112 @@
           }
         }
       },
+      "patch": {
+        "tags": [
+          "patients"
+        ],
+        "summary": "Изменить описание, зубы или дату снимка",
+        "description": "Поправить метаданные своего файла; содержимое не меняется.\n\nМеняются только присланные поля: `comment` (описание), `teeth` (`[]` —\nотвязать от зубов, файл станет общим) и `takenDate`. Править может **только\nклиника, загрузившая файл**: другие клиники пациента файл видят, но на\nправку получают 403 `file_not_owned`.",
+        "operationId": "update_patient_file_api_v1_clinic_patients__patient_id__files__file_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "patient_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Patient Id"
+            }
+          },
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "File Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePatientFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Файл после правки",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientFileOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Пациент этой клиники не найден либо файла нет",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "patient_not_found",
+                  "message": "Пациент не найден"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Файл загружен другой клиникой: менять и удалять его может только она",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "file_not_owned",
+                  "message": "Файл загружен другой клиникой — изменить или удалить его может только она"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверный номер зуба, дата снимка из будущего или `teeth: null`",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_tooth": {
+                    "value": {
+                      "error": "invalid_tooth",
+                      "message": "Некорректный номер зуба (FDI): 19"
+                    }
+                  },
+                  "taken_date_in_future": {
+                    "value": {
+                      "error": "taken_date_in_future",
+                      "message": "Дата снимка не может быть в будущем"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "patients"
         ],
         "summary": "Удалить файл пациента",
-        "description": "Убрать файл из карты.\n\nУдаление мягкое: запись помечается, файл на диске остаётся. Снимок — это\nклинические данные, и «случайно удалил» не должно означать «потеряли\nнавсегда».",
+        "description": "Убрать файл из карты.\n\nУдаление мягкое: запись помечается, файл на диске остаётся. Снимок — это\nклинические данные, и «случайно удалил» не должно означать «потеряли\nнавсегда». Удалить может **только клиника, загрузившая файл** (иначе 403\n`file_not_owned`): иначе любая клиника пациента стирала бы чужие снимки.",
         "operationId": "delete_patient_file_api_v1_clinic_patients__patient_id__files__file_id__delete",
         "security": [
           {
@@ -4576,6 +4816,17 @@
                 "example": {
                   "error": "patient_not_found",
                   "message": "Пациент не найден"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Файл загружен другой клиникой: менять и удалять его может только она",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "file_not_owned",
+                  "message": "Файл загружен другой клиникой — изменить или удалить его может только она"
                 }
               }
             }
@@ -16420,7 +16671,7 @@
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "File",
-            "description": "Снимок или документ"
+            "description": "Снимок, документ или КТ"
           },
           "appointmentId": {
             "anyOf": [
@@ -16445,7 +16696,36 @@
                 "type": "null"
               }
             ],
-            "title": "Comment"
+            "title": "Comment",
+            "description": "Описание файла (заметка к нему)"
+          },
+          "teeth": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teeth",
+            "description": "Зубы FDI, к которым относится файл: поле повторяется на каждый зуб (`teeth=36`, `teeth=37`). Не передано — общий файл пациента"
+          },
+          "takenDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Takendate",
+            "description": "Дата самого снимка (ГГГГ-ММ-ДД), если известна"
           }
         },
         "type": "object",
@@ -20591,10 +20871,21 @@
         "type": "string",
         "enum": [
           "images",
-          "files"
+          "files",
+          "ct"
         ],
         "title": "FileKind",
         "description": "Вид загруженного файла — он же каталог в хранилище."
+      },
+      "FileSource": {
+        "type": "string",
+        "enum": [
+          "own",
+          "others",
+          "all"
+        ],
+        "title": "FileSource",
+        "description": "Чьи файлы пациента показать: своей клиники, других или все."
       },
       "ForgotPasswordRequest": {
         "properties": {
@@ -23100,6 +23391,10 @@
             },
             "type": "array",
             "title": "Odontogram"
+          },
+          "files": {
+            "$ref": "#/components/schemas/PatientFilesSummaryOut",
+            "description": "Счётчики файлов карты: свои и других клиник, всего и по зубам"
           }
         },
         "type": "object",
@@ -23109,7 +23404,8 @@
           "firstName",
           "createdAt",
           "appointmentsCount",
-          "odontogram"
+          "odontogram",
+          "files"
         ],
         "title": "PatientCardResponse"
       },
@@ -23136,7 +23432,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/FileKind",
-            "description": "`images` — снимок, `files` — документ"
+            "description": "`images` — снимок, `files` — документ, `ct` — КТ (DICOM или ZIP)"
           },
           "originalName": {
             "type": "string",
@@ -23163,7 +23459,35 @@
                 "type": "null"
               }
             ],
-            "title": "Comment"
+            "title": "Comment",
+            "description": "Описание файла (заметка к нему)"
+          },
+          "teeth": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Teeth",
+            "description": "Зубы (FDI), к которым относится файл; пусто — общий файл пациента",
+            "examples": [
+              [
+                36,
+                37
+              ]
+            ]
+          },
+          "takenDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Takendate",
+            "description": "Дата самого снимка, если указана; иначе показывать `createdAt`"
           },
           "appointmentId": {
             "anyOf": [
@@ -23184,6 +23508,16 @@
             "title": "Clinicid",
             "description": "Клиника, которая загрузила файл"
           },
+          "clinicName": {
+            "type": "string",
+            "title": "Clinicname",
+            "description": "Название клиники, загрузившей файл"
+          },
+          "isOwn": {
+            "type": "boolean",
+            "title": "Isown",
+            "description": "Загружен этой клиникой: только такой файл можно править и удалять"
+          },
           "uploadedByMembershipId": {
             "anyOf": [
               {
@@ -23199,7 +23533,8 @@
           "createdAt": {
             "type": "string",
             "format": "date-time",
-            "title": "Createdat"
+            "title": "Createdat",
+            "description": "Когда файл загрузили"
           }
         },
         "type": "object",
@@ -23209,11 +23544,32 @@
           "originalName",
           "mime",
           "sizeBytes",
+          "teeth",
           "clinicId",
+          "clinicName",
+          "isOwn",
           "createdAt"
         ],
         "title": "PatientFileOut",
-        "description": "Файл в карте пациента (метаданные; содержимое — по отдельной ручке)."
+        "description": "Файл в карте пациента (метаданные; содержимое — по отдельной ручке).",
+        "example": {
+          "clinicId": "0b7e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+          "clinicName": "Дент Люкс",
+          "comment": "КТ перед имплантацией",
+          "createdAt": "2026-10-20T09:15:00Z",
+          "id": "6f1c2d4e-8a9b-4c3d-9e7f-1a2b3c4d5e6f",
+          "isOwn": true,
+          "kind": "ct",
+          "mime": "application/zip",
+          "originalName": "kt-nizhnyaya-chelyust.zip",
+          "sizeBytes": 312475648,
+          "takenDate": "2026-10-18",
+          "teeth": [
+            36,
+            37
+          ],
+          "uploadedByMembershipId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+        }
       },
       "PatientFilesResponse": {
         "properties": {
@@ -23222,14 +23578,71 @@
               "$ref": "#/components/schemas/PatientFileOut"
             },
             "type": "array",
-            "title": "Items"
+            "title": "Items",
+            "description": "Файлы под отбором, свежие сверху"
+          },
+          "othersCount": {
+            "type": "integer",
+            "title": "Otherscount",
+            "description": "Сколько под тем же отбором (зуб, общие, приём) файлов ДРУГИХ клиник — для подсказки «есть N файлов из других клиник», когда показаны свои",
+            "examples": [
+              2
+            ]
           }
         },
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "othersCount"
         ],
         "title": "PatientFilesResponse"
+      },
+      "PatientFilesSummaryOut": {
+        "properties": {
+          "own": {
+            "type": "integer",
+            "title": "Own",
+            "description": "Файлов этой клиники (общих и у зубов)",
+            "examples": [
+              3
+            ]
+          },
+          "others": {
+            "type": "integer",
+            "title": "Others",
+            "description": "Файлов других клиник",
+            "examples": [
+              1
+            ]
+          },
+          "teeth": {
+            "items": {
+              "$ref": "#/components/schemas/ToothFilesCountOut"
+            },
+            "type": "array",
+            "title": "Teeth",
+            "description": "Зубы, у которых есть файлы"
+          }
+        },
+        "type": "object",
+        "required": [
+          "own",
+          "others",
+          "teeth"
+        ],
+        "title": "PatientFilesSummaryOut",
+        "description": "Счётчики файлов пациента — для меток у зубов и подсказки «есть чужие».\n\nЗуб попадает в ``teeth``, только если у него есть хотя бы один файл; общие\nфайлы (без зубов) считаются лишь в ``own``/``others``.",
+        "example": {
+          "others": 1,
+          "own": 3,
+          "teeth": [
+            {
+              "others": 1,
+              "own": 2,
+              "tooth": 36
+            }
+          ]
+        }
       },
       "PatientIdentity": {
         "properties": {
@@ -27683,6 +28096,41 @@
         "title": "TimeOffListResponse",
         "description": "Отсутствия врача в таймзоне клиники."
       },
+      "ToothFilesCountOut": {
+        "properties": {
+          "tooth": {
+            "type": "integer",
+            "title": "Tooth",
+            "description": "Номер зуба FDI",
+            "examples": [
+              36
+            ]
+          },
+          "own": {
+            "type": "integer",
+            "title": "Own",
+            "description": "Файлов этой клиники у зуба",
+            "examples": [
+              2
+            ]
+          },
+          "others": {
+            "type": "integer",
+            "title": "Others",
+            "description": "Файлов других клиник у зуба",
+            "examples": [
+              1
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tooth",
+          "own",
+          "others"
+        ],
+        "title": "ToothFilesCountOut"
+      },
       "ToothHistoryItem": {
         "properties": {
           "appointmentId": {
@@ -28661,6 +29109,67 @@
         "type": "object",
         "title": "UpdateKbDocumentRequest",
         "description": "Правка документа: только изменяемые поля; `null` для них — 422."
+      },
+      "UpdatePatientFileRequest": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "Описание файла (заметка к нему)"
+          },
+          "teeth": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array",
+                "maxItems": 52
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teeth",
+            "description": "Зубы FDI; пустой список — общий файл пациента",
+            "examples": [
+              [
+                36,
+                37
+              ]
+            ]
+          },
+          "takenDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Takendate",
+            "description": "Дата самого снимка; не из будущего"
+          }
+        },
+        "type": "object",
+        "title": "UpdatePatientFileRequest",
+        "description": "Правка своего файла: описание, зубы, дата снимка. Все поля необязательны.\n\n`teeth: []` — сделать файл общим (отвязать от зубов); `null` для `teeth`\nнедопустим. `comment: null` и `takenDate: null` — очистить.",
+        "example": {
+          "comment": "Прицельный снимок после пломбы",
+          "teeth": [
+            36
+          ]
+        }
       },
       "UpdatePatientRequest": {
         "properties": {

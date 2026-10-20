@@ -14,6 +14,7 @@ from app.modules.patients.application.use_cases.manage_patient_files import (
     DeletePatientFileUseCase,
     GetPatientFileUseCase,
     ListPatientFilesUseCase,
+    UpdatePatientFileUseCase,
     UploadPatientFileUseCase,
 )
 from app.modules.patients.application.use_cases.tooth_history import ToothHistoryUseCase
@@ -27,6 +28,12 @@ from app.modules.patients.infrastructure.repositories.patient_repository import 
 
 def get_patient_repository(session: AsyncSession = Depends(get_session)) -> PatientRepository:
     return PatientRepository(session)
+
+
+def get_patient_file_repository(
+    session: AsyncSession = Depends(get_session),
+) -> PatientFileRepository:
+    return PatientFileRepository(session)
 
 
 def get_list_patients_use_case(
@@ -50,8 +57,9 @@ def get_create_patient_use_case(
 
 def get_get_patient_use_case(
     patients: PatientRepository = Depends(get_patient_repository),
+    files: PatientFileRepository = Depends(get_patient_file_repository),
 ) -> GetPatientUseCase:
-    return GetPatientUseCase(patients)
+    return GetPatientUseCase(patients, files)
 
 
 def get_update_patient_use_case(
@@ -74,12 +82,6 @@ def get_tooth_history_use_case(
     return ToothHistoryUseCase(patients)
 
 
-def get_patient_file_repository(
-    session: AsyncSession = Depends(get_session),
-) -> PatientFileRepository:
-    return PatientFileRepository(session)
-
-
 def get_upload_patient_file_use_case(
     session: AsyncSession = Depends(get_session),
     patients: PatientRepository = Depends(get_patient_repository),
@@ -100,6 +102,14 @@ def get_get_patient_file_use_case(
     files: PatientFileRepository = Depends(get_patient_file_repository),
 ) -> GetPatientFileUseCase:
     return GetPatientFileUseCase(patients, files)
+
+
+def get_update_patient_file_use_case(
+    session: AsyncSession = Depends(get_session),
+    patients: PatientRepository = Depends(get_patient_repository),
+    files: PatientFileRepository = Depends(get_patient_file_repository),
+) -> UpdatePatientFileUseCase:
+    return UpdatePatientFileUseCase(session, patients, files)
 
 
 def get_delete_patient_file_use_case(

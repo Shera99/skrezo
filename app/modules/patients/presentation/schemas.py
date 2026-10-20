@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import ConfigDict, Field
 
 from app.modules.patients.domain.models import (
     PatientCard,
+    PatientFilesSummary,
+    PatientFileView,
     PatientListRow,
     ToothHistoryEntry,
 )
+from app.modules.patients.domain.teeth import VALID_TEETH
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import AppointmentItemStatus, FileKind, ToothStatus
 from app.shared.db.models.patient import Patient
-from app.shared.db.models.patient_file import PatientFile
 from app.shared.db.models.patient_tooth import PatientTooth
 
 
@@ -129,6 +132,44 @@ class OdontogramToothOut(CamelModel):
         return cls(tooth=t.tooth_number, status=t.status, note=t.note, updated_at=t.updated_at)
 
 
+class ToothFilesCountOut(CamelModel):
+    tooth: int = Field(description="Номер зуба FDI", examples=[36])
+    own: int = Field(description="Файлов этой клиники у зуба", examples=[2])
+    others: int = Field(description="Файлов других клиник у зуба", examples=[1])
+
+
+class PatientFilesSummaryOut(CamelModel):
+    """Счётчики файлов пациента — для меток у зубов и подсказки «есть чужие».
+
+    Зуб попадает в ``teeth``, только если у него есть хотя бы один файл; общие
+    файлы (без зубов) считаются лишь в ``own``/``others``.
+    """
+
+    own: int = Field(description="Файлов этой клиники (общих и у зубов)", examples=[3])
+    others: int = Field(description="Файлов других клиник", examples=[1])
+    teeth: list[ToothFilesCountOut] = Field(description="Зубы, у которых есть файлы")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "own": 3,
+                "others": 1,
+                "teeth": [{"tooth": 36, "own": 2, "others": 1}],
+            }
+        }
+    )
+
+    @classmethod
+    def from_summary(cls, summary: PatientFilesSummary) -> PatientFilesSummaryOut:
+        return cls(
+            own=summary.own,
+            others=summary.others,
+            teeth=[
+                ToothFilesCountOut(tooth=t.tooth, own=t.own, others=t.others) for t in summary.teeth
+            ],
+        )
+
+
 class PatientCardResponse(CamelModel):
     id: uuid.UUID
     phone: str
@@ -147,6 +188,9 @@ class PatientCardResponse(CamelModel):
     created_at: datetime
     appointments_count: int
     odontogram: list[OdontogramToothOut]
+    files: PatientFilesSummaryOut = Field(
+        description="Счётчики файлов карты: свои и других клиник, всего и по зубам"
+    )
 
     @classmethod
     def from_card(cls, card: PatientCard) -> PatientCardResponse:
@@ -165,6 +209,7 @@ class PatientCardResponse(CamelModel):
             created_at=p.created_at,
             appointments_count=card.appointments_count,
             odontogram=[OdontogramToothOut.from_orm_tooth(t) for t in card.odontogram],
+            files=PatientFilesSummaryOut.from_summary(card.files),
         )
 
 
@@ -262,20 +307,56 @@ class PatientFileOut(CamelModel):
     """Файл в карте пациента (метаданные; содержимое — по отдельной ручке)."""
 
     id: uuid.UUID
-    kind: FileKind = Field(description="`images` — снимок, `files` — документ")
+    kind: FileKind = Field(
+        description="`images` — снимок, `files` — документ, `ct` — КТ (DICOM или ZIP)"
+    )
     original_name: str = Field(description="Имя, под которым файл загрузили")
     mime: str = Field(examples=["image/jpeg"])
     size_bytes: int
-    comment: str | None = None
+    comment: str | None = Field(default=None, description="Описание файла (заметка к нему)")
+    teeth: list[int] = Field(
+        description="Зубы (FDI), к которым относится файл; пусто — общий файл пациента",
+        examples=[[36, 37]],
+    )
+    taken_date: date | None = Field(
+        default=None,
+        description="Дата самого снимка, если указана; иначе показывать `createdAt`",
+    )
     appointment_id: uuid.UUID | None = Field(
         default=None, description="Приём, к которому относится файл (если указан)"
     )
     clinic_id: uuid.UUID = Field(description="Клиника, которая загрузила файл")
+    clinic_name: str = Field(description="Название клиники, загрузившей файл")
+    is_own: bool = Field(
+        description="Загружен этой клиникой: только такой файл можно править и удалять"
+    )
     uploaded_by_membership_id: uuid.UUID | None = None
-    created_at: datetime
+    created_at: datetime = Field(description="Когда файл загрузили")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "6f1c2d4e-8a9b-4c3d-9e7f-1a2b3c4d5e6f",
+                "kind": "ct",
+                "originalName": "kt-nizhnyaya-chelyust.zip",
+                "mime": "application/zip",
+                "sizeBytes": 312475648,
+                "comment": "КТ перед имплантацией",
+                "teeth": [36, 37],
+                "takenDate": "2026-10-18",
+                "appointmentId": None,
+                "clinicId": "0b7e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+                "clinicName": "Дент Люкс",
+                "isOwn": True,
+                "uploadedByMembershipId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                "createdAt": "2026-10-20T09:15:00Z",
+            }
+        }
+    )
 
     @classmethod
-    def from_record(cls, record: PatientFile) -> PatientFileOut:
+    def from_view(cls, view: PatientFileView, own_clinic_id: uuid.UUID) -> PatientFileOut:
+        record = view.record
         return cls(
             id=record.id,
             kind=record.kind,
@@ -283,15 +364,58 @@ class PatientFileOut(CamelModel):
             mime=record.mime,
             size_bytes=record.size_bytes,
             comment=record.comment,
+            teeth=list(record.tooth_numbers),
+            taken_date=record.taken_date,
             appointment_id=record.appointment_id,
             clinic_id=record.clinic_id,
+            clinic_name=view.clinic_name,
+            is_own=record.clinic_id == own_clinic_id,
             uploaded_by_membership_id=record.uploaded_by_membership_id,
             created_at=record.created_at,
         )
 
 
 class PatientFilesResponse(CamelModel):
-    items: list[PatientFileOut]
+    items: list[PatientFileOut] = Field(description="Файлы под отбором, свежие сверху")
+    others_count: int = Field(
+        description=(
+            "Сколько под тем же отбором (зуб, общие, приём) файлов ДРУГИХ клиник — "
+            "для подсказки «есть N файлов из других клиник», когда показаны свои"
+        ),
+        examples=[2],
+    )
+
+
+class UpdatePatientFileRequest(NotNullFieldsModel):
+    """Правка своего файла: описание, зубы, дата снимка. Все поля необязательны.
+
+    `teeth: []` — сделать файл общим (отвязать от зубов); `null` для `teeth`
+    недопустим. `comment: null` и `takenDate: null` — очистить.
+    """
+
+    NOT_NULL_FIELDS = ("teeth",)
+
+    comment: str | None = Field(
+        default=None, max_length=500, description="Описание файла (заметка к нему)"
+    )
+    teeth: list[int] | None = Field(
+        default=None,
+        max_length=len(VALID_TEETH),
+        description="Зубы FDI; пустой список — общий файл пациента",
+        examples=[[36, 37]],
+    )
+    taken_date: date | None = Field(default=None, description="Дата самого снимка; не из будущего")
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"comment": "Прицельный снимок после пломбы", "teeth": [36]}}
+    )
+
+    def to_fields(self) -> dict[str, Any]:
+        """Присланные поля под именами колонок (``teeth`` → ``tooth_numbers``)."""
+        fields = self.model_dump(exclude_unset=True)
+        if "teeth" in fields:
+            fields["tooth_numbers"] = fields.pop("teeth")
+        return fields
 
 
 class FileDeletedResponse(CamelModel):

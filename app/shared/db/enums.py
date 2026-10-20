@@ -147,6 +147,7 @@ class FileKind(enum.StrEnum):
 
     IMAGE = "images"  # снимки: JPEG, PNG, WebP, HEIC
     DOCUMENT = "files"  # документы: PDF
+    CT = "ct"  # компьютерная томография: DICOM-файл или ZIP-архив исследования
 
 
 class JobRunStatus(enum.StrEnum):

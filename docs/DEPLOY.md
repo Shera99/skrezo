@@ -267,6 +267,7 @@ PUBLIC_API_URL=https://api.skrezo.com/api/v1  # колбэки FreedomPay
 CABINET_URL=https://office.skrezo.com         # возврат из оплаты; только https, без www
 CORS_ORIGINS=https://office.skrezo.com
 STORAGE_ROOT=storage                          # /opt/skrezo/app/storage
+UPLOAD_CT_MAX_BYTES=1073741824                # КТ до 1 ГиБ; = client_max_body_size в nginx
 APNS_KEY=secrets/AuthKey_XXXXXXXX.p8          # если PUSH_ENABLED=true
 FCM_SERVICE_ACCOUNT_JSON=secrets/fcm-service-account.json
 ```
@@ -364,6 +365,24 @@ curl -s "http://$DOMAIN/health"        # {"status":"ok"} — nginx уже про
 certbot --nginx -d "$DOMAIN" --redirect --agree-tos --no-eff-email -m "$EMAIL"
 systemctl list-timers certbot.timer    # автопродление; nginx перечитывается сам
 ```
+
+### Загрузка КТ
+
+Исследование КТ (DICOM или ZIP) весит сотни мегабайт, поэтому у ручки файлов
+пациента в `skrezo.conf` свой `location` с `client_max_body_size 1100m` — он
+должен быть не меньше `UPLOAD_CT_MAX_BYTES` (+ запас на multipart), и не больше
+трёх одновременных загрузок с одного адреса (`limit_conn skrezo_uploads`; зона
+объявлена в начале того же файла). Запрос без валидного токена API отвергает до
+приёма тела, поэтому гигабайт во временный каталог кладёт только вошедший
+пользователь. Загрузка
+проходит через временный каталог uvicorn (`PrivateTmp` юнита) и только затем
+ложится в `storage/ct/`, так что на диске нужен запас примерно в два размера
+файла, а ночной бэкап `storage/` растёт вместе с КТ.
+
+⚠️ Если домен за прокси Cloudflare (оранжевое облако), тело запроса режется на его
+стороне: на бесплатном тарифе — 100 МБ, и КТ больше этого получит 413 ещё до
+nginx. Для загрузки КТ домен API должен быть в режиме **DNS only** либо на тарифе
+с бо́льшим лимитом.
 
 ### Если домен за Cloudflare
 
