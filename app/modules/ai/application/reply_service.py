@@ -39,7 +39,7 @@ from app.modules.ai.application.tools import (
 )
 from app.modules.ai.domain.facts import TurnFacts
 from app.modules.ai.domain.handoff import next_opening
-from app.modules.ai.domain.language import detect_lang
+from app.modules.ai.domain.language import LangGuess, guess_lang
 from app.modules.ai.domain.medical import MedicalKind, MedicalVerdict, classify
 from app.modules.ai.domain.prompt import (
     ClinicCard,
@@ -248,6 +248,9 @@ class ProcessAiReplyService:
         #: :meth:`_escalate` узнаёт, не закрыл ли сотрудник уже передачу этого
         #: самого сообщения («вернуть боту»).
         self._last_patient_at: datetime | None = None
+        #: Язык этого хода выбирает модель (детектор не уверен или это первый
+        #: ответ без признаков языка): V07 не применяется, выбор запоминается.
+        self._model_picks_lang = False
 
     async def execute(self, conversation_id: uuid.UUID) -> ReplyOutcome:
         """Ответить на последнее сообщение пациента в диалоге (если положено)."""
@@ -275,8 +278,9 @@ class ProcessAiReplyService:
         # §10.2: язык ответа — язык последнего сообщения пациента. Переключаем
         # диалог сразу, до фильтров: шаблоны медфильтра и «уточню у
         # администратора» тоже должны уйти на языке, которым он сейчас пишет.
-        detected = detect_lang(last.transcript or last.body)
-        await self._follow_lang(conversation, detected)
+        # Слабая догадка (одно слово) идущий диалог не переключает.
+        guess = guess_lang(last.transcript or last.body)
+        await self._follow_lang(conversation, guess)
 
         # §11: сообщение, которое мы не прочитали (голосовое без надёжной
         # расшифровки, снимок, документ), — к человеку. Отвечать на него
@@ -312,9 +316,7 @@ class ProcessAiReplyService:
 
         await self._show_typing(clinic, last)
         try:
-            return await self._converse(
-                conversation, clinic, self._provider, detected_lang=detected
-            )
+            return await self._converse(conversation, clinic, self._provider, guess=guess)
         except AiProviderUnavailableError as exc:
             # Временно недоступная модель (Ф8): ход откладывает и повторяет
             # координатор задания — эскалация здесь стала бы лавиной.
@@ -342,7 +344,7 @@ class ProcessAiReplyService:
         medical = classify(last.transcript or last.body)
         if medical.kind is not MedicalKind.URGENT:
             return ReplyOutcome(status="skipped")
-        await self._follow_lang(conversation, detect_lang(last.transcript or last.body))
+        await self._follow_lang(conversation, guess_lang(last.transcript or last.body))
         return await self._urgent(conversation, clinic, medical)
 
     async def _show_typing(self, clinic: Clinic, message: AiMessage) -> None:
@@ -369,7 +371,7 @@ class ProcessAiReplyService:
         clinic: Clinic,
         provider: AiProvider,
         *,
-        detected_lang: str | None = None,
+        guess: LangGuess | None = None,
     ) -> ReplyOutcome:
         """Ход модели с инструментами → разбор → валидатор → доставка.
 
@@ -381,12 +383,17 @@ class ProcessAiReplyService:
         нажать кнопку, а не «уточню у администратора» (:meth:`_button_reply`).
         """
         # §10.2: язык хода — язык последнего сообщения пациента (детектор уже
-        # переключил на него диалог). Не распознан — язык диалога; а до первого
-        # прошедшего ответа бота язык выбирает модель сама, и V07 не применяется.
+        # переключил на него диалог). Не распознан — язык диалога. Язык
+        # выбирает модель сама, а V07 не применяется: до первого ответа бота
+        # (если сообщение без признаков) и когда детектор не уверен. Переписка
+        # 20.10.2026: на «Дагы бир запись кошуп койосузбу» модель ответила
+        # по-кыргызски, а V07 по ошибочной догадке детектора заставил
+        # переписать ответ на русский. Выбор модели потом запоминается.
         first_reply = await self._repository.bot_replies_count(conversation.id) == 0
-        lang: str | None = (
-            None if first_reply and detected_lang is None else _lang_code(conversation.lang)
+        self._model_picks_lang = (first_reply and guess is None) or (
+            guess is not None and not guess.strong
         )
+        lang: str | None = None if self._model_picks_lang else _lang_code(conversation.lang)
         skills = effective_skills(clinic.ai_mode, clinic.ai_skills)
         system = await self.system_prompt(clinic, lang)
         cache_scope = f"clinic:{clinic.id}"
@@ -776,6 +783,7 @@ class ProcessAiReplyService:
             sent_at = datetime.now(UTC)
             wa_message_id = sent.wa_message_id
             conversation.last_msg_at = sent_at
+            await self._remember_lang(conversation, reply, sent=True)
 
         message = await self._save_bot_message(
             conversation, reply, verdict, model_name, sent_at, wa_message_id
@@ -1528,19 +1536,28 @@ class ProcessAiReplyService:
             conversation, clinic, "acute_pain", payload, notify_patient=False
         )
 
-    async def _follow_lang(self, conversation: AiConversation, detected: str | None) -> None:
+    async def _follow_lang(self, conversation: AiConversation, guess: LangGuess | None) -> None:
         """Переключить язык диалога на язык последнего сообщения пациента (§10.2).
 
-        ``None`` (имя, число, «ок») язык не меняет: одна реплика без признаков
-        не должна переводить разговор. Профиль пациента заполняется, только
-        если язык в нём ещё не задан: пациент глобальный, и одно сообщение в
-        одной клинике не должно менять язык напоминаний во всех остальных.
+        * уверенная догадка переключает язык диалога всегда;
+        * слабая — только пока бот ещё не отвечал: защищать нечего, а шаблоны
+          медфильтра и передачи первого же хода должны уйти на языке пациента;
+        * ``None`` (имя, число, «ок») язык не меняет.
+
+        Профиль пациента — только по уверенной догадке и только если язык в нём
+        ещё не задан: пациент глобальный, и одно сообщение в одной клинике не
+        должно менять язык напоминаний во всех остальных.
         """
-        lang = _SPEC_TO_LANG.get(detected or "")
-        if lang is None or conversation.lang is lang:
+        if guess is None:
             return
-        conversation.lang = lang
-        if conversation.patient_id is not None:
+        lang = _SPEC_TO_LANG.get(guess.lang)
+        if lang is None:
+            return
+        if lang is not conversation.lang:
+            if not guess.strong and await self._repository.bot_replies_count(conversation.id) > 0:
+                return
+            conversation.lang = lang
+        if guess.strong and conversation.patient_id is not None:
             patient = await self._session.get(Patient, conversation.patient_id)
             if patient is not None and patient.preferred_lang is None:
                 patient.preferred_lang = lang
@@ -1580,15 +1597,25 @@ class ProcessAiReplyService:
         await self._meter.assistant_reply(conversation)
         return message
 
-    async def _remember_lang(self, conversation: AiConversation, reply: BotReply) -> None:
-        """Первый ответ фиксирует язык диалога и профиля (§10.2)."""
-        if await self._repository.bot_replies_count(conversation.id) > 0:
+    async def _remember_lang(
+        self, conversation: AiConversation, reply: BotReply, *, sent: bool = False
+    ) -> None:
+        """Запомнить язык ответа модели (§10.2).
+
+        * первый ответ фиксирует язык диалога и профиля — как и раньше;
+        * дальше — ход, где язык выбирала модель (детектор не уверен), но
+          только когда ответ **ушёл** пациенту (``sent``): язык отклонённого
+          черновика, теневого ответа или недоставленного не должен становиться
+          языком шаблонов и напоминаний. Профиль пациента такой ход не трогает.
+        """
+        first = await self._repository.bot_replies_count(conversation.id) == 0
+        if not first and not (self._model_picks_lang and sent):
             return
         lang = _SPEC_TO_LANG.get(reply.lang)
         if lang is None:
             return
         conversation.lang = lang
-        if conversation.patient_id is not None:
+        if first and conversation.patient_id is not None:
             patient = await self._session.get(Patient, conversation.patient_id)
             if patient is not None and patient.preferred_lang is None:
                 patient.preferred_lang = lang

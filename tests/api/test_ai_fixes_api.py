@@ -40,6 +40,7 @@ from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.ai_tool_call import AiToolCall
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
+from app.shared.db.models.patient import Patient
 from tests.api.conftest import Ctx, _FakeProvider, _patch_job, _reply_json, _set_mode, _simulate
 from tests.conftest import API, Resources, own_membership_id
 
@@ -434,6 +435,124 @@ async def test_unrecognised_message_keeps_dialog_language(
 
     assert "Отвечай на языке ky" in fake.calls[-1]["system"]
     assert (await _conversation(_resources, phone)).lang is Lang.KG
+
+
+async def test_kyrgyz_typed_without_special_letters_is_answered_in_kyrgyz(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Переписка 20.10: «Дагы бир запись кошуп койосузбу» — ответ ушёл по-русски.
+
+    Детектор принял фразу за русскую из-за «запись», а V07 заставил модель
+    переписать верный кыргызский ответ. Теперь ответ уходит с первой попытки.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    fake.script = [AiResult(text=_reply_json("Саламатсызбы!", lang="ky"))]
+    await _simulate(admin_client, ctx, "Саламатсызбы", phone)
+
+    fake.script = [AiResult(text=_reply_json("Албетте! Кайсы кызматка?", lang="ky"))]
+    calls_before = len(fake.calls)
+    body = await _simulate(admin_client, ctx, "Дагы бир запись кошуп койосузбу", phone)
+
+    assert body["outcome"] == "sent"
+    assert body["messages"][-1]["body"] == "Албетте! Кайсы кызматка?"
+    assert len(fake.calls) - calls_before == 1  # без перегенерации V07
+    assert (await _conversation(_resources, phone)).lang is Lang.KG
+
+
+async def test_weak_guess_lets_model_choose_and_remembers_it(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Одно «Здравствуйте» в кыргызском диалоге язык не переписывает.
+
+    Догадка слабая: язык выбирает модель (она видит всю переписку), V07 её не
+    правит, а выбор запоминается в диалоге.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    fake.script = [AiResult(text=_reply_json("Саламатсызбы!", lang="ky"))]
+    await _simulate(admin_client, ctx, "Саламатсызбы", phone)
+
+    fake.script = [AiResult(text=_reply_json("Саламатсызбы! Угуп жатам.", lang="ky"))]
+    body = await _simulate(admin_client, ctx, "Здравствуйте", phone)
+
+    assert body["outcome"] == "sent"
+    assert "Отвечай на языке" not in fake.calls[-1]["system"]
+    assert (await _conversation(_resources, phone)).lang is Lang.KG
+
+    fake.script = [AiResult(text=_reply_json("Здравствуйте! Чем помочь?", lang="ru"))]
+    body = await _simulate(admin_client, ctx, "Здравствуйте", phone)
+
+    assert body["outcome"] == "sent"
+    assert (await _conversation(_resources, phone)).lang is Lang.RU
+
+
+async def test_russian_reply_to_confident_kyrgyz_is_still_regenerated(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """V07 не отменён: на уверенно кыргызское сообщение русский ответ переписывается."""
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    fake.script = [
+        AiResult(text=_reply_json("Здравствуйте! Чем помочь?", lang="ru")),
+        AiResult(text=_reply_json("Саламатсызбы! Кантип жардам берейин?", lang="ky")),
+    ]
+
+    body = await _simulate(admin_client, ctx, "Тишке пломба коюш керек болчу", phone)
+
+    assert body["outcome"] == "sent"
+    assert body["messages"][-1]["body"] == "Саламатсызбы! Кантип жардам берейин?"
+    assert len(fake.calls) == 2  # перегенерация V07
+    assert (await _conversation(_resources, phone)).lang is Lang.KG
+
+
+async def test_first_message_weak_kyrgyz_gets_template_in_kyrgyz(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Новый диалог, слабая догадка — шаблон медфильтра всё равно на языке пациента.
+
+    Защищать нечего: бот ещё не отвечал, а неотложный шаблон уходит до модели.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+
+    body = await _simulate(admin_client, ctx, "Бугун щека опухла", phone)
+
+    assert body["outcome"] == "escalated"
+    assert (await _conversation(_resources, phone)).lang is Lang.KG
+    assert fake.calls == []  # неотложное — минуя модель
+
+
+async def test_weak_guess_does_not_rewrite_patient_profile_language(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider, _resources: Resources
+) -> None:
+    """Язык глобального пациента пишется только по уверенной догадке.
+
+    По нему идут напоминания во всех клиниках — одно слово «Бугун» не повод.
+    """
+    await _set_mode(admin_client, ctx, "auto")
+    phone = _patient()
+    fake.script = [AiResult(text=_reply_json("Здравствуйте! Чем помочь?"))]
+    await _simulate(admin_client, ctx, "Здравствуйте, хотел записаться на прием", phone)
+    conversation = await _conversation(_resources, phone)
+    async with _resources.factory() as session:
+        patient = Patient(phone=phone, first_name="Тест")
+        session.add(patient)
+        await session.flush()
+        await session.execute(
+            update(AiConversation)
+            .where(AiConversation.id == conversation.id)
+            .values(patient_id=patient.id)
+        )
+        await session.commit()
+        patient_id = patient.id
+
+    fake.script = [AiResult(text=_reply_json("Бүгүн бош убакыт бар.", lang="ky"))]
+    await _simulate(admin_client, ctx, "Бугун", phone)
+
+    async with _resources.factory() as session:
+        stored = await session.get(Patient, patient_id)
+    assert stored is not None and stored.preferred_lang is None
 
 
 # ── 5. Сильная зубная боль ──────────────────────────────────────────────────

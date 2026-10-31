@@ -5,8 +5,9 @@
 промпта, базы знаний, глоссария или модели — иначе любая правка становится
 стрельбой вслепую: поправили одно, сломали другое, узнали от пациента.
 
-Здесь только детерминированный уровень: медицинский фильтр и валидатор — наш
-код, модели он не требует и потому идёт в CI на каждый коммит.
+Здесь только детерминированный уровень: медицинский фильтр, валидатор и
+детектор языка — наш код, модели он не требует и потому идёт в CI на каждый
+коммит.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any
 import yaml
 
 from app.modules.ai.domain.facts import TurnFacts
+from app.modules.ai.domain.language import guess_lang
 from app.modules.ai.domain.medical import classify
 from app.modules.ai.domain.prompt import ClinicCard, build_system_prompt
 from app.modules.ai.domain.reply import BotReply
@@ -66,7 +68,25 @@ def run_case(case: dict[str, Any]) -> CaseResult:
         return _run_validator_case(case, note)
     if kind == "prompt":
         return _run_prompt_case(case, note)
+    if kind == "lang":
+        return _run_lang_case(case, note)
     return CaseResult(case["id"], False, "known kind", f"неизвестный вид {kind}", note)
+
+
+def _run_lang_case(case: dict[str, Any], note: str) -> CaseResult:
+    """Язык сообщения пациента и уверенность детектора (§10.2).
+
+    Ожидание — ``ru``/``ky`` с пометкой ``!`` для уверенной догадки (она
+    переключает язык диалога и требует его от модели) или ``none``. Кейсы —
+    настоящие сообщения пациентов: кыргызский без ү/ө/ң, заимствования,
+    смешанные фразы.
+    """
+    expect = case["expect"]
+    lang = expect.get("lang")
+    expected = "none" if lang is None else f"{lang}{'!' if expect.get('strong') else ''}"
+    guess = guess_lang(str(case["message"]))
+    actual = "none" if guess is None else f"{guess.lang}{'!' if guess.strong else ''}"
+    return CaseResult(case["id"], actual == expected, expected, actual, note)
 
 
 def _run_validator_case(case: dict[str, Any], note: str) -> CaseResult:
@@ -119,5 +139,5 @@ def _run_prompt_case(case: dict[str, Any], note: str) -> CaseResult:
 
 def run_all(path: pathlib.Path | None = None) -> list[CaseResult]:
     """Весь детерминированный набор; кейсы уровня «живая модель» пропускаются."""
-    kinds = {"medical", "validator", "prompt"}
+    kinds = {"medical", "validator", "prompt", "lang"}
     return [run_case(c) for c in load_cases(path) if c["kind"] in kinds]

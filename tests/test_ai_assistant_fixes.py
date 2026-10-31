@@ -24,7 +24,7 @@ import pytest
 
 from app.modules.ai.application.reply_service import _fix_instruction, _fixable, with_clock
 from app.modules.ai.domain.facts import TurnFacts
-from app.modules.ai.domain.language import detect_lang
+from app.modules.ai.domain.language import detect_lang, guess_lang
 from app.modules.ai.domain.medical import MedicalKind, classify
 from app.modules.ai.domain.prompt import clock_line, without_clock
 from app.modules.ai.domain.reply import BotReply
@@ -274,6 +274,58 @@ def test_detect_lang(text: str, expected: str | None) -> None:
 def test_mixed_message_follows_majority() -> None:
     """«Саламатсызбы, хочу записаться на консультацию» — русских слов больше."""
     assert detect_lang("Саламатсызбы, хочу записаться на консультацию") == "ru"
+
+
+@pytest.mark.parametrize(
+    ("text", "lang", "strong"),
+    [
+        # Переписка 20.10.2026: кыргызский, набранный без ү/ө/ң.
+        ("Дагы бир запись кошуп койосузбу", "ky", True),
+        ("Ассолому алейкум, бугун иштейсиздерби?", "ky", True),
+        ("Тишке пломба коюш керек болчу", "ky", True),
+        ("11 ден кийин барбы бош убакыт?", "ky", True),
+        # Надёжный признак (словарь, буквы ң/ө/ү) — одного слова хватает.
+        ("Саламатсызбы", "ky", True),
+        ("Саат 123:00", "ky", True),
+        ("Түшүнбөдүм", "ky", True),
+        ("Эртең 15ке", "ky", True),
+        # Слабый признак в одиночку — догадка слабая.
+        ("Бугун", "ky", False),
+        ("Консултацияга", "ky", False),
+        ("Здравствуйте", "ru", False),
+        # Русские фразы — уверенно русские.
+        ("Можешь уведомить админа что бы он ответил мне", "ru", True),
+        ("Можно записаться на завтра на 15:00", "ru", True),
+        ("Нужна консультация врача", "ru", True),
+    ],
+)
+def test_guess_lang_strength(text: str, lang: str, strong: bool) -> None:
+    guess = guess_lang(text)
+    assert guess is not None
+    assert (guess.lang, guess.strong) == (lang, strong)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Ночью приступ, скрип зубами",  # русские слова на «-уп/-ип»
+        "Доступ к рентгену",
+        "Шуруп от импланта шатается",
+        "ФИО Ким Сергей, приступ боли",  # «Ким» — фамилия
+        "Тен Ольга",
+        "12 сен свободно?",  # окончания — только сразу после числа
+    ],
+)
+def test_russian_lookalikes_are_not_kyrgyz(text: str) -> None:
+    """Ревью 01.11: новые кыргызские признаки не должны срабатывать на русском."""
+    guess = guess_lang(text)
+    assert guess is None or guess.lang == "ru", guess
+
+
+@pytest.mark.parametrize("word", ["запись", "пломба", "консультация"])
+def test_loanword_alone_decides_nothing(word: str) -> None:
+    """Заимствование пишут в обеих фразах — одно оно язык не решает."""
+    assert guess_lang(word) is None
 
 
 # ── Сильная боль ────────────────────────────────────────────────────────────

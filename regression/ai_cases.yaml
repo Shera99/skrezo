@@ -810,3 +810,159 @@ cases:
   lang: ru
   contains: передай в note словами пациента
   note: инцидент 13.10 — «18 зуб болит» и «чистка + удаление» некуда было записать, бот отказывал
+- id: lng-001
+  kind: lang
+  lang: ky
+  message: Дагы бир запись кошуп койосузбу
+  expect:
+    lang: ky
+    strong: true
+  note: инцидент 20.10 — «запись» перевесила, бот ответил по-русски; кыргызский без ү/ө/ң
+- id: lng-002
+  kind: lang
+  lang: ky
+  message: Ассолому алейкум, бугун иштейсиздерби?
+  expect:
+    lang: ky
+    strong: true
+  note: переписка 20.10 — приветствие на обоих языках, «бугун» и «-сиздерби» решают
+- id: lng-003
+  kind: lang
+  lang: ky
+  message: Тишке пломба коюш керек болчу
+  expect:
+    lang: ky
+    strong: true
+  note: переписка 20.10 — «пломба» заимствование, язык не решает
+- id: lng-004
+  kind: lang
+  lang: ky
+  message: Кызматтар боюнча кабыл алуну калайм
+  expect:
+    lang: ky
+    strong: true
+  note: переписка 12.10 — раньше детектор молчал
+- id: lng-005
+  kind: lang
+  lang: ky
+  message: 11 ден кийин барбы бош убакыт?
+  expect:
+    lang: ky
+    strong: true
+  note: переписка 12.10 — окончание после числа
+- id: lng-006
+  kind: lang
+  lang: ky
+  message: Консултацияга
+  expect:
+    lang: ky
+    strong: false
+  note: переписка 12.10 — одно слово с кыргызским падежом на заимствовании; язык выбирает модель
+- id: lng-007
+  kind: lang
+  lang: ky
+  message: Саат 123:00
+  expect:
+    lang: ky
+    strong: true
+  note: "переписка 20.10 — «саат» из словаря, надёжный признак, одного слова хватает"
+- id: lng-008
+  kind: lang
+  lang: ky
+  message: Давайте бугун
+  expect:
+    lang: null
+  note: переписка 20.10 — смешанная фраза поровну, язык диалога не меняется
+- id: lng-009
+  kind: lang
+  lang: ky
+  message: Саламатсызбы
+  expect:
+    lang: ky
+    strong: true
+  note: инцидент 12.10 — однозначно кыргызское приветствие переключает язык одно
+- id: lng-010
+  kind: lang
+  lang: ru
+  message: Здравствуйте
+  expect:
+    lang: ru
+    strong: false
+  note: «Здравствуйте» пишут и кыргызоязычные — язык выбирает модель
+- id: lng-011
+  kind: lang
+  lang: ru
+  message: Можешь уведомить админа что бы он ответил мне
+  expect:
+    lang: ru
+    strong: true
+  note: переписка 22.10
+- id: lng-012
+  kind: lang
+  lang: ru
+  message: Здравствуйте, хотел записаться на прием
+  expect:
+    lang: ru
+    strong: true
+  note: переписка 13.10
+- id: lng-013
+  kind: lang
+  lang: ru
+  message: Я Гүлнара, запишите на завтра
+  expect:
+    lang: ru
+    strong: true
+  note: кыргызское имя в русской фразе — фраза остаётся русской
+- id: lng-014
+  kind: lang
+  lang: ru
+  message: Можно записаться на завтра на 15:00
+  expect:
+    lang: ru
+    strong: true
+  note: русская фраза с «записаться» — не путать с заимствованием «запись»
+- id: lng-015
+  kind: lang
+  lang: ru
+  message: Ночью приступ, скрип зубами
+  expect:
+    lang: null
+  note: «приступ», «скрип» — русские слова на «-уп/-ип», не кыргызское деепричастие
+- id: lng-016
+  kind: lang
+  lang: ru
+  message: ФИО Ким Сергей, приступ боли
+  expect:
+    lang: null
+  note: «Ким» — фамилия, не кыргызское «ким»; русская фраза не становится кыргызской
+- id: lng-017
+  kind: lang
+  lang: ru
+  message: 12 сен свободно?
+  expect:
+    lang: null
+  note: «сен» — сокращение месяца; окончания считаются только сразу после числа
+- id: lng-018
+  kind: lang
+  lang: ky
+  message: Эртең 15ке
+  expect:
+    lang: ky
+    strong: true
+  note: надёжное слово с ң и окончание после числа
+- id: lng-019
+  kind: lang
+  lang: ky
+  message: Бугун
+  expect:
+    lang: ky
+    strong: false
+  note: одно слово без ү/ө/ң — слабый признак, идущий диалог не переключает
+- id: lng-020
+  kind: lang
+  lang: ru
+  message: Нужна консультация врача
+  expect:
+    lang: ru
+    strong: true
+  note: без «консультация» (заимствование) фразу держат «нужна» и «врача»
