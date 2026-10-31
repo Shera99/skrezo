@@ -69,7 +69,7 @@ class ConversationLock:
 class CoordinatorResult:
     """Чем кончилось задание ответа."""
 
-    status: str  # sent | shadow | escalated | skipped | deferred | dropped | given_up
+    status: str  # статус ReplyOutcome (sent, held, …) | dropped | given_up
     outcome: ReplyOutcome | None = None
 
 

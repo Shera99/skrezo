@@ -36,6 +36,9 @@ logger = structlog.get_logger(__name__)
 
 FAILURES_KEY = "ai:provider:failures"
 OPEN_KEY = "ai:provider:open"
+#: Модель недавно ответила на живой вызов — проверке здоровья не нужно тратить
+#: на неё пробный запрос (§13.5): проба ест ту же квоту, что и пациенты.
+ALIVE_KEY = "ai:provider:alive"
 
 
 class CircuitBreaker:
@@ -56,6 +59,8 @@ class CircuitBreaker:
         threshold: int,
         open_seconds: int,
         name: str = "ai",
+        alive_key: str | None = None,
+        alive_seconds: int = 0,
     ) -> None:
         self._redis = redis
         self._failures_key = failures_key
@@ -63,6 +68,9 @@ class CircuitBreaker:
         self._threshold = max(1, threshold)
         self._open_seconds = open_seconds
         self._name = name
+        #: Отметка «живой вызов прошёл» на ``alive_seconds`` (если задан ключ).
+        self._alive_key = alive_key
+        self._alive_seconds = alive_seconds
 
     async def is_open(self) -> bool:
         if self._redis is None:
@@ -96,6 +104,8 @@ class CircuitBreaker:
             return
         try:
             await self._redis.delete(self._failures_key)
+            if self._alive_key is not None and self._alive_seconds > 0:
+                await self._redis.set(self._alive_key, "1", ex=self._alive_seconds)
         except RedisError as exc:
             logger.warning("ai_breaker_redis_failed", breaker=self._name, error=str(exc))
 
@@ -112,6 +122,7 @@ class ResilientProvider:
         backoff_seconds: float,
         breaker_threshold: int,
         breaker_open_seconds: int,
+        alive_seconds: int = 0,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ) -> None:
         self._inner = inner
@@ -123,6 +134,8 @@ class ResilientProvider:
             open_key=OPEN_KEY,
             threshold=breaker_threshold,
             open_seconds=breaker_open_seconds,
+            alive_key=ALIVE_KEY,
+            alive_seconds=alive_seconds,
         )
         self._sleep = sleep
         self.model_name = inner.model_name

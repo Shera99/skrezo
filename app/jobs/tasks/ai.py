@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.db import session_factory
 from app.core.jobs import AI_REPLY, RUN_AI_REGRESSION, SUMMARIZE_CONVERSATION
 from app.jobs.tasks.context import attempt
+from app.modules.ai.application.escalation_reminder import EscalationReminderService
 from app.modules.ai.application.escalation_return import EscalationReturnService
 from app.modules.ai.application.regression_runner import RegressionRunner
 from app.modules.ai.application.reply_coordinator import (
@@ -132,6 +133,19 @@ async def return_escalations_to_bot(ctx: dict[str, Any]) -> int:
                     answered += 1
         run.note(f"возвращено боту: {len(returned)}, ответов на месте: {answered}")
         return len(returned)
+
+
+async def remind_escalations(ctx: dict[str, Any]) -> int:
+    """Напомнить владельцу и менеджеру о передачах без ответа; вернуть число напоминаний.
+
+    Пуш ``ai.escalated`` легко пропустить, а второго не было: пациент писал
+    администратору днями (22–31.10.2026). Напоминание — одно на передачу.
+    """
+    async with JobRunRecorder("remind_escalations", attempt(ctx)) as run:
+        async with session_factory() as session:
+            reminded = await EscalationReminderService(session).run()
+        run.note(f"напомнили о передачах: {len(reminded)}")
+        return len(reminded)
 
 
 async def summarize_conversation(ctx: dict[str, Any], conversation_id: str) -> bool:

@@ -311,16 +311,38 @@ async def test_manager_events_reach_owner_when_clinic_has_no_manager(
 async def test_manager_events_skip_owner_when_manager_exists(
     client: AsyncClient, ctx: Ctx, _resources: Resources
 ) -> None:
-    """Есть живой менеджер — передача человеку только ему, владельца не дёргаем."""
+    """Есть живой менеджер — черновик бота только ему, владельца не дёргаем."""
     manager_headers = await _add_manager(client, ctx)
     async with _resources.factory() as session:
-        session.add(Event(clinic_id=ctx.clinic_id, type="ai.escalated"))
+        session.add(Event(clinic_id=ctx.clinic_id, type="ai.draft_ready"))
         await session.commit()
 
     assert await _dispatch(_resources) == 1
 
     assert (await _inbox(client, manager_headers))["unreadCount"] == 1
     assert (await _inbox(client, ctx.owner_headers))["unreadCount"] == 0
+
+
+@pytest.mark.parametrize("type_", ["ai.escalated", "ai.escalation_reminder"])
+async def test_patient_waiting_for_human_reaches_owner_and_manager(
+    client: AsyncClient, ctx: Ctx, _resources: Resources, type_: str
+) -> None:
+    """Пациент ждёт человека — и менеджеру, и владельцу (решение 01.11.2026).
+
+    Только менеджеру было мало: пуш пропускали, и пациент писал в пустоту
+    днями (22–31.10). Врачу — по-прежнему нет: передача про переписку, а не
+    про его приём.
+    """
+    manager_headers = await _add_manager(client, ctx)
+    async with _resources.factory() as session:
+        session.add(Event(clinic_id=ctx.clinic_id, type=type_))
+        await session.commit()
+
+    assert await _dispatch(_resources) == 1
+
+    assert (await _inbox(client, manager_headers))["unreadCount"] == 1
+    assert (await _inbox(client, ctx.owner_headers))["unreadCount"] == 1
+    assert (await _inbox(client, ctx.doctor_headers))["unreadCount"] == 0
 
 
 # ── 3. API инбокса ──────────────────────────────────────────────────────────

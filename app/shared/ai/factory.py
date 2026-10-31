@@ -19,8 +19,10 @@ def build_ai_provider(redis: Redis | None = None) -> AiProvider | None:
     человека, как до Ф2.
 
     Провайдер всегда обёрнут в :class:`ResilientProvider` (повторы на 429/5xx).
-    ``redis`` включает предохранитель, общий для всех процессов; без него
-    (проверка здоровья, тесты) работают только повторы.
+    ``redis`` включает предохранитель, общий для всех процессов, и отметку
+    «живой вызов прошёл» для проверки здоровья; без него (тесты, разовые
+    вызовы) работают только повторы. Проверка здоровья тоже ходит через общий
+    предохранитель: её неудачная проба считается сбоем наравне с живыми.
     """
     if settings.ai_provider == "gemini" and settings.gemini_api_key:
         inner = GeminiProvider(
@@ -41,5 +43,6 @@ def build_ai_provider(redis: Redis | None = None) -> AiProvider | None:
             backoff_seconds=settings.ai_provider_backoff_seconds,
             breaker_threshold=settings.ai_breaker_threshold,
             breaker_open_seconds=settings.ai_breaker_open_seconds,
+            alive_seconds=settings.ai_health_alive_seconds,
         )
     return None

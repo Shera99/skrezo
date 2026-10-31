@@ -110,8 +110,9 @@ class SimulateInboundResponse(CamelModel):
     conversation_id: uuid.UUID
     outcome: str = Field(
         description=(
-            "sent | shadow | draft | escalated | skipped | deferred | button; при `dryRun` "
-            "`sent` значит «ушло бы»"
+            "sent | shadow | draft | escalated | held | skipped | deferred | button; "
+            "`held` — сотрудник уже закрыл передачу этого сообщения, повторной нет; "
+            "при `dryRun` `sent` значит «ушло бы»"
         )
     )
     dry_run: bool = Field(

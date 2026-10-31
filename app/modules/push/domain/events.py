@@ -83,11 +83,22 @@ EVENT_CATALOG: dict[str, EventSpec] = {
         ttl_seconds=24 * _HOUR,
     ),
     # Контур ассистента и переписки (шов Ф2→Ф3: просто строки в outbox).
+    # Пациент ждёт человека — и владельцу тоже (решение 01.11.2026): только
+    # менеджеру было мало, пуш пропускали, и пациент писал в пустоту днями.
     "ai.escalated": EventSpec(
-        frozenset({Audience.MANAGER}),
+        frozenset({Audience.MANAGER, Audience.OWNER}),
         Rung.CRITICAL,
         android_channel="patients-inbox.v1",
         ttl_seconds=15 * 60,
+    ),
+    # Передача висит без ответа сотрудника 30 минут — одно напоминание.
+    # Обычный приоритет: тихие часы соблюдаются (ночью клиника закрыта, а
+    # пациенту уже сказано, когда ответят).
+    "ai.escalation_reminder": EventSpec(
+        frozenset({Audience.MANAGER, Audience.OWNER}),
+        Rung.NORMAL,
+        android_channel="patients-inbox.v1",
+        ttl_seconds=4 * _HOUR,
     ),
     # §9.2: неотложное состояние — громче всего, что есть, и владельцу тоже.
     "ai.urgent": EventSpec(

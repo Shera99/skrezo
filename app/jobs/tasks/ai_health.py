@@ -23,20 +23,33 @@ from app.shared.whatsapp_cloud import build_onboarding_client, build_whatsapp_cl
 
 
 async def check_ai_health(ctx: dict[str, Any]) -> int:
-    """Модель, распознавание, молчащие клиники, деградация; вернуть число проблем."""
+    """Модель, распознавание, молчащие клиники, режимы, ждущие пациенты; число проблем.
+
+    Redis воркера — для счёта неудач подряд, отметок живого трафика и дедупа
+    алертов; чат команды — для алертов о смене режимов и ждущих пациентах.
+    """
+    redis = ctx.get("redis")
     async with JobRunRecorder("check_ai_health", attempt(ctx)) as run:
         async with session_factory() as session:
             report = await AiHealthService(
                 session,
-                build_ai_provider(),
+                build_ai_provider(redis),
                 build_whatsapp_client(),
                 build_speech_provider(),
+                redis=redis,
+                notifier=notifier(ctx),
             ).check(tokens=False)
-        problems = (0 if report.model_ok else 1) + (1 if report.speech_ok is False else 0)
+        problems = (
+            (0 if report.model_ok else 1)
+            + (1 if report.speech_ok is False else 0)
+            + len(report.unanswered)
+        )
         run.note(
-            f"модель: {'ок' if report.model_ok else 'НЕДОСТУПНА'}, "
-            f"переведено в assisted: {report.downgraded}, "
-            f"молчащих клиник: {len(report.silent_clinics)}"
+            f"модель: {'ок' if report.model_ok else 'НЕДОСТУПНА'}"
+            f"{f' ({report.model_failures} подряд)' if report.model_failures else ''}, "
+            f"переведено в assisted: {report.downgraded}, возвращено в auto: {report.restored}, "
+            f"молчащих клиник: {len(report.silent_clinics)}, "
+            f"ждут ответа: {len(report.unanswered)}"
         )
         return problems
 

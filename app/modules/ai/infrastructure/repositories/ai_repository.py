@@ -296,6 +296,27 @@ class AiRepository:
         ).scalar_one_or_none()
         return reason
 
+    async def staff_closed_reasons(
+        self, conversation_id: uuid.UUID, *, since: datetime
+    ) -> set[str]:
+        """Причины передач, заведённых после ``since`` и закрытых сотрудником.
+
+        ``since`` — время последнего сообщения пациента: передача после него —
+        передача именно этого сообщения. Закрытие системой (автовозврат, у него
+        ``resolved_by`` пуст) не в счёт: оно случается, только когда пациент
+        написал снова, а значит, сообщение уже другое.
+        """
+        rows = await self._session.execute(
+            select(AiEscalation.reason)
+            .where(
+                AiEscalation.conversation_id == conversation_id,
+                AiEscalation.created_at > since,
+                AiEscalation.resolved_by.is_not(None),
+            )
+            .distinct()
+        )
+        return set(rows.scalars())
+
     async def escalations_to_return(
         self,
         *,
@@ -371,3 +392,63 @@ class AiRepository:
         if conversation_id is not None:
             stmt = stmt.where(AiConversation.id == conversation_id)
         return list((await self._session.execute(stmt)).scalars())
+
+    async def escalations_to_remind(
+        self,
+        *,
+        cutoff: datetime,
+        since: datetime,
+        conversation_id: uuid.UUID | None = None,
+    ) -> list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
+        """Передачи без ответа сотрудника: ``(передача, диалог, клиника)``.
+
+        Решает **последняя** открытая передача диалога (как и у возврата боту).
+        Условия — все сразу: диалог ``escalated``, ассистент клиники не выключен,
+        это не «отвечаю сам» (сотрудник и так в курсе), передача заведена между
+        ``since`` и ``cutoff``, напоминания по ней ещё не было, сотрудник после
+        неё пациенту не писал. Окно ``since`` — внутри подзапроса: новейшая
+        открытая передача старше окна всё равно не прошла бы фильтр, а скан
+        ограничивается сутками.
+
+        ``conversation_id`` — перепроверка одного диалога уже под блокировкой.
+        """
+        latest = (
+            select(
+                AiEscalation.id.label("id"),
+                AiEscalation.conversation_id.label("conversation_id"),
+                AiEscalation.reason.label("reason"),
+                AiEscalation.payload.label("payload"),
+                AiEscalation.created_at.label("created_at"),
+            )
+            .where(AiEscalation.resolved_at.is_(None), AiEscalation.created_at >= since)
+            .distinct(AiEscalation.conversation_id)
+            .order_by(AiEscalation.conversation_id, AiEscalation.created_at.desc())
+            .subquery()
+        )
+        staff_replied = (
+            select(AiMessage.id)
+            .where(
+                AiMessage.conversation_id == AiConversation.id,
+                AiMessage.role == AiMessageRole.ADMIN,
+                AiMessage.created_at >= latest.c.created_at,
+            )
+            .exists()
+        )
+        stmt = (
+            select(latest.c.id, AiConversation.id, AiConversation.clinic_id)
+            .join(AiConversation, AiConversation.id == latest.c.conversation_id)
+            .join(Clinic, Clinic.id == AiConversation.clinic_id)
+            .where(
+                AiConversation.status == AiConversationStatus.ESCALATED,
+                Clinic.ai_mode != AiMode.OFF,
+                latest.c.reason != "manual_takeover",
+                latest.c.created_at <= cutoff,
+                or_(latest.c.payload.is_(None), ~latest.c.payload.has_key("remindedAt")),
+                ~staff_replied,
+            )
+            # Один порядок блокировок с возвратом боту — по диалогу.
+            .order_by(AiConversation.id)
+        )
+        if conversation_id is not None:
+            stmt = stmt.where(AiConversation.id == conversation_id)
+        return [(r[0], r[1], r[2]) for r in (await self._session.execute(stmt)).all()]

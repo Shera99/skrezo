@@ -58,7 +58,10 @@ from app.modules.ai.domain.texts import (
     visit_phrase,
 )
 from app.modules.ai.domain.validator import Verdict, VerdictAction, validate
-from app.modules.ai.infrastructure.repositories.ai_repository import AiRepository
+from app.modules.ai.infrastructure.repositories.ai_repository import (
+    STICKY_ESCALATIONS,
+    AiRepository,
+)
 from app.modules.ai.infrastructure.repositories.knowledge_gap_repository import (
     KnowledgeGapRepository,
 )
@@ -98,6 +101,11 @@ _FOREIGN_LIMIT = 500
 
 #: Язык спеки (ru|ky) → наш Lang для conversation/patient.
 _SPEC_TO_LANG = {"ru": Lang.RU, "ky": Lang.KG}
+
+#: Передачи, которые заводятся, даже если сотрудник только что вернул диалог
+#: боту: здоровье пациента, поток сообщений, перехват и технические сбои —
+#: «администратор уже в курсе» их не заменит.
+_ALWAYS_HAND_OFF = frozenset({*STICKY_ESCALATIONS, "tool_error"})
 
 #: Блок валидатора, который модель может исправить сама: в контексте хода уже
 #: есть верные цены, время и врачи — она просто взяла не то или не сослалась.
@@ -140,6 +148,17 @@ class _UnparseableReplyError(Exception):
 def _lang_code(lang: Lang) -> str:
     """Наш Lang → язык спеки модели (ru|ky)."""
     return "ky" if lang is Lang.KG else "ru"
+
+
+def _speaks_to_patient(clinic: Clinic) -> bool:
+    """Пишет ли ассистент пациенту служебные фразы от имени клиники.
+
+    В ``shadow`` пациент бота ещё не видел — нельзя. В ``assisted`` и ``auto``
+    можно: в «Проверяю» через администратора идут ответы модели, а шаблоны
+    передачи и медфильтра — текст клиники. Инцидент 22–31.10.2026: клиника в
+    ``assisted``, четыре передачи администратору — и ни слова пациенту.
+    """
+    return clinic.ai_mode in (AiMode.ASSISTED, AiMode.AUTO)
 
 
 def _clinic_zone(clinic: Clinic) -> ZoneInfo:
@@ -203,7 +222,8 @@ class _SentButton:
 class ReplyOutcome:
     """Что произошло с ходом ассистента (для симулятора и тестов)."""
 
-    status: str  # sent | shadow | escalated | skipped | deferred
+    #: held — сотрудник уже закрыл передачу этого сообщения, вторую не заводим.
+    status: str  # sent | shadow | draft | escalated | held | skipped | deferred | button
     message_id: int | None = None
     reply: str | None = None
     escalation_reason: str | None = None
@@ -224,6 +244,10 @@ class ProcessAiReplyService:
         self._meter = UsageMeter(session)
         self._repository = AiRepository(session)
         self._whatsapp = WhatsAppRepository(session)
+        #: Время последнего сообщения пациента в этом ходе: по нему
+        #: :meth:`_escalate` узнаёт, не закрыл ли сотрудник уже передачу этого
+        #: самого сообщения («вернуть боту»).
+        self._last_patient_at: datetime | None = None
 
     async def execute(self, conversation_id: uuid.UUID) -> ReplyOutcome:
         """Ответить на последнее сообщение пациента в диалоге (если положено)."""
@@ -246,6 +270,7 @@ class ProcessAiReplyService:
         # Так повторное или отложенное задание не даёт второго ответа.
         if await self._repository.answered_after(conversation.id, last.id):
             return ReplyOutcome(status="skipped", note="already_answered")
+        self._last_patient_at = last.created_at
 
         # §10.2: язык ответа — язык последнего сообщения пациента. Переключаем
         # диалог сразу, до фильтров: шаблоны медфильтра и «уточню у
@@ -932,12 +957,27 @@ class ProcessAiReplyService:
     ) -> ReplyOutcome:
         """Эскалация §8.2: карточка + событие + пауза бота + фраза пациенту.
 
-        Шаблон пациенту уходит только в ``auto`` (в shadow пациент бота ещё не
-        видел — писать ему от имени клиники нельзя) и моделью не переводится;
-        какой именно — решает :meth:`_handoff_notice`.
+        Шаблон пациенту уходит в ``assisted`` и ``auto`` (в shadow пациент бота
+        ещё не видел — писать ему от имени клиники нельзя) и моделью не
+        переводится; какой именно — решает :meth:`_handoff_notice`.
         ``notify_patient=False`` — когда пациенту уже написали своим шаблоном
         (лимит §14): два извинения подряд выглядят поломкой.
+
+        Сотрудник только что закрыл передачу этого же сообщения пациента с той
+        же причиной — вторую не заводим (:meth:`_hold_after_staff_return`).
+        Другая причина (новая карточка записи, несовпадение личности) и причины
+        из :data:`_ALWAYS_HAND_OFF` передаются как обычно. Проверка — здесь, а
+        не на каждом ходе: передача редка, а запрос к ``ai_escalation`` — нет.
         """
+        if (
+            self._last_patient_at is not None
+            and reason not in _ALWAYS_HAND_OFF
+            and reason
+            in await self._repository.staff_closed_reasons(
+                conversation.id, since=self._last_patient_at
+            )
+        ):
+            return await self._hold_after_staff_return(conversation, clinic, reason)
         self._repository.add_escalation(
             conversation.id,
             conversation.clinic_id,
@@ -954,36 +994,69 @@ class ProcessAiReplyService:
             payload={"reason": reason},
         )
         await self._signal_status(conversation)
-        if notify_patient and clinic.ai_mode is AiMode.AUTO:
-            binding = await self._whatsapp.binding_by_clinic(clinic.id)
+        if notify_patient and _speaks_to_patient(clinic):
             notice = await self._handoff_notice(conversation, clinic, reason)
-            if binding is not None and binding.active and notice is not None:
-                try:
-                    sent = await client_for(self._wa, binding).send_text(
-                        binding.phone_number_id, conversation.wa_phone, notice
-                    )
-                    now = datetime.now(UTC)
-                    await self._whatsapp.add_message(
-                        conversation,
-                        role=AiMessageRole.SYSTEM,
-                        body=notice,
-                        wa_message_id=sent.wa_message_id,
-                        sent_at=now,
-                    )
-                    conversation.last_msg_at = now
-                    await self._signal_message(conversation)
-                except WhatsAppSendError as exc:
-                    logger.warning("ai_escalation_notice_failed", error=str(exc))
-                    unsent = await self._whatsapp.add_message(
-                        conversation,
-                        role=AiMessageRole.SYSTEM,
-                        body=notice,
-                        wa_message_id=None,
-                        sent_at=None,
-                    )
-                    unsent.delivery_error = _failure_of(exc).text
+            if notice is not None:
+                await self._send_notice(conversation, clinic, notice)
         await self._session.commit()
         return ReplyOutcome(status="escalated", escalation_reason=reason)
+
+    async def _hold_after_staff_return(
+        self, conversation: AiConversation, clinic: Clinic, reason: str
+    ) -> ReplyOutcome:
+        """Бот снова хочет передать человеку сообщение, по которому передачу уже закрыли.
+
+        Инцидент 22–23.10.2026: пациент просит администратора, бот передаёт,
+        сотрудник нажимает «вернуть боту», не написав пациенту, — и через три
+        секунды бот передаёт тот же вопрос снова. Пациент за десять дней не
+        получил ни слова. Сотрудник просьбу видел (сам закрыл передачу), так
+        что вторая передача ничего не даёт: ни новой эскалации, ни пуша.
+        Пациенту — «администратор уже в курсе», если это не последнее, что он
+        от нас получил; диалог остаётся у бота.
+        """
+        logger.info(
+            "ai_handoff_held_after_return", conversation_id=str(conversation.id), reason=reason
+        )
+        if _speaks_to_patient(clinic):
+            notice = await self._handoff_notice(conversation, clinic, reason, waiting=True)
+            if notice is not None:
+                await self._send_notice(conversation, clinic, notice)
+        await self._session.commit()
+        return ReplyOutcome(status="held", escalation_reason=reason, note="returned_by_staff")
+
+    async def _send_notice(self, conversation: AiConversation, clinic: Clinic, notice: str) -> None:
+        """Отправить пациенту служебную фразу передачи и записать её в диалог.
+
+        Отказ WhatsApp не теряет фразу: она остаётся в чате с причиной отказа.
+        """
+        binding = await self._whatsapp.binding_by_clinic(clinic.id)
+        if binding is None or not binding.active:
+            return
+        try:
+            sent = await client_for(self._wa, binding).send_text(
+                binding.phone_number_id, conversation.wa_phone, notice
+            )
+        except WhatsAppSendError as exc:
+            logger.warning("ai_escalation_notice_failed", error=str(exc))
+            unsent = await self._whatsapp.add_message(
+                conversation,
+                role=AiMessageRole.SYSTEM,
+                body=notice,
+                wa_message_id=None,
+                sent_at=None,
+            )
+            unsent.delivery_error = _failure_of(exc).text
+            return
+        now = datetime.now(UTC)
+        await self._whatsapp.add_message(
+            conversation,
+            role=AiMessageRole.SYSTEM,
+            body=notice,
+            wa_message_id=sent.wa_message_id,
+            sent_at=now,
+        )
+        conversation.last_msg_at = now
+        await self._signal_message(conversation)
 
     async def _delivery_failed(
         self,
@@ -1020,7 +1093,7 @@ class ProcessAiReplyService:
         )
 
     async def _handoff_notice(
-        self, conversation: AiConversation, clinic: Clinic, reason: str
+        self, conversation: AiConversation, clinic: Clinic, reason: str, *, waiting: bool = False
     ) -> str | None:
         """Что сказать пациенту при передаче человеку; ``None`` — ничего.
 
@@ -1032,11 +1105,14 @@ class ProcessAiReplyService:
           короткое «администратор уже в курсе», а если и оно было последним —
           тишина, повторять нечего;
         * клиника сейчас закрыта — когда она снова на связи («завтра с 09:00»).
+
+        ``waiting=True`` — администратор о просьбе уже знает (сам закрыл
+        передачу): сразу «уже в курсе», без «позвал».
         """
         last = await self._last_clinic_message(conversation)
         if last is not None and is_handoff_notice(last.body, waiting_only=True):
             return None
-        if last is not None and is_handoff_notice(last.body):
+        if waiting or (last is not None and is_handoff_notice(last.body)):
             key = "handoff_waiting"
         else:
             key = "handoff_asked" if reason == "patient_asked" else "handoff"
@@ -1192,16 +1268,19 @@ class ProcessAiReplyService:
     ) -> _TemplateSend:
         """Отправить шаблон (не ответ модели) пациенту и записать его в диалог.
 
-        Уходит только в ``auto``: в теневом режиме пациент бота ещё не видел,
-        писать ему от имени клиники нельзя. Возвращает, ушло ли сообщение, а
-        при отказе WhatsApp — его причину (она же остаётся у сообщения в чате).
+        Уходит в ``assisted`` и ``auto``: в теневом режиме пациент бота ещё не
+        видел, писать ему от имени клиники нельзя. В ``assisted`` через
+        администратора идут ответы МОДЕЛИ, а шаблон — текст клиники, проверять
+        нечего: раньше пациент с неотложным состоянием в этом режиме не получал
+        даже телефона клиники. Возвращает, ушло ли сообщение, а при отказе
+        WhatsApp — его причину (она же остаётся у сообщения в чате).
         ``note`` — метка в журнале, кто написал текст: медфильтр, подсказка
         после кнопки.
         """
         sent_at: datetime | None = None
         wa_message_id: str | None = None
         failure: DeliveryFailure | None = None
-        if clinic.ai_mode is AiMode.AUTO:
+        if _speaks_to_patient(clinic):
             binding = await self._whatsapp.binding_by_clinic(clinic.id)
             if binding is not None and binding.active:
                 try:

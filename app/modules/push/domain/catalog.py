@@ -52,6 +52,7 @@ PUSH_EVENT_TYPES: frozenset[str] = frozenset(
         "digest.morning",
         "digest.evening",
         "ai.escalated",
+        "ai.escalation_reminder",
         "ai.urgent",
         "ai.draft_ready",
         "ai.urgent_booking",
@@ -202,6 +203,18 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
             "title": "Ассистентке жардам керек",
             "body": "{fromName} — суроо администраторду күтүп жатат",
             "speak": "Ассистент {fromName} менен маекти администраторго өткөрдү",
+        },
+    },
+    "ai.escalation_reminder": {
+        Lang.RU: {
+            "title": "Пациент всё ещё ждёт",
+            "body": "{fromName} — вопрос по-прежнему ждёт администратора",
+            "speak": "{fromName} всё ещё ждёт ответа администратора",
+        },
+        Lang.KG: {
+            "title": "Бейтап дагы эле күтүүдө",
+            "body": "{fromName} — суроо дагы эле администраторду күтүүдө",
+            "speak": "{fromName} дагы эле администратордун жообун күтүп жатат",
         },
     },
     # Без жалоб в тексте (ADR §2): пуш виден на заблокированном экране.

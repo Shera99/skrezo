@@ -26707,7 +26707,7 @@
           "outcome": {
             "type": "string",
             "title": "Outcome",
-            "description": "sent | shadow | draft | escalated | skipped | deferred | button; при `dryRun` `sent` значит «ушло бы»"
+            "description": "sent | shadow | draft | escalated | held | skipped | deferred | button; `held` — сотрудник уже закрыл передачу этого сообщения, повторной нет; при `dryRun` `sent` значит «ушло бы»"
           },
           "dryRun": {
             "type": "boolean",

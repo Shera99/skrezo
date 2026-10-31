@@ -45,6 +45,7 @@ from app.core.jobs import (
 from app.jobs.dispatcher_loop import run_dispatcher_loop
 from app.jobs.tasks.ai import (
     ai_reply,
+    remind_escalations,
     return_escalations_to_bot,
     run_ai_regression,
     summarize_conversation,
@@ -154,6 +155,9 @@ class WorkerSettings:
         # Каждую минуту: запрос лёгкий, а точность до минуты — это обещанные
         # пациенту 15 минут, а не 15–45.
         cron(return_escalations_to_bot, minute=set(range(60))),
+        # Передача без ответа сотрудника 30 минут — одно напоминание владельцу
+        # и менеджеру. Раз в 5 минут: точность до минуты здесь не нужна.
+        cron(remind_escalations, minute=set(range(2, 60, 5))),
         # §13.5: тихие отказы контура ассистента ловятся только расписанием.
         cron(check_ai_health, minute=set(range(0, 60, 5))),
         # Ф8: обход номеров WhatsApp — раз в час, а не каждые 5 минут.

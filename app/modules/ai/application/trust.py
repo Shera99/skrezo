@@ -144,6 +144,13 @@ class TrustLadderService:
             raise ValidationAppError("Укажите level или enabled", code="trust_request_empty")
 
         if target is current:
+            if level is not None and clinic.ai_mode_reason == "health":
+                # Человек явно выбрал ступень, на которую клинику опустила
+                # проверка здоровья: теперь это его решение, и автовозврат в
+                # auto (он смотрит на причину «health») его не тронет.
+                clinic.ai_mode_reason = reason
+                clinic.ai_mode_changed_at = datetime.now(UTC)
+                await self._session.commit()
             return current, current
         # Точка отсчёта для «вверх»: при выключенном боте — заработанная ступень.
         baseline = current if current is not AiMode.OFF else (clinic.ai_mode_before_off or "off")

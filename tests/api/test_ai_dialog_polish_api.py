@@ -28,7 +28,9 @@ from sqlalchemy import func, select, update
 
 from app.modules.ai.application.booking import NOTE_MAX_LEN
 from app.shared.ai import AiResult, ToolCallRequest
-from app.shared.db.enums import AiMessageRole
+from app.shared.db.enums import AiConversationStatus, AiMessageRole
+from app.shared.db.models.ai_conversation import AiConversation
+from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.event import Event
@@ -85,6 +87,16 @@ async def _service_messages(res: Resources, conversation_id: uuid.UUID) -> list[
                     .order_by(AiMessage.id)
                 )
             ).scalars()
+        )
+
+
+async def _run_reply(res: Resources, fake: _FakeProvider, conversation_id: uuid.UUID) -> Any:
+    """Ход ассистента без нового сообщения пациента — как задание после возврата боту."""
+    from app.modules.ai.application.reply_service import ProcessAiReplyService
+
+    async with res.factory() as session:
+        return await ProcessAiReplyService(session, fake, LoggingWhatsAppClient()).execute(
+            conversation_id
         )
 
 
@@ -165,6 +177,233 @@ async def test_handoff_after_hours_tells_when_clinic_opens(
 
     [notice] = await _service_messages(_resources, uuid.UUID(body["conversationId"]))
     assert notice == (f"{_ASKED} Сейчас клиника закрыта — ответим в рабочее время: завтра с 09:00.")
+
+
+async def test_handoff_in_assisted_mode_tells_patient(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Инцидент 22–31.10: клиника в «Проверяю», четыре передачи — ни слова пациенту.
+
+    Через администратора идут ответы модели, а фраза передачи — текст клиники:
+    в ``assisted`` пациент получает её так же, как в ``auto``.
+    """
+    await _set_hours(client, ctx)
+    await _set_mode(admin_client, ctx, "assisted")
+
+    body = await _simulate_reply(admin_client, ctx, fake, _patient())
+
+    conversation_id = uuid.UUID(body["conversationId"])
+    assert await _service_messages(_resources, conversation_id) == [_ASKED]
+    async with _resources.factory() as session:
+        sent = (
+            await session.execute(
+                select(AiMessage.sent_at).where(
+                    AiMessage.conversation_id == conversation_id,
+                    AiMessage.role == AiMessageRole.SYSTEM,
+                )
+            )
+        ).scalar_one()
+    assert sent is not None  # ушло пациенту, а не осталось черновиком
+
+
+async def test_handoff_in_shadow_mode_stays_silent(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """В теневом режиме пациент бота не видел — от имени клиники ему не пишем."""
+    await _set_hours(client, ctx)
+    await _set_mode(admin_client, ctx, "shadow")
+
+    body = await _simulate_reply(admin_client, ctx, fake, _patient())
+
+    assert await _service_messages(_resources, uuid.UUID(body["conversationId"])) == []
+
+
+async def test_staff_return_does_not_hand_the_same_message_over_again(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Инцидент 22–23.10: «вернуть боту» без ответа — через 3 секунды та же передача.
+
+    Петля возникает, когда после передачи в диалоге ничего не записано (фраза
+    пациенту не ушла: теневой режим, отказ WhatsApp, а до 01.11 — и весь
+    ``assisted``). Сотрудник просьбу видел — сам закрыл передачу, поэтому
+    вторую не заводим: ни эскалации, ни пуша, диалог остаётся у бота.
+    """
+    await _set_hours(client, ctx)
+    await _set_mode(admin_client, ctx, "shadow")
+    body = await _simulate_reply(admin_client, ctx, fake, _patient())
+    conversation_id = uuid.UUID(body["conversationId"])
+    returned = await client.post(
+        f"{API}/clinic/conversations/{conversation_id}/assistant",
+        headers=ctx.owner_headers,
+        json={"active": True},
+    )
+    assert returned.status_code == 200, returned.text
+
+    # Задание ответа после возврата: последнее сообщение — та же просьба.
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="escalate", args={"reason": "patient_asked"}))
+    ]
+    outcome = await _run_reply(_resources, fake, conversation_id)
+
+    assert outcome.status == "held"
+    async with _resources.factory() as session:
+        escalations = (
+            (
+                await session.execute(
+                    select(AiEscalation).where(AiEscalation.conversation_id == conversation_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        conversation = await session.get(AiConversation, conversation_id)
+        escalated_events = (
+            await session.execute(
+                select(func.count()).select_from(Event).where(Event.type == "ai.escalated")
+            )
+        ).scalar_one()
+    assert len(escalations) == 1 and escalations[0].resolved_at is not None
+    assert conversation is not None and conversation.status is AiConversationStatus.ACTIVE
+    assert escalated_events == 1  # второго пуша нет
+
+
+async def test_new_message_after_staff_return_is_handed_over_as_usual(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Возврат глушит повтор только ТОГО сообщения: новая просьба — новая передача."""
+    await _set_hours(client, ctx)
+    await _set_mode(admin_client, ctx, "shadow")
+    phone = _patient()
+    conversation_id = uuid.UUID(await _ask_human_again(admin_client, client, ctx, fake, phone))
+
+    body = await _simulate_reply(admin_client, ctx, fake, phone)
+
+    assert body["outcome"] == "escalated"
+    async with _resources.factory() as session:
+        open_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(AiEscalation)
+                .where(
+                    AiEscalation.conversation_id == conversation_id,
+                    AiEscalation.resolved_at.is_(None),
+                )
+            )
+        ).scalar_one()
+    assert open_count == 1
+
+
+async def _shadow_handoff_returned(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    *,
+    by_staff: bool,
+    res: Resources,
+) -> uuid.UUID:
+    """Передача в теневом режиме, затем возврат боту — сотрудником или системой."""
+    await _set_hours(client, ctx)
+    await _set_mode(admin_client, ctx, "shadow")
+    body = await _simulate_reply(admin_client, ctx, fake, _patient())
+    conversation_id = uuid.UUID(body["conversationId"])
+    if by_staff:
+        returned = await client.post(
+            f"{API}/clinic/conversations/{conversation_id}/assistant",
+            headers=ctx.owner_headers,
+            json={"active": True},
+        )
+        assert returned.status_code == 200, returned.text
+    else:
+        # Автовозврат по таймауту закрывает передачи без сотрудника.
+        async with res.factory() as session:
+            await session.execute(
+                update(AiEscalation)
+                .where(AiEscalation.conversation_id == conversation_id)
+                .values(resolved_at=func.now(), resolved_by=None)
+            )
+            await session.execute(
+                update(AiConversation)
+                .where(AiConversation.id == conversation_id)
+                .values(status=AiConversationStatus.ACTIVE)
+            )
+            await session.commit()
+    return conversation_id
+
+
+async def test_staff_return_still_hands_over_a_new_reason(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Удерживается только повтор той же причины: новая карточка записи — новая передача."""
+    conversation_id = await _shadow_handoff_returned(
+        admin_client, client, ctx, fake, by_staff=True, res=_resources
+    )
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="escalate", args={"reason": "booking_needs_human"}))
+    ]
+
+    outcome = await _run_reply(_resources, fake, conversation_id)
+
+    assert outcome.status == "escalated"
+    assert outcome.escalation_reason == "booking_needs_human"
+
+
+async def test_system_return_does_not_hold_the_handoff(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """Передачу закрыла система, а не человек — никто просьбу не видел, передаём снова."""
+    conversation_id = await _shadow_handoff_returned(
+        admin_client, client, ctx, fake, by_staff=False, res=_resources
+    )
+    fake.script = [
+        AiResult(tool_call=ToolCallRequest(name="escalate", args={"reason": "patient_asked"}))
+    ]
+
+    outcome = await _run_reply(_resources, fake, conversation_id)
+
+    assert outcome.status == "escalated"
+
+
+async def test_urgent_template_in_assisted_mode_reaches_patient(
+    admin_client: AsyncClient, ctx: Ctx, fake: _FakeProvider
+) -> None:
+    """Неотложное в «Проверяю»: телефон клиники уходит сразу, не ждёт одобрения.
+
+    Раньше шаблоны медфильтра уходили только в ``auto`` — пациент с отёком и
+    температурой в ``assisted`` не получал ничего.
+    """
+    await _set_mode(admin_client, ctx, "assisted")
+
+    body = await _simulate(admin_client, ctx, "Опухла щека и температура, что делать?", _patient())
+
+    assert body["outcome"] == "escalated"
+    patient_reply = body["messages"][-1]
+    assert "0700000000" in patient_reply["body"]
+    assert patient_reply["sent"] is True
 
 
 # ── 9. Жалоба и пожелание пациента — в комментарий записи ───────────────────
