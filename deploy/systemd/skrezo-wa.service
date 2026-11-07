@@ -1,0 +1,46 @@
+# WhatsApp-шлюз для OTP и уведомлений: wa-service из репозитория identity-service
+# (Node, whatsapp-web.js, headless Chrome). Skrezo шлёт в него POST /api/messages/send
+# (WHATSAPP_API_URL). Установка — docs/DEPLOY.md, раздел 13.
+#
+# Намеренно НЕ входит в skrezo.target: deploy.sh и `systemctl restart skrezo.target`
+# не трогают сессию WhatsApp. Перезапуск только руками: `systemctl restart skrezo-wa`.
+#
+# ⚠️ У wa-service нет авторизации, а слушает он все интерфейсы: порт 5001 снаружи
+# закрывает только ufw (default deny incoming, раздел 1). Порт в ufw не открывать.
+[Unit]
+Description=Skrezo WhatsApp gateway (wa-service)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skrezo-wa
+Group=skrezo-wa
+# Сессии WhatsApp (.wwebjs_auth) и кэш веб-версии (.wwebjs_cache) сервис пишет в
+# рабочий каталог: /var/lib/skrezo-wa переживает обновление кода, сессию не теряем.
+StateDirectory=skrezo-wa
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/skrezo-wa
+# DATABASE_URL, DIRECT_URL, API_PORT. Файл читает systemd: комментарии — только
+# отдельной строкой, после значения они попадут в само значение.
+EnvironmentFile=/etc/skrezo-wa/wa.env
+# Chrome пишет профиль, кэш шрифтов и ~/.pki в HOME — направляем в каталог
+# состояния. Сам браузер puppeteer скачал при `npm ci` в PUPPETEER_CACHE_DIR.
+Environment=HOME=/var/lib/skrezo-wa PUPPETEER_CACHE_DIR=/opt/skrezo-wa/puppeteer NODE_ENV=production TZ=UTC
+ExecStart=/usr/bin/node /opt/skrezo-wa/identity-service/wa-service/server/index.js
+Restart=always
+RestartSec=10
+# SIGTERM получает только node: он сам закрывает Chrome (до 10 с) и сохраняет
+# сессию. Остальные процессы Chrome systemd добивает после таймаута.
+KillMode=mixed
+TimeoutStopSec=30
+# Chrome ~150 МБ на сессию + node; потолок — чтобы утечка в браузере не съела сервер.
+MemoryMax=2G
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

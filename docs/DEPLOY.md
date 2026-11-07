@@ -15,6 +15,7 @@
                        arq-воркеры (очередь + cron'ы)     skrezo-worker@1, skrezo-worker@2
 PgBouncer 127.0.0.1:6432 (transaction) ──▶ PostgreSQL 16 127.0.0.1:5432
 Redis 127.0.0.1:6379  — очередь arq, OTP, лимиты, кэш префикса Gemini
+wa-service :5001 (Node + Chrome, снаружи закрыт ufw) — WhatsApp-шлюз для OTP    skrezo-wa
 /opt/skrezo/app/storage — снимки и документы пациентов;  /opt/skrezo/app/secrets — ключи пушей
 ```
 
@@ -36,6 +37,9 @@ Redis 127.0.0.1:6379  — очередь arq, OTP, лимиты, кэш преф
 | `deploy/systemd/skrezo-worker@.service` | `/etc/systemd/system/` — шаблон воркера |
 | `deploy/systemd/skrezo.target` | `/etc/systemd/system/` — группа «всё Skrezo» |
 | `deploy/systemd/skrezo-backup.{service,timer}` | `/etc/systemd/system/` — ночной бэкап |
+| `deploy/systemd/skrezo-wa.service` | `/etc/systemd/system/` — WhatsApp-шлюз wa-service (раздел 13) |
+| `deploy/wa/wa.env` | `/etc/skrezo-wa/wa.env` — настройки шлюза |
+| `deploy/wa/pair.html` | открывается на вашем компьютере — привязка номера по QR |
 | `deploy/nginx/skrezo.conf` | `/etc/nginx/sites-available/skrezo` |
 | `deploy/pgbouncer/pgbouncer.ini` | `/etc/pgbouncer/pgbouncer.ini` |
 | `deploy/postgres/skrezo.conf` | `/etc/postgresql/16/main/conf.d/skrezo.conf` |
@@ -459,6 +463,178 @@ sudo -u skrezo /opt/skrezo/app/.venv/bin/python -c "from cryptography.fernet imp
 в кабинете, когда заданы все четыре значения (`GET /clinic/whatsapp` →
 `signup.available: true`).
 
+## 13. WhatsApp-шлюз для OTP (wa-service)
+
+Коды входа и уведомления сотрудникам уходят по цепочкам `OTP_CHANNELS` и
+`NOTIFY_CHANNELS`. Канал `whatsapp` шлёт `POST {accountId, to, message}` на
+`WHATSAPP_API_URL` и ждёт в ответе `success` — это API wa-service из репозитория
+[identity-service](https://github.com/Shera99/identity-service), папка `wa-service/`.
+На этом сервере поднимается только он: auth_service, панель и Docker не нужны, код
+Skrezo не меняется. wa-service держит в headless Chrome сессию WhatsApp Web,
+привязанную к обычному номеру как «связанное устройство».
+
+⚠️ До установки:
+
+- **Способ неофициальный.** WhatsApp может заблокировать номер, особенно новый,
+  который пишет незнакомым. Нужна отдельная SIM-карта — не личный номер и не номер
+  клиники. `sms` в цепочке остаётся последним: при блокировке или обрыве сессии коды
+  уйдут по SMS.
+- **Телефон с этой SIM** должен выходить в сеть хотя бы раз в 14 дней, иначе WhatsApp
+  отвяжет связанные устройства, и номер придётся привязывать заново.
+- **У wa-service нет авторизации**, и слушает он все интерфейсы. Кто достучится до
+  порта 5001, отправит сообщение с вашего номера и прочитает журнал отправленных
+  вместе с кодами. Снаружи порт закрывает только ufw из раздела 1: в ufw его не
+  открывать, в nginx не проксировать.
+- **Обновления WhatsApp Web** иногда ломают whatsapp-web.js: аккаунт уходит в
+  `FAILED`, в журнале `Ready timeout`. Лечится обновлением библиотеки в
+  identity-service; до тех пор коды идут по SMS.
+- Процессор — **x86_64**: Chrome, который скачивает puppeteer, под arm64-Linux не
+  выпускается.
+
+### 13.1 Node.js 22
+
+В Ubuntu 24.04 Node 18, его поддержка закончилась; LTS берём из репозитория NodeSource:
+
+```bash
+uname -m                                # x86_64
+install -d -m 755 /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+    > /etc/apt/sources.list.d/nodesource.list
+apt update && apt -y install nodejs
+node --version                          # v22.x
+```
+
+### 13.2 Пользователь и код
+
+Отдельный пользователь `skrezo-wa`: у Chrome большая поверхность атаки, а к коду,
+`.env` и ключам Skrezo доступа у него нет. Из identity-service забирается только
+папка `wa-service`. Deploy-ключ GitHub привязывается к одному репозиторию, поэтому
+у этого пользователя свой:
+
+```bash
+useradd --system --create-home --home-dir /opt/skrezo-wa --shell /usr/sbin/nologin skrezo-wa
+chmod 750 /opt/skrezo-wa
+sudo -u skrezo-wa -H bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
+    ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C skrezo-wa && \
+    ssh-keyscan github.com >> ~/.ssh/known_hosts'
+cat /opt/skrezo-wa/.ssh/id_ed25519.pub   # → identity-service → Settings → Deploy keys, только чтение
+
+sudo -u skrezo-wa -H git clone --filter=blob:none --sparse \
+    git@github.com:Shera99/identity-service.git /opt/skrezo-wa/identity-service
+sudo -u skrezo-wa -H git -C /opt/skrezo-wa/identity-service sparse-checkout set wa-service
+```
+
+### 13.3 Зависимости и Chrome
+
+`npm ci` вместе с пакетами скачивает Chrome той версии, под которую собран
+puppeteer, в `/opt/skrezo-wa/puppeteer` — тот же путь стоит в юните как
+`PUPPETEER_CACHE_DIR`. Системные библиотеки для Chrome ставит `--install-deps`
+через apt, поэтому вторая команда — от root:
+
+```bash
+sudo -u skrezo-wa -H bash -c 'cd /opt/skrezo-wa/identity-service/wa-service && \
+    PUPPETEER_CACHE_DIR=/opt/skrezo-wa/puppeteer npm ci --omit=dev && npx prisma generate'
+(cd /opt/skrezo-wa/identity-service/wa-service && \
+    PUPPETEER_CACHE_DIR=/opt/skrezo-wa/puppeteer npx puppeteer browsers install chrome --install-deps)
+```
+
+### 13.4 База
+
+Своя база `skrezo_wa` в том же Postgres: таблицы шлюза не смешиваются со схемой
+Skrezo и не попадают в autogenerate Alembic. Подключение — напрямую на 5432,
+PgBouncer настроен только на базу `skrezo`. Схему `wa` создаём сами (Prisma её не
+создаёт), таблицы — `prisma db push` по схеме из кода wa-service. Пароль нужен
+только в `wa.env`, записывать его не обязательно:
+
+```bash
+WA_PG_PASS=$(openssl rand -hex 24)
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+CREATE ROLE skrezo_wa LOGIN PASSWORD '$WA_PG_PASS';
+CREATE DATABASE skrezo_wa OWNER skrezo_wa;
+\c skrezo_wa
+CREATE SCHEMA wa AUTHORIZATION skrezo_wa;
+SQL
+
+install -d -m 750 -o root -g skrezo-wa /etc/skrezo-wa
+install -m 640 -o root -g skrezo-wa /opt/skrezo/app/deploy/wa/wa.env /etc/skrezo-wa/wa.env
+sed -i "s/ЗАМЕНИТЬ_ПАРОЛЬ/$WA_PG_PASS/g" /etc/skrezo-wa/wa.env
+
+sudo -u skrezo-wa -H bash -c 'set -a && . /etc/skrezo-wa/wa.env && \
+    cd /opt/skrezo-wa/identity-service/wa-service && npx prisma db push --skip-generate'
+```
+
+В конце — `Your database is now in sync with your Prisma schema`.
+
+### 13.5 Запуск
+
+Юнит лежит в `deploy/systemd/` вместе с остальными (раздел 9 и `deploy.sh` копируют
+его сами), но в `skrezo.target` не входит: деплой Skrezo сессию WhatsApp не трогает.
+
+```bash
+install -m 644 /opt/skrezo/app/deploy/systemd/skrezo-wa.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now skrezo-wa
+curl -s http://127.0.0.1:5001/health; echo         # "status":"ok", "activeClients":0
+```
+
+С вашего компьютера — порт снаружи закрыт, команда должна закончиться таймаутом:
+
+```bash
+curl --max-time 5 http://IP_СЕРВЕРА:5001/health
+```
+
+### 13.6 Привязка номера
+
+QR-код показывает страница [`deploy/wa/pair.html`](../deploy/wa/pair.html): она
+открывается у вас в браузере и ходит в wa-service через SSH-туннель. На своём
+компьютере, в отдельном окне терминала — держать открытым, пока идёт привязка:
+
+```bash
+ssh -N -L 5001:127.0.0.1:5001 skrezouser@СЕРВЕР
+```
+
+Затем откройте `deploy/wa/pair.html` из репозитория в браузере:
+
+1. «Создать аккаунт» (название любое, например `Skrezo OTP`) → «Подключить».
+2. Через 10–30 с появится QR. На телефоне с SIM шлюза: WhatsApp → Настройки →
+   Связанные устройства → Привязка устройства — отсканировать.
+3. Статус `CONNECTED` → «Скопировать ID»: это `WHATSAPP_ACCOUNT_ID`.
+4. «Пробное сообщение» на свой номер — должно прийти в WhatsApp.
+
+Сессия хранится в `/var/lib/skrezo-wa/.wwebjs_auth`: после перезапуска сервиса или
+сервера QR не нужен.
+
+### 13.7 Включить в Skrezo
+
+В `/opt/skrezo/app/.env` (комментарии — отдельной строкой: `KEY=  # текст` станет
+значением):
+
+```dotenv
+WHATSAPP_API_URL=http://127.0.0.1:5001/api/messages/send
+WHATSAPP_ACCOUNT_ID=ID_ИЗ_PAIR_HTML
+# порядок = приоритет; sms — запасной, Telegram позже: telegram,whatsapp,sms
+OTP_CHANNELS=whatsapp,sms
+NOTIFY_CHANNELS=whatsapp,sms
+# первое сообщение новому номеру шлюз отправляет дольше обычного
+OTP_DELIVERY_TIMEOUT_SECONDS=10
+NOTIFY_DELIVERY_TIMEOUT_SECONDS=10
+```
+
+```bash
+systemctl restart skrezo.target
+```
+
+Проверка — вход в приложение со своего номера: код приходит в WhatsApp, а в журнале
+API строка `otp_code_sent` с `channel=whatsapp`:
+
+```bash
+journalctl -u 'skrezo-api@*' --since '10 min ago' --no-pager | grep -E 'otp_code_sent|otp_channel_failed'
+```
+
+`otp_channel_failed` с `channel=whatsapp` — шлюз отказал, причина в `error`, код ушёл
+следующим каналом. `HTTP 400` — аккаунт не подключён (см. «Шлюз WhatsApp» ниже).
+
 ## Эксплуатация
 
 Всё ниже выполняется из-под своего пользователя с `sudo`; `sudo -i` и переходы в каталог
@@ -502,3 +678,31 @@ Postgres — `/var/log/postgresql/postgresql-16-main.log` (медленные з
 **Откат миграции** (только если релиз её требует):
 `sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/alembic downgrade -1'` —
 затем `deploy.sh <предыдущий тег>`.
+
+### Шлюз WhatsApp
+
+- **Логи**: `journalctl -u skrezo-wa -f`. Раз в минуту — блок `Resource Monitor`, это норма.
+- **Состояние**: `curl -s 127.0.0.1:5001/health` — в `clients` аккаунт со статусом
+  `CONNECTED`.
+- **После перезапуска** сервис сам поднимает аккаунты, которые были `CONNECTED`. Если
+  аккаунт в `DISCONNECTED` или `FAILED` — «Подключить» в `pair.html` или
+  `curl -X POST 127.0.0.1:5001/api/accounts/ID/connect`: сохранённая сессия
+  поднимется без QR. QR понадобится, только если WhatsApp отвязал устройство.
+- **Перезапуск**: `systemctl restart skrezo-wa` — только сам шлюз; `deploy.sh` и
+  `restart skrezo.target` его не трогают. Пока шлюз поднимается (до минуты), коды
+  уходят по SMS.
+- **Обновление wa-service** (после правок в identity-service):
+
+  ```bash
+  sudo -u skrezo-wa -H git -C /opt/skrezo-wa/identity-service pull
+  sudo -u skrezo-wa -H bash -c 'cd /opt/skrezo-wa/identity-service/wa-service && \
+      PUPPETEER_CACHE_DIR=/opt/skrezo-wa/puppeteer npm ci --omit=dev && npx prisma generate'
+  systemctl restart skrezo-wa
+  ```
+
+  Если в обновлении менялась `prisma/schema.prisma` — перед перезапуском `prisma db push`
+  из раздела 13.4; если сменилась версия puppeteer — ещё раз `--install-deps` из 13.3.
+- **Журнал отправленных** `wa.messages` хранит тексты вместе с кодами. Коды живут
+  минуты, но таблица растёт — чистить раз в месяц:
+  `sudo -u postgres psql -d skrezo_wa -c "DELETE FROM wa.messages WHERE \"sentAt\" < now() - interval '30 days'"`.
+- **Бэкап** базы `skrezo_wa` и сессии не нужен: при потере — заново пройти 13.4 и 13.6.

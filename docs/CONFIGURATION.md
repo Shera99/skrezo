@@ -22,7 +22,7 @@
 | `OTP_REVIEW_PHONE` / `OTP_REVIEW_CODE` | **временно**, на время проверки приложения в App Store / Google Play: для одного номера код фиксирован и не отправляется (у ревьюера нет SIM). Только парой, код длины `OTP_LENGTH`; каждый выпуск — `otp_review_code_issued` в логе. После проверки — очистить | — (выключено) |
 | `OTP_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру | `5` |
 | `TELEGRAM_GATEWAY_URL` / `TELEGRAM_GATEWAY_TOKEN` | Telegram Gateway (код своим шаблоном) | `https://gatewayapi.telegram.org` / — |
-| `WHATSAPP_API_URL` / `WHATSAPP_ACCOUNT_ID` | WhatsApp-бот (номер без «+») | — |
+| `WHATSAPP_API_URL` / `WHATSAPP_ACCOUNT_ID` | WhatsApp-шлюз wa-service (номер без «+»): `http://127.0.0.1:5001/api/messages/send` и ID аккаунта из `deploy/wa/pair.html` — установка в [DEPLOY.md, раздел 13](DEPLOY.md#13-whatsapp-шлюз-для-otp-wa-service) | — |
 | `SMSPRO_URL` / `SMSPRO_LOGIN` / `SMSPRO_PASSWORD` / `SMSPRO_SENDER` | SMS через nikita.kg (XML) | `https://smspro.nikita.kg/api/message` / — |
 | `NOTIFY_CHANNELS` | каналы уведомлений (не OTP) по приоритету: `whatsapp,sms` | — (лог) |
 | `NOTIFY_DELIVERY_TIMEOUT_SECONDS` | таймаут запроса к провайдеру уведомлений | `5` |

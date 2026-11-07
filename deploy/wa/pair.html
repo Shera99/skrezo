@@ -1,0 +1,211 @@
+<!doctype html>
+<!--
+  Привязка номера WhatsApp к wa-service на сервере (docs/DEPLOY.md, раздел 13).
+  Открывается локально в браузере, пока работает SSH-туннель:
+      ssh -N -L 5001:127.0.0.1:5001 skrezouser@СЕРВЕР
+  Страница ходит в API wa-service через туннель; наружу порт 5001 закрыт.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Привязка WhatsApp</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#677084; --line:#dfe3ea;
+          --accent:#1f7a52; --warn:#a15c00; --err:#b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2128; --text:#e6e9ef; --muted:#9aa3b2; --line:#2e343e;
+            --accent:#4cc38a; --warn:#f0a43a; --err:#f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 20px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px;
+            padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input { flex:1 1 180px; min-width:0; padding:8px 10px; border:1px solid var(--line);
+          border-radius:8px; background:transparent; color:inherit; font:inherit; }
+  button { padding:8px 14px; border:1px solid var(--line); border-radius:8px;
+           background:transparent; color:inherit; font:inherit; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .acc { border-top:1px solid var(--line); padding:12px 0; }
+  .acc:first-child { border-top:0; padding-top:0; }
+  .meta { color:var(--muted); font-size:13px; }
+  code { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; word-break:break-all; }
+  .st { font-weight:600; }
+  .st.CONNECTED { color:var(--accent); }
+  .st.QR_READY, .st.CONNECTING, .st.AUTHENTICATING { color:var(--warn); }
+  .st.FAILED, .st.DISCONNECTED { color:var(--err); }
+  .qr { margin-top:12px; text-align:center; }
+  .qr img { width:264px; max-width:100%; background:#fff; padding:8px; border-radius:8px; }
+  #msg { min-height:1.5em; margin-top:8px; font-size:14px; }
+  #msg.err { color:var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Привязка WhatsApp</h1>
+  <p class="lead">Номер для кодов входа Skrezo. Нужен открытый SSH-туннель на порт 5001.</p>
+
+  <section>
+    <h2>Адрес wa-service</h2>
+    <div class="row">
+      <input id="base" value="http://localhost:5001" aria-label="Адрес wa-service">
+      <button id="reload">Обновить</button>
+    </div>
+    <div id="msg" role="status"></div>
+  </section>
+
+  <section>
+    <h2>Аккаунты</h2>
+    <div id="list" class="meta">Загрузка…</div>
+    <div class="row" style="margin-top:12px">
+      <input id="name" placeholder="Название, например Skrezo OTP" aria-label="Название аккаунта">
+      <button id="create" class="primary">Создать аккаунт</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Пробное сообщение</h2>
+    <div class="row">
+      <input id="to" placeholder="996555123456 — без «+»" aria-label="Номер получателя">
+      <button id="send">Отправить</button>
+    </div>
+    <p class="meta">Уходит с первого аккаунта в статусе CONNECTED — так же, как код входа.</p>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let accounts = [];
+
+  function say(text, isError) {
+    $("msg").textContent = text;
+    $("msg").className = isError ? "err" : "";
+  }
+
+  async function api(path, options) {
+    const base = $("base").value.replace(/\/+$/, "");
+    const res = await fetch(base + path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "HTTP " + res.status);
+    return body;
+  }
+
+  function render() {
+    const list = $("list");
+    list.textContent = "";
+    if (!accounts.length) {
+      list.textContent = "Аккаунтов нет — создайте первый.";
+      return;
+    }
+    for (const acc of accounts) {
+      const status = acc.clientStatus || acc.status;
+      const box = document.createElement("div");
+      box.className = "acc";
+
+      const head = document.createElement("div");
+      head.className = "row";
+      const name = document.createElement("strong");
+      name.textContent = acc.name;
+      const st = document.createElement("span");
+      st.className = "st " + status;
+      st.textContent = status;
+      head.append(name, st);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.append("WHATSAPP_ACCOUNT_ID = ");
+      const id = document.createElement("code");
+      id.textContent = acc.id;
+      meta.append(id);
+      if (acc.phoneNumber) meta.append(" · номер " + acc.phoneNumber);
+
+      const actions = document.createElement("div");
+      actions.className = "row";
+      actions.style.marginTop = "8px";
+      const connect = document.createElement("button");
+      connect.textContent = "Подключить";
+      connect.disabled = acc.hasActiveClient && status !== "FAILED";
+      connect.onclick = () => act(() => api("/api/accounts/" + acc.id + "/connect", { method: "POST" }),
+        "Запущено. Через 10–30 с появится QR или, если сессия сохранена, статус CONNECTED.");
+      const copy = document.createElement("button");
+      copy.textContent = "Скопировать ID";
+      copy.onclick = () => navigator.clipboard.writeText(acc.id).then(() => say("ID скопирован."));
+      const disconnect = document.createElement("button");
+      disconnect.textContent = "Отключить";
+      disconnect.disabled = !acc.hasActiveClient;
+      disconnect.onclick = () => act(() => api("/api/accounts/" + acc.id + "/disconnect", { method: "POST" }),
+        "Отключено. Сессия на диске осталась — «Подключить» вернёт её без QR.");
+      actions.append(connect, copy, disconnect);
+
+      box.append(head, meta, actions);
+
+      if (status === "QR_READY" && acc.qrCode) {
+        const qr = document.createElement("div");
+        qr.className = "qr";
+        const img = document.createElement("img");
+        img.src = acc.qrCode;
+        img.alt = "QR-код для привязки";
+        const hint = document.createElement("p");
+        hint.className = "meta";
+        hint.textContent = "На телефоне: WhatsApp → Настройки → Связанные устройства → Привязка устройства. QR обновляется сам.";
+        qr.append(img, hint);
+        box.append(qr);
+      }
+      list.append(box);
+    }
+  }
+
+  async function refresh() {
+    try {
+      accounts = await api("/api/accounts");
+      render();
+      if ($("msg").className === "err") say("");
+    } catch (e) {
+      if (!accounts.length) $("list").textContent = "Нет данных.";
+      say("Нет связи с wa-service: " + e.message + ". Туннель открыт?", true);
+    }
+  }
+
+  async function act(fn, okText) {
+    try {
+      await fn();
+      say(okText);
+    } catch (e) {
+      say(e.message, true);
+    }
+    refresh();
+  }
+
+  $("reload").onclick = refresh;
+  $("create").onclick = () => {
+    const name = $("name").value.trim();
+    if (!name) return say("Введите название.", true);
+    act(() => api("/api/accounts", { method: "POST", body: JSON.stringify({ name }) }),
+      "Аккаунт создан. Нажмите «Подключить».");
+  };
+  $("send").onclick = () => {
+    const acc = accounts.find((a) => (a.clientStatus || a.status) === "CONNECTED");
+    const to = $("to").value.replace(/\D/g, "");
+    if (!acc) return say("Нет аккаунта в статусе CONNECTED.", true);
+    if (!to) return say("Введите номер.", true);
+    act(() => api("/api/messages/send", {
+      method: "POST",
+      body: JSON.stringify({ accountId: acc.id, to, message: "Проверка шлюза Skrezo" }),
+    }), "Отправлено — проверьте WhatsApp на номере " + to + ".");
+  };
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
