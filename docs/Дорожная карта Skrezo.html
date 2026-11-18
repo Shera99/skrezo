@@ -1,0 +1,412 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Дорожная карта Skrezo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#F7FAF8; --card:#FFFFFF; --ink:#1B2A2E; --muted:#54666B; --line:#D9E3E0;
+  --accent:#0E7C7B; --accent-soft:rgba(14,124,123,.09);
+  --f1:#1F8A54; --f2:#6D4FA3; --f3:#AD6410; --f4:#2C6BAC; --done:#5A7A74;
+  --f5:#A8386B; --f6:#7A6A18; --f7:#1E6E8C; --f8:#37515F;
+  --warn:#A8481E;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111A1C; --card:#182427; --ink:#E5EEEB; --muted:#93A7A5; --line:#2B3B3D;
+    --accent:#43BDB9; --accent-soft:rgba(67,189,185,.13);
+    --f1:#4CC38A; --f2:#B49BE0; --f3:#E0A05A; --f4:#74ABDF; --done:#8FA9A2;
+    --f5:#EE8FB8; --f6:#D3BE64; --f7:#71BEDA; --f8:#9DB6C4;
+    --warn:#E08A62;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#111A1C; --card:#182427; --ink:#E5EEEB; --muted:#93A7A5; --line:#2B3B3D;
+  --accent:#43BDB9; --accent-soft:rgba(67,189,185,.13);
+  --f1:#4CC38A; --f2:#B49BE0; --f3:#E0A05A; --f4:#74ABDF; --done:#8FA9A2;
+  --f5:#EE8FB8; --f6:#D3BE64; --f7:#71BEDA; --f8:#9DB6C4;
+  --warn:#E08A62;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:400 16px/1.6 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:900px; margin:0 auto; padding:48px 28px 96px}
+h1,h2,h3{font-family:"Manrope", system-ui, sans-serif; line-height:1.2; text-wrap:balance; margin:0}
+h1{font-size:2.1rem; font-weight:800; letter-spacing:-.02em}
+h2{font-size:1.35rem; font-weight:800; letter-spacing:-.01em; margin:0 0 6px}
+h3{font-size:1.02rem; font-weight:700; margin:26px 0 8px}
+p{margin:10px 0}
+a{color:var(--accent)}
+code{
+  font:400 .86em/1.4 "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  background:var(--accent-soft); padding:.08em .35em; border-radius:4px;
+}
+.eyebrow{
+  font:500 .72rem/1 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin-bottom:14px;
+}
+.meta{color:var(--muted); font-size:.9rem; margin-top:12px}
+.lede{font-size:1.06rem; max-width:64ch; margin-top:18px}
+section{margin-top:56px; padding-top:8px}
+.sec-head{display:flex; align-items:baseline; gap:12px; border-bottom:2px solid var(--line); padding-bottom:10px; margin-bottom:18px; flex-wrap:wrap}
+.sec-head .size{margin-left:auto}
+.kicker{color:var(--muted); font-size:.92rem; max-width:66ch}
+
+.chip{
+  display:inline-block; font:500 .72rem/1 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing:.06em; padding:.35em .6em; border-radius:99px; white-space:nowrap;
+  color:var(--ph, var(--accent)); background:color-mix(in srgb, var(--ph, var(--accent)) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--ph, var(--accent)) 32%, transparent);
+}
+.size{
+  font:500 .72rem/1 "IBM Plex Mono", ui-monospace, monospace; color:var(--muted);
+  border:1px solid var(--line); border-radius:99px; padding:.35em .6em; white-space:nowrap;
+}
+
+/* карта последовательности */
+.flow{display:flex; gap:8px; align-items:stretch; margin:26px 0 6px; overflow-x:auto; padding-bottom:8px}
+.flow .node{
+  flex:1 0 150px; border:1px solid color-mix(in srgb, var(--ph, var(--accent)) 38%, transparent);
+  background:color-mix(in srgb, var(--ph, var(--accent)) 7%, var(--card));
+  border-radius:10px; padding:12px 14px; position:relative;
+}
+.flow .node .tag{font:500 .7rem/1 "IBM Plex Mono", monospace; letter-spacing:.08em; color:var(--ph, var(--accent))}
+.flow .node b{display:block; font-size:.94rem; margin:6px 0 2px; font-weight:600}
+.flow .node span{display:block; color:var(--muted); font-size:.8rem; line-height:1.45}
+.flow .arr{align-self:center; color:var(--muted); flex:0 0 auto; font-size:1.1rem}
+
+table{border-collapse:collapse; width:100%; font-size:.9rem}
+.tblwrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px; margin:14px 0}
+th,td{padding:9px 12px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:none}
+th{
+  font:500 .72rem/1.3 "IBM Plex Mono", monospace; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); background:color-mix(in srgb, var(--ink) 3%, transparent);
+}
+td b{font-weight:600}
+tbody tr{background:var(--card)}
+
+ol.steps{list-style:none; counter-reset:step; margin:14px 0 0; padding:0}
+ol.steps li{
+  counter-increment:step; position:relative; padding:10px 0 10px 46px;
+  border-bottom:1px dashed var(--line);
+}
+ol.steps li:last-child{border-bottom:none}
+ol.steps li::before{
+  content:counter(step); position:absolute; left:0; top:9px;
+  width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
+  font:500 .8rem/1 "IBM Plex Mono", monospace;
+  color:var(--ph, var(--accent)); background:color-mix(in srgb, var(--ph, var(--accent)) 12%, transparent);
+}
+ol.steps li b{font-weight:600}
+ol.steps li small{display:block; color:var(--muted); margin-top:2px; font-size:.86rem; max-width:70ch}
+
+ul.flat{margin:10px 0; padding-left:0; list-style:none}
+ul.flat li{padding:4px 0 4px 22px; position:relative}
+ul.flat li::before{
+  content:""; position:absolute; left:2px; top:.72em; width:8px; height:8px; border-radius:2px;
+  background:color-mix(in srgb, var(--ph, var(--accent)) 55%, transparent);
+}
+
+.note{
+  border-left:3px solid var(--accent); background:var(--accent-soft);
+  border-radius:0 10px 10px 0; padding:12px 16px; margin:16px 0; font-size:.94rem;
+}
+.note.warn{border-left-color:var(--warn); background:color-mix(in srgb, var(--warn) 9%, transparent)}
+.note b{font-weight:600}
+
+.done-mark{color:var(--done); font-weight:600}
+.small{font-size:.88rem; color:var(--muted)}
+.ph1{--ph:var(--f1)} .ph2{--ph:var(--f2)} .ph3{--ph:var(--f3)} .ph4{--ph:var(--f4)} .ph0{--ph:var(--done)}
+.ph5{--ph:var(--f5)} .ph6{--ph:var(--f6)} .ph7{--ph:var(--f7)} .ph8{--ph:var(--f8)}
+footer{margin-top:72px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:.84rem}
+@media (max-width:640px){ .wrap{padding:32px 18px 72px} h1{font-size:1.7rem} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Skrezo · бэкенд · план поставки</div>
+  <h1>Дорожная карта: WhatsApp, уведомления, AI-ассистент, реалтайм</h1>
+  <p class="meta">1 сентября 2026 · сверка комплекта спецификаций от 29.08 с текущим кодом · порядок для одного разработчика · <b>обновлено 04.10: Embedded Signup сделан — клиника сама подключает свой номер из кабинета, номер остаётся в приложении WhatsApp Business; токен на клинику хранится зашифрованным, архив истории и контакты переносятся из приложения. Ранее, 07.09: Ф1–Ф6 ✓; Ф8: кэш префикса Gemini, один httpx-клиент на процесс и часовой обход токенов сделаны 08.09, S3 отменён (папка storage на сервере); второй воркер проверен и ретеншн сделан — Ф8 закрыта; оплата подписки через FreedomPay, журнал операций и баланс клиники с автопродлением сделаны 08.09; Ф7 закрыта — лестница доверия с гейтом и памятью ступени, перенос и отмена записи пациентом той же кнопкой, матрица умений, подтверждение визита из напоминания, напоминания о долге и повторном осмотре; Ф6 закрыта целиком (кроме эмбеддингов, отложены осознанно): очередь «пробелы знаний», переписывание ответа моделью, редактор базы знаний с версиями, регрессия из выученных ответов, метрики обучения с гейтом доверия для Ф7; WhatsApp подключён к живой Мете, первое сообщение пациента прошло весь путь. Ф5 готова 04.09: список чатов и черновик как объект. Учёт использования по клиникам (токены, диалоги, платные WhatsApp, смета) сделан 04.09 — основа для пакетов и цен. Ф8: ядро сделано 04.09 — ответ отдельным заданием на диалог, лок и дебаунс, освобождение соединения, повторы и предохранитель, резюме по заданию; проверено вживую на исчерпанной квоте Gemini. Приём без модели — 300 сообщений за 3,4 с вместо 15</b></p>
+  <p class="lede">Четыре фичи из плана поставки положены на реальное состояние репозитория: что уже сделано по старому пуш-ADR, что новый комплект отменяет, что и в каком порядке строить дальше. Каждый этап заканчивается работающим продуктом.</p>
+</header>
+
+<div class="flow">
+  <div class="node ph0"><span class="tag">ЭТАП 0 · ✓</span><b>Влить текущее</b><span>выполнено 01.09 — main = <code>c1769b5</code></span></div>
+  <div class="arr">→</div>
+  <div class="node ph1"><span class="tag">Ф1 · ✓</span><b>WhatsApp-канал</b><span>готово 01.09; Embedded Signup ✓ 04.10</span></div>
+  <div class="arr">→</div>
+  <div class="node ph3"><span class="tag">Ф3 · ✓</span><b>События и уведомления</b><span>готово 02.09: outbox → инбокс → пуши → сводки → телеметрия → план</span></div>
+  <div class="arr">→</div>
+  <div class="node ph2"><span class="tag">Ф2 · ✓</span><b>AI-ассистент</b><span>готово 03.09: запись, медфильтр, валидатор V01–V09, регрессия</span></div>
+  <div class="arr">→</div>
+  <div class="node ph4"><span class="tag">Ф4 · ✓</span><b>Сокет</b><span>готово 02.09 — бэкенд-шлюз; клиенту остался socket.transport.ts</span></div>
+  <div class="arr">→</div>
+  <div class="node ph5"><span class="tag">Ф5 · ✓</span><b>Кабинет ассистента</b><span>готово 04.09: список чатов, черновик с кнопкой «Отправить», возврат боту</span></div>
+  <div class="arr">→</div>
+  <div class="node ph6"><span class="tag">Ф6 · ✓</span><b>Обучение на своих данных</b><span>готово 07.09: пробелы → ответ моделью → редактор и версии → регрессия → метрики; кластеризация по смыслу — когда упрёмся</span></div>
+  <div class="arr">→</div>
+  <div class="node ph7"><span class="tag">Ф7 · ✓</span><b>Ступени доверия</b><span>готово 07.09: лестница + гейт, перенос/отмена, матрица умений, напоминания о визите, долге и повторном осмотре</span></div>
+  <div class="arr">→</div>
+  <div class="node ph8"><span class="tag">Ф8 · ✓</span><b>Нагрузка и надёжность</b><span>ядро сделано 04.09; дальше — S3, второй воркер, кэш префикса, ретеншн</span></div>
+</div>
+<p class="small">Первые четыре фазы — из плана поставки (Ф1 → Ф3 → Ф2 → Ф4), три последние добавлены 02.09 по макетам кабинета. Ф2, Ф5, Ф6 и ядро Ф8 закрыты; дальше <b>Ф7</b> (ступени доверия — гейт «153 из 200» уже считается метриками Ф6). Перенос и отмену записи пациентом (Ф7·4) можно вытащить вперёд — механика кнопки уже готова. Оценки грубые, ~2 месяца чистой работы на Ф5–Ф7 без учёта согласований Meta.</p>
+
+<!-- ================= ЧТО УЖЕ ЕСТЬ ================= -->
+<section>
+  <div class="sec-head ph0"><span class="chip">СДЕЛАНО</span><h2>Что уже есть в коде (старый пуш-ADR)</h2></div>
+  <p class="kicker">Прошлый комплект («каталог пушей» + WhatsApp-заметка) свёрнут в <code>docs/PUSH_NOTIFICATIONS.md</code>. Из его этапов P0–P6 на ветке <code>feat/push-notifications</code> реализованы P0 и P1:</p>
+  <ul class="flat ph0">
+    <li><span class="done-mark">✓</span> Таблицы <code>device</code> / <code>notification_pref</code> / <code>push_event</code> (миграция 0041) — токен привязан к членству (аккаунт + клиника), токен уникален на платформу</li>
+    <li><span class="done-mark">✓</span> Ручки <code>POST/DELETE /clinic/devices</code>, <code>PUT /clinic/notifications/prefs</code></li>
+    <li><span class="done-mark">✓</span> Каталог текстов (type × язык × title/body/speak), транспорт FCM/APNs c лог-фолбэком без кредов</li>
+    <li><span class="done-mark">✓</span> <code>PushDispatcher</code> в arq-воркере + чистка мёртвых токенов по <code>NotRegistered</code></li>
+    <li><span class="done-mark">✓</span> Первое событие <code>sync.day</code> — тихий фан-аут из пяти ручек расписания</li>
+  </ul>
+  <p class="kicker">Не сделано из старого плана: P2–P6 (soon/arrival, moved/canceled/created, сводки, деньги, подписка/команда) и живые креды. <b>Эти хвосты не пропадают — новый комплект Ф3 поглощает их целиком</b>, но на другом фундаменте (outbox + инбокс), поэтому дальше они делаются уже по новой спецификации.</p>
+</section>
+
+<!-- ================= КОНФЛИКТЫ ================= -->
+<section>
+  <div class="sec-head"><span class="chip">СВЕРКА</span><h2>Где новый комплект отменяет уже сделанное</h2></div>
+  <p class="kicker">Пять расхождений, которые нужно закрыть решением, а не заметить посреди реализации.</p>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Было (в коде / старом ADR)</th><th>Стало (новый комплект)</th><th>Решение</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b><code>sync.day</code> — тихий пуш</b> (content-available) на каждое изменение расписания</td>
+        <td>§7 ТЗ-СУ: «тихие пуши не используются нигде» — iOS их режет; живой экран = сокет (Ф4) + фолбэк 30 с</td>
+        <td>Выпилить <code>sync.day</code> в Ф3. Живых получателей нет (транспорт до сих пор лог-фолбэк), клиент живёт на <code>LIVE_REFETCH_MS</code>. Точки эмиссии переиспользуются под outbox</td>
+      </tr>
+      <tr>
+        <td><b><code>enqueue</code> после commit</b>; очередь недоступна → событие пропускается («пуш не критичен»)</td>
+        <td>Транзакционный outbox <code>events</code> в той же транзакции + <code>NOTIFY</code> + поллинг 30 с: «пуши так терять нельзя»</td>
+        <td>Переехать на outbox. INSERT события — в транзакции use-case; arq остаётся для доставки на устройства и cron-задач</td>
+      </tr>
+      <tr>
+        <td><b>soon/arrival — cron-скан раз в минуту</b> с серверными пушами</td>
+        <td>ADR-5: напоминания по времени — <b>локальные</b> уведомления по серверному плану (<code>GET /clinic/notifications/plan</code>); пуш по сети «через 15 минут» опоздает</td>
+        <td>Вместо скана — генератор плана дня. Cron остаётся для сводок и тихих часов</td>
+      </tr>
+      <tr>
+        <td><b>Тихие часы — в префах пользователя</b> (<code>notification_pref.quiet_from/to</code>)</td>
+        <td>§13 ТЗ-СУ: тихие часы — по графику работы клиники; critical проходит всегда, остальное — в утреннюю сводку</td>
+        <td>Дефолт — график клиники; персональные префы (disabled, свои часы) работают поверх. Таблица остаётся</td>
+      </tr>
+      <tr>
+        <td><b><code>push_event</code></b> — идемпотентность cron-сканов</td>
+        <td><code>events.processed_at</code> + уникальный <code>(event_id, user_id)</code> в инбоксе</td>
+        <td>Идемпотентность переезжает в outbox/инбокс; <code>push_event</code> остаётся только если понадобится дедуп cron-эмиссии (сводки), иначе сносится</td>
+      </tr>
+    </tbody>
+  </table></div>
+  <div class="note"><b>Что переживает переезд без правок:</b> <code>device</code> (наша привязка к членству даже строже спека — решает планшет ресепшена и сотрудника двух клиник), ручки устройств/префов, каталог текстов, транспорт с лог-фолбэком, tz-aware cron-механика из старого ADR, RBAC-маппинг «ресепшен = manager».</div>
+</section>
+
+<!-- ================= ЭТАП 0 ================= -->
+<section>
+  <div class="sec-head ph0"><span class="chip">ЭТАП 0</span><h2>Привести ветку в порядок</h2><span class="size">✓ выполнено 01.09</span></div>
+  <ol class="steps ph0">
+    <li><b><span class="done-mark">✓</span> Закоммичена «длительность по зубам»</b><small><code>c1769b5</code>: расчёт длительности из состава (время услуги — на один зуб), <code>teethCount</code> в слотах; 602 теста зелёные</small></li>
+    <li><b><span class="done-mark">✓</span> <code>feat/push-notifications</code> влита в main</b><small>Fast-forward до <code>c1769b5</code>: фундамент пушей P0+P1 (<code>dc9c38f</code>, <code>2d5eb0a</code>) + длительность. Пуш в origin — отдельным шагом</small></li>
+  </ol>
+</section>
+
+<!-- ================= Ф1 ================= -->
+<section>
+  <div class="sec-head ph1"><span class="chip">Ф1</span><h2>WhatsApp-канал</h2><span class="size">✓ 01.09 · Embedded Signup ✓ 04.10</span></div>
+  <p class="kicker">Транспорт без интеллекта: принять, сохранить, показать клинике, ответить. Ассистента здесь нет. Отдельно от существующих OTP-каналов (<code>shared/notifications</code>) — это Meta Cloud API, новый транспорт <code>app/shared/whatsapp</code> + модуль <code>app/modules/whatsapp</code>.</p>
+  <ol class="steps ph1">
+    <li><b><span class="done-mark">✓</span> Миграция 0042: <code>ai_conversation</code>, <code>ai_message</code>, <code>whatsapp_template</code>, <code>clinic_whatsapp</code></b><small>Имена — в единственном числе по конвенции. Поля Ф2 (<code>transcript</code>, <code>used_facts</code>, <code>validator</code>, <code>model</code>) заводятся сразу. Привязка клиники: <code>phone_number_id</code> → клиника (настройки подключения, токены — в env)</small></li>
+    <li><b><span class="done-mark">✓</span> Вебхук</b><small>Публичный POST: подпись <code>X-Hub-Signature-256</code>, мгновенный 200 (&lt; 5 с), обработка в arq-фоне, дедуп по <code>wa_message_id unique</code>. Cloudflare Worker <code>wa.skrezo.com</code> — опция на потом, стартуем прямо в FastAPI</small></li>
+    <li><b><span class="done-mark">✓</span> Разбор входящего</b><small>Клиника по <code>phone_number_id</code> → пациент по номеру (пациент у нас глобальный) → диалог (partial unique на активный) → сообщение</small></li>
+    <li><b><span class="done-mark">✓</span> Исходящие через Graph API + API админки</b><small>Список диалогов, история, ответ. Новое право (manager/owner); Р22: врач по умолчанию пациентам не отвечает</small></li>
+    <li><b><span class="done-mark">✓</span> Медиа</b><small>Скачивание по <code>media_id</code>, хранение в существующем сторадже (как файлы пациента), отдача клиенту</small></li>
+    <li><b><span class="done-mark">✓</span> Окно 24 часов и шаблоны</b><small>Расчёт окна от последнего сообщения ПАЦИЕНТА, <code>windowOpen</code> в ответах, 422 <code>window_closed</code> на текст мимо окна. Каталог шаблонов: полная сверка с кабинетом Meta (недоступный Graph API каталог не трогает — 502), отправка только <code>approved</code> со строгим числом переменных, работает в закрытое окно</small></li>
+    <li><b><span class="done-mark">✓</span> Закрытие диалога по паузе 24 ч</b><small>arq-cron; резюме диалога появится в Ф2 — сюда только смена статуса</small></li>
+    <li><b><span class="done-mark">✓</span> Задел под Coexistence</b><small>Эхо исходящих человека (<code>smb_message_echoes</code>) ложится ролью <code>admin</code> — покрыто тестом. Сам режим включён 04.10 вместе с Embedded Signup: номер работает и в приложении, и в Skrezo</small></li>
+    <li><b><span class="done-mark">✓</span> Embedded Signup — самообслуживание подключения</b><small>Кнопка «Подключить WhatsApp» → окно Meta (JS SDK, <code>featureType: whatsapp_business_app_onboarding</code>) → <code>POST /clinic/whatsapp/embedded-signup</code>: обмен <code>code</code> на бизнес-токен клиники (код живёт 30 с — кабинет шлёт его сразу), номер находится по WABA, новый регистрируется с PIN, наше приложение подписывается на WABA клиники (<code>subscribed_apps</code>). <b>Сделано 04.10 (<code>7b190e8</code>, миграция 0068):</b> токен клиники хранится только зашифрованным (Fernet, <code>DATA_ENCRYPTION_KEY</code>), и вся отправка по её номеру идёт им; номер остаётся в приложении WhatsApp Business — контакты и история приложения запрашиваются сразу и дозапрашиваются в течение суток; архив истории лежит отдельно от живой ленты, потому что Meta шлёт пачки не по порядку; имена из адресной книги — в списке диалогов; отзыв доступа и отказ токена дают «нужно переподключить» и одно сообщение команде; статус, обновление и отключение — в кабинете, право <code>whatsapp.manage</code> (владелец). Вне кода — настройка приложения Meta: конфигурация Facebook Login for Business и поля вебхука <code>history</code>, <code>smb_app_state_sync</code>, <code>account_update</code> (docs/DEPLOY.md)</small></li>
+  </ol>
+  <div class="note"><b>Что разблокирует:</b> настоящие сообщения пациентов → языковой тест (30–50 фраз через 4–6 моделей вслепую) и замер доли голосовых. Оба блокируют выбор модели для Ф2 и требуют календарного времени — запускаются сразу и идут, пока строится Ф3.</div>
+</section>
+
+<!-- ================= Ф3 ================= -->
+<section>
+  <div class="sec-head ph3"><span class="chip">Ф3</span><h2>События и уведомления</h2><span class="size">✓ 02.09 · все 9 инкрементов</span></div>
+  <p class="kicker">Одно событие → один инбокс → две доставки. Диспетчер — единственное место, где решается «кому и как». Строится на фундаменте P0, с переездом на outbox по таблице сверки выше.</p>
+  <ol class="steps ph3">
+    <li><b><span class="done-mark">✓</span> Outbox: таблица <code>event</code> + <code>NOTIFY</code> + диспетчер</b><small>Сделано (0043): INSERT в одной транзакции — приёмы (created/moved/canceled/status_changed, включая «черновик → запись» = created), касса (payment.created из кассы и «завершить и оплатить»). Диспетчер-цикл в воркере: LISTEN (прямое asyncpg-соединение) + поллинг 30 с, покоммитно, <code>attempts</code>/5 + <code>last_error</code>; незнакомый тип (будущие ai.*) не блокирует очередь. <code>PushEmitter</code>, старый <code>PushDispatcher</code> и <code>sync.day</code> снесены</small></li>
+    <li><b><span class="done-mark">✓</span> Инбокс: <code>inbox_item</code> + API</b><small>Сделано: снимок (account+clinic), врач — только «своё», уникальность <code>(event_id, account_id)</code> = идемпотентность (покрыто тестом повторной обработки). API: <code>GET /clinic/inbox</code> (+unreadCount), read / read-all, чужая запись — 404. Тексты на языке адресата, время — в поясе клиники</small></li>
+    <li><b><span class="done-mark">✓</span> Приоритеты по горизонту</b><small>Сделано: внутренняя шкала из четырёх ступеней (low → digest → normal → critical) = строки таблицы §5; «+1» отмены/переноса двигает по ней (отмена за 2 ч — critical, за 30 ч — normal без подавления); идущий приём — только инбокс. critical уже уходит пушем немедленно (минус disabled из префов)</small></li>
+    <li><b><span class="done-mark">✓</span> Живые пуши: FCM + APNs</b><small>Сделано: FCM HTTP v1 (OAuth сервис-аккаунтом, кеш токена) и APNs token-based (JWT ES256, HTTP/2, sandbox/prod) — юнит-тесты на MockTransport, живые ключи включаются конфигом (<code>PUSH_ENABLED=true</code> + креды: JSON/.p8 строкой или путём к файлу). Payload §7 в деле: <code>collapse_key</code>, <code>thread_id</code> (приёмы по дню клиники, касса одной стопкой), каналы <code>.v1</code> по типу события, <code>badge</code> = свежий unread инбокса в каждом пуше, TTL по каталогу (created/moved — «до начала приёма»). Мёртвые токены (404/UNREGISTERED/410) снимаются. Осталось внешнее: team id + bundle id из Apple-аккаунта — вписать в env</small></li>
+    <li><b><span class="done-mark">✓</span> Отложенные: <code>push_job</code> + подтверждение показа</b><small>Сделано (0044): normal → job с форой 10 с; отправляет цикл воркера (сон подбирается под ближайший срок), захват атомарный (<code>sent_at</code> при claim — двойной отправки не бывает и при двух воркерах). <code>POST /clinic/inbox/displayed</code> — пачкой, идемпотентно, чужие id молча мимо; подтверждение = отрисовка на переднем плане, любое одно устройство. Пуш normal — снимком инбокса (совпадает с тем, на что указывает); digest (4–48 ч) job не заводит — уйдёт сводкой</small></li>
+    <li><b><span class="done-mark">✓</span> Тихие часы и сводки</b><small>Сделано: тихо = вне рабочего окна клиники или выходной (tz клиники) — normal-job не ставится, событие доносят инбокс и бейдж; critical пробивает всегда. Персональные <code>quietFrom/To</code> глушат только своего адресата (сводки ими не выключаются). Сводки — персональные события от tz-aware cron'а (раз в 5 мин, окно 15): утренняя за час до открытия (план «Приёмов: N, первый в HH:MM» — врачу свои, менеджеру/владельцу вся клиника; normal → пуш с отменой по показу), вечерняя в закрытие — план на завтра (low). Пустой план/выходной — тишина; дедуп «одна сводка в день» на <code>push_event</code></small></li>
+    <li><b><span class="done-mark">✓</span> Телеметрия: <code>notification_delivery</code></b><small>Сделано (0045): строка на попытку доставки в обоих пуш-путях (critical и push_job) — sent / error (мёртвые токены в т.ч.) / displayed из подтверждения показа. Сводка для Skrezo: <code>GET /admin/notifications/telemetry</code> (sent/failed/displayed/displayRate по платформам и провайдерам). Ночная уборка: телеметрия 3 мес, события с инбоксом 12; упавшие события чистка не трогает — это алерт</small></li>
+    <li><b><span class="done-mark">✓</span> Серверный план локальных уведомлений</b><small>Сделано: <code>GET /clinic/notifications/plan</code> — soon (−15 мин) и arrival (+5) на каждый приём дня в статусе scheduled/confirmed, готовые тексты title/body/speak на языке запроса, стабильные id (замена, не дубль), горизонт один день, <code>generatedAt</code> для клиентской деградации. RBAC — контур расписания (view_own без doctorId подставляет своё). Контракт = <code>PlannedNotify</code></small></li>
+    <li><b><span class="done-mark">✓</span> Шов Ф4: <code>RealtimeGateway</code></b><small>Интерфейс + пустая реализация — диспетчер про Socket.IO не знает</small></li>
+  </ol>
+  <p class="small"><b>Готово-когда выполнено:</b> ✓ строка в <code>events</code> доходит до нужных ролей и не доходит до остальных (тесты адресации) · ✓ рестарт ничего не теряет (outbox + поллинг; push_job в БД) · ✓ прочитанность на сервере, бейдж в каждом пуше самовосстанавливается · ✓ выход удаляет токен (<code>DELETE /clinic/devices</code>) · ✓ отмена за 40 минут — critical, создание на послезавтра — только инбокс (тесты горизонта) · ✓ телеметрия показывает доставляемость по платформам.</p>
+</section>
+
+<!-- ================= Ф2 ================= -->
+<section>
+  <div class="sec-head ph2"><span class="chip">Ф2</span><h2>AI-ассистент</h2><span class="size">✓ 03.09 · кроме кабинета (Ф5) и редактора знаний (Ф6)</span></div>
+  <p class="kicker">По <b>обновлённой</b> версии ТЗ (<code>spec_1</code>): база знаний без векторного поиска — целиком в кэшируемый префикс, порог включения поиска 30 000 токенов. Валидатор раньше промпта: он определяет, что вообще можно выпускать наружу.</p>
+  <div class="note warn"><b>Осталось снаружи кода:</b> вычитка списка неотложных состояний практикующим стоматологом (сейчас работает стартовый набор по §9.2, намеренно избыточный), выбор ASR-провайдера после замера доли голосовых и <b>платный тир Gemini</b> — бесплатный даёт 20 запросов в сутки и не вмещает даже один сквозной диалог записи.</div>
+  <ol class="steps ph2">
+    <li><b><span class="done-mark">✓</span> Миграции</b><small>0046 (ядро: <code>kb_document</code>, <code>glossary_term</code> с очередью pending/approved, <code>ai_escalation</code>, <code>ai_tool_call</code>, <code>clinic.ai_mode</code>), 0047 <code>slot_hold</code>, 0048 <code>ai_summary</code> + уверенность расшифровки, 0049 <code>patient.source</code>. Кейсы регрессии живут файлом в репозитории, а не таблицей — правка промпта и правка ожиданий видны одним коммитом</small></li>
+    <li><b><span class="done-mark">✓</span> <code>AiProvider</code> + сборка контекста</b><small>Кэшируемый префикс (промпт + карточка клиники + глоссарий + KB на языке диалога) / переменная часть (профиль по белому списку, ≤5 резюме, 20 сообщений). Смена модели — env. Температура 0–0.3, structured output §5</small></li>
+    <li><b><span class="done-mark">✓</span> Инструменты чтения</b><small><code>get_services</code> / <code>get_doctors</code> / <code>get_available_slots</code> / <code>get_patient_appointments</code>; журнал <code>ai_tool_call</code> — источник фактов для валидатора</small></li>
+    <li><b><span class="done-mark">✓</span> Запись: интервью → резерв → кнопка</b><small>Промпт ведёт по шагам (цель из услуг клиники — по симптомам только осмотр/консультация; имя; дни <code>get_available_days</code>; время; <code>propose_appointment</code>). <code>slot_hold</code> 10 минут; кнопку перехватывает обработчик входящих МИМО модели и зовёт штатный <code>CreateAppointmentUseCase</code> (те же проверки, EXCLUDE, события → пуш врачу; услуга позицией — цена заполнена). Повтор кнопки идемпотентен, протухший резерв — отказ, гонка — извинение; уборка просроченных в ночном cron. Симулятор жмёт кнопку через <code>buttonPayload</code></small></li>
+    <li><b><span class="done-mark">✓</span> <code>create_patient</code> и идентификация</b><small>Имя дословно («Айгүл» не «исправляется»), карточка с <code>source=assistant</code> на проверку администратору, <code>possibleDuplicate</code> по имени (вернувшийся пациент пишет с ДРУГОГО номера — на схожесть номеров рассчитывать не на что), чужой телефон → детерминированная эскалация <code>identity_mismatch</code> прямо из инструмента</small></li>
+    <li><b><span class="done-mark">✓</span> Валидатор V01–V09</b><small>V01–V03 сверяют цену, время и врача с фактами хода (промпт + история + выдача инструментов): выдуманной цены нет ни в одном источнике. V04–V08 — обещания, конкретика без фактов, «не знаю», язык, длина. V09 — упоминание чужой клиники: блок и алерт нам. Стоп-лист §7.2 всё ещё калибруется на живом трафике</small></li>
+    <li><b><span class="done-mark">✓</span> Регрессионный набор + раннер</b><small>66 кейсов (27 ky / 39 ru) в <code>regression/ai_cases.yaml</code>: медфильтр с ловушками, правила валидатора, <b>целостность промпта</b> (самая частая поломка — случайно удалённый блок правил, и обычные тесты о ней молчат). <code>make ai-regression</code> и тот же набор в CI. Набор сразу нашёл три настоящих дефекта. Живой прогон через модель — на стенде симулятором: 20 запросов в сутки не вмещают полсотни кейсов</small></li>
+    <li><b><span class="done-mark">✓</span> Медицинский фильтр и неотложные</b><small>Классификатор до модели и выше проверки провайдера: неотложное не зависит от того, жив ли Gemini. Жалоба — состояние не обсуждаем, шаблон «к врачу» + ближайшие слоты. Неотложное — телефон клиники, событие <code>ai.urgent</code> (critical, менеджеру и владельцу), диалог сразу человеку. Границы: диагноз в НАЗВАНИИ УСЛУГИ не жалоба, «больно ли удалять» — вопрос о процедуре</small></li>
+    <li><b><span class="done-mark">✓ частично</span> База знаний и глоссарий</b><small>Глоссарий-очередь работает целиком. <b>Редактор базы знаний намеренно перенесён в Ф6</b>: там он часть контура обучения, а не отдельная форма. Проверка «нет цен в KB» и счётчик токенов — вместе с ним</small></li>
+    <li><b><span class="done-mark">✓ частично</span> Эскалации и пауза</b><small>Причины §8.1 работают, включая <code>rate_limited</code> (30 сообщений в час: одно извинение и человек — молча игнорировать нельзя). <b>Возврат диалога боту</b> — в Ф5 вместе с кабинетом: сейчас эскалированный диалог молчит до вмешательства в БД</small></li>
+    <li><b><span class="done-mark">✓ частично</span> Режимы shadow / assisted / auto</b><small>Три режима работают, автооткат в <code>assisted</code> при мёртвой модели — тоже. <b>Настоящий assisted</b> (черновик с кнопкой «Отправить») и счётчик одобрений для выхода наверх — в Ф5 и Ф7: без кабинета одобрять нечем</small></li>
+    <li><b><span class="done-mark">✓</span> ASR голосовых</b><small><code>SpeechProvider</code> + реализация на Gemini (тем же ключом, без нового вендора). Не разобрали — зовём человека: <code>asr_low_confidence</code>, <code>asr_unavailable</code>, снимок или документ — <code>unsupported_media</code>. ⚠️ У модели нет своей оценки уверенности, она сообщает её по нашей просьбе — порог намеренно высокий; отдельный ASR-вендор всё ещё открыт</small></li>
+    <li><b><span class="done-mark">✓</span> Мониторинг здоровья интеграции</b><small>Cron 5 мин: пробный вызов модели, пробная расшифровка, токен каждого номера, «замолчавшие» клиники. Алерты нам, а не клинике — починить наш токен она не может; ей достаётся деградация: <code>auto</code> опускается до <code>assisted</code>. Обратно наверх — только осознанно. Подписку вебхука проверим, когда появится app id в конфиге</small></li>
+    <li><b><span class="done-mark">✓</span> Резюме диалогов</b><small>Диалог, молчащий сутки, закрывается и получает выжимку 2–3 предложения; последние пять по номеру уходят в промпт нового разговора. Меддеталей нет намеренно: пересказ жалоб через модель хранить как факт о пациенте нельзя</small></li>
+  </ol>
+</section>
+
+<!-- ================= Ф4 ================= -->
+<section>
+  <div class="sec-head ph4"><span class="chip">Ф4</span><h2>Реалтайм: сокет</h2><span class="size">✓ 02.09 (бэкенд; клиентская часть — мобильная команда)</span></div>
+  <p class="kicker">По сокету идут сигналы, а не данные: клиент инвалидирует ключи и дотягивает по REST. Зависит только от outbox из Ф3. Клиентская часть (<code>socket.transport.ts</code>) — мобильная команда.</p>
+  <ol class="steps ph4">
+    <li><b><span class="done-mark">✓</span> Шлюз</b><small>python-socketio (ASGI): точка запуска теперь <code>app.main:asgi_app</code> (Makefile/compose обновлены); авторизация при подключении тем же JWT (auth.token или Bearer-заголовок)</small></li>
+    <li><b><span class="done-mark">✓</span> Комнаты <code>clinic:&lt;id&gt;</code></b><small>Сервер сам, по ЖИВЫМ членствам (обработчиков подписки не существует в принципе); тесты: своя комната, две клиники — две комнаты, уволенный — ни одной, мусорный токен — отказ</small></li>
+    <li><b><span class="done-mark">✓</span> Шина: LISTEN/NOTIFY</b><small>Канал <code>realtime</code>: публикуют диспетчер воркера И ручки (в транзакции — сигнал на коммите); каждый процесс шлюза слушает прямым asyncpg-соединением с реконнектом</small></li>
+    <li><b><span class="done-mark">✓</span> Типы событий</b><small>6 существующих + 3 новых; отмена уходит как <code>appointment.deleted</code> (покрыто тестом маппинга). <code>inbox.read</code> — из ручек прочитанности (Д5: бейдж падает на втором устройстве), <code>conversation.message</code> — из входящих/ответов WhatsApp</small></li>
+    <li><b><span class="done-mark">✓</span> Пинг &lt; 100 с и переподключение</b><small>ping_interval 25 с; пропущенное не переигрывается — клиент перечитывает ключи и инбокс</small></li>
+    <li><b><span class="done-mark">✓</span> Реализация <code>RealtimeGateway</code></b><small>PgNotify-гейтвей заменил заглушку: диспетчер шлёт клиентские сигналы в шину; Noop остался для тестов</small></li>
+  </ol>
+</section>
+
+<!-- ================= АДАПТАЦИИ ================= -->
+<!-- ================= Ф5 ================= -->
+<section>
+  <div class="sec-head ph5"><span class="chip">Ф5</span><h2>Кабинет ассистента</h2><span class="size">✓ 04.09 · оба инкремента</span></div>
+  <p class="kicker">Экраны «Чат» и панель черновика. Главный сдвиг относительно ТЗ: <b>assisted перестаёт быть синонимом shadow</b> — черновик становится рабочим объектом, который сотрудник отправляет одной кнопкой, правит или отклоняет. Всё, чем живёт список слева (непрочитанное, «Ждут ответа», «Нужен человек»), сегодня в базе не считается ни одной строкой.</p>
+  <div class="note"><b>Уже готово и переиспользуется:</b> список диалогов с пагинацией и 24-часовым окном, история сообщений, <b>ответ человека</b> (это и есть режим «ассистент выключен»), шаблоны в закрытое окно, скачивание вложений, события <code>conversation.inbound</code> и <code>ai.escalated</code> → инбокс и пуш. Черновик бота тоже уже лежит в базе (<code>sent_at = null</code>) — не хватает ручек, авторства и счётчиков.</div>
+  <ol class="steps ph5">
+    <li><b><span class="done-mark">✓</span> Непрочитанность диалогов</b><small>Отметка прочтения у диалога и ручка «прочитано». Сейчас <code>read_at</code> есть только у инбокса уведомлений — синей точке в списке и бейджу «Ассистент 8» опереться не на что. Сигнал в сокет <code>conversation.read</code>, чтобы бейдж падал и на втором устройстве</small></li>
+    <li><b><span class="done-mark">✓</span> Фильтры со счётчиками: «Все / Ждут ответа / Нужен человек»</b><small>«Ждут ответа» — последнее сообщение от пациента и после него нет исходящего; «Нужен человек» — эскалация или черновик на одобрении. Одна ручка счётчиков, а не три запроса из интерфейса</small></li>
+    <li><b><span class="done-mark">✓</span> Черновик как объект: assisted по-настоящему</b><small>Ручки «отправить» (с правкой текста) и «не отправлять»; у сообщения появляются автор одобрения и признак правки — отсюда подпись «ассистент · одобрил Администратор». Каждая правка сохраняется как обучающий сигнал (Ф6): расхождение черновика и отправленного — самый честный материал для обучения. <b>Сделано:</b> <code>review</code> pending → approved | edited | discarded | superseded, исходник в <code>originalBody</code>, устаревший черновик не уходит (409 <code>draft_stale</code>)</small></li>
+    <li><b><span class="done-mark">✓</span> Метка уверенности: «уверенный ответ» / «проверьте текст»</b><small>Модель уже возвращает уверенность, но мы её теряем: в базу пишутся только вердикт валидатора, коды и заметки. Добавить уверенность к сообщению и отдавать в схеме</small></li>
+    <li><b><span class="done-mark">✓</span> Поиск по имени, номеру и тексту</b><small>Триграммный индекс по тексту сообщений и номеру — полнотекстовый движок ради трёх полей не нужен</small></li>
+    <li><b><span class="done-mark">✓</span> Возврат диалога боту и «эскалация решена»</b><small>Поля разрешения в таблице эскалаций есть, ручки нет: эскалированный диалог сейчас молчит навсегда — поймал на демо-стенде, снимал статус руками в SQL. Сюда же кнопка «дальше отвечаю сам». <b>Сделано:</b> <code>POST /clinic/conversations/{id}/assistant</code> — <code>active=false</code> ставит <code>manual_takeover</code>, <code>true</code> закрывает эскалации и сразу ставит ассистенту задание, если пациент ждёт</small></li>
+    <li><b><span class="done-mark">✓</span> Медиа в списке: длительность голосового и тип превью</b><small>«🎙 Голосовое · 0:14». Оказалось, Meta длительность в вебхуке не присылает — читаем из файла при скачивании (<code>mutagen</code>); неразобранный файл — не ошибка, превью просто без времени</small></li>
+    <li><b><span class="done-mark">✓</span> Событие «черновик ждёт одобрения»</b><small>Новый тип в каталоге Ф3 (обычный приоритет, тихие часы соблюдаются) → пуш и бейдж; снимается отправкой или отклонением. Без него в режиме «Проверяю» никто не узнает, что бот что-то предложил. <b>Сделано:</b> <code>ai.draft_ready</code>, обычный приоритет, менеджерам</small></li>
+  </ol>
+</section>
+
+<!-- ================= Ф6 ================= -->
+<section>
+  <div class="sec-head ph6"><span class="chip">Ф6</span><h2>Обучение на своих данных</h2><span class="size">✓ 07.09 · кроме эмбеддингов (осознанно отложены)</span></div>
+  <p class="kicker">Экран «Обучение» — ответ на вопрос «как учить ИИ на наших данных, как в enterprise». Короткий ответ: в enterprise почти никогда не учат весами — учат <b>данными, обратной связью и регрессией</b>, а данные держат у себя. Весь контур ложится в наш Postgres.</p>
+  <div class="note warn"><b>Дообучать модель (fine-tune) не будем — это инженерное решение, а не экономия.</b> Знание, вшитое в веса, нельзя отозвать: устаревшая цена или отменённая акция будут жить до следующего дообучения, а цены, график и врачей бот и так берёт инструментами из живой базы — там им и место. Плюс дообучать пришлось бы <b>по каждой клинике</b> (десятки моделей вместо одной), а переписка с пациентами — уезжать наружу в обучающую выборку, чего ТЗ прямо требует не допускать. Работает другое: выверенная база знаний → поиск по ней → человек в контуре → регрессия. Это и есть промышленный подход, просто без мифа про fine-tune.</div>
+  <ol class="steps ph6">
+    <li><b><span class="done-mark">✓</span> Пробелы знаний: таблица вопросов, на которые бот не ответил</b><small>Вопрос дословно, нормализованная форма, счётчик «спросили ×4», когда спрашивали в последний раз, статус (не знает / ответили / не нужно отвечать) и ссылки на диалоги. Пишется, когда модель сама сообщает о незнании или когда валидатор снял ответ без опоры на факты. <b>Сделано 04.09:</b> таблица <code>ai_knowledge_gap</code>, три источника (<code>low_confidence</code> / <code>no_facts</code> / <code>model_unknown</code> — у инструмента escalate появился словарь причин), склейка похожих формулировок по триграммам, ручки <code>/clinic/knowledge-gaps</code> со счётчиками вкладок; <b>ответ своими словами уже рождает документ базы знаний</b> — бот знает со следующего хода, цена в ответе запрещена (422). Осталось: переписывание ответа моделью с подтверждением, кластеризация по смыслу (эмбеддинги), полноценный редактор</small></li>
+    <li><b><span class="done-mark">✓ частично</span> Склейка похожих вопросов</b><small>«Есть ли у вас парковка?» и «Где припарковаться?» должны быть одной строкой со счётчиком 4, иначе очередь превратится в свалку. Первая версия — триграммное сходство (дёшево, без внешних сервисов), эмбеддинги — когда упрёмся в качество. <b>Сделано:</b> триграммы (регистр, пунктуация, опечатки, перестановки). <b>Отложено осознанно:</b> склейка по смыслу через эмбеддинги — нужен отдельный вызов модели на каждый вопрос и pgvector; включать, когда очередь реальной клиники покажет, что триграмм мало</small></li>
+    <li><b><span class="done-mark">✓</span> Экран «Обучение»: ответ своими словами</b><small>Вкладки «Не знает / Спросить у вас / Знает», ответ администратора обычным текстом, кнопка «Не нужно отвечать». Ответ модель переписывает в аккуратный документ базы знаний, человек подтверждает — так знание попадает в базу, а не остаётся похороненным в одной переписке. <b>Сделано 07.09:</b> <code>rewrite</code> возвращает документ на подтверждение (нейтрально, коротко, на языке вопроса, без цен; токены учитываются клинике; модель недоступна → «сохраните как есть»), подтверждение — тот же <code>answer</code> с правленым текстом. Вкладок в API три: не знает / знает / не нужно отвечать</small></li>
+    <li><b><span class="done-mark">✓</span> Редактор базы знаний</b><small>Таблица kb_document есть с Ф2, ручек нет вовсе. Плюс проверка «цены в базу знаний не кладём» при сохранении (иначе бот однажды назовёт вчерашнюю цену) и счётчик токенов по клинике. <b>Сделано 07.09:</b> <code>/clinic/kb</code> — список с поиском и фильтрами, создание, правка, выключение без удаления, удаление; цена в тексте → 422; сводка токенов по языкам против порога 30 000 и признак «в промпте» у каждого документа — по тому же правилу, что собирает промпт (раньше потолок промпта был 20 000 символов и молча резал базу — выровнен с порогом ТЗ)</small></li>
+    <li><b><span class="done-mark">✓ частично</span> Версии знания и откат</b><small>Версия базы у клиники: знание вступает в силу сразу, но каждое изменение — точка, к которой можно вернуться и на которой прогоняется регрессия. <b>Сделано 07.09:</b> версии по документу (<code>kb_document_version</code>) — каждое сохранение снимок, откат к версии N как новая версия с пометкой, история не переписывается. <b>Не сделано:</b> откат всей базы клиники одним действием к моменту времени — добавится, когда появится регрессия «на версии»</small></li>
+    <li><b><span class="done-mark">✓</span> Регрессия — то, что делает обучение управляемым</b><small>Каждый одобренный ответ и каждый инцидент становятся кейсом; прогон перед сменой промпта, базы знаний, глоссария или модели. 50 кейсов из ТЗ (25 ru / 25 ky, ≥10 на правильный отказ, ≥5 на медфильтр) — стартовый набор, дальше он растёт сам из экрана «Обучение». <b>Сделано 07.09:</b> кейсы клиники рождаются сами из четырёх источников — ответ на пробел (<code>knowledge</code>), отправленный черновик (<code>reply</code>, правленый ценнее), снятая валидатором выдумка (<code>refusal</code>), сработавший медфильтр (<code>medical</code>) — плюс ручные; дубли по вопросу склеиваются. Два режима прогона: <code>offline</code> — без модели и бесплатно (медфильтр, валидатор на снятой выдумке против сегодняшних фактов, документ в промпте), <code>model</code> — сухой прогон модели без диалога и без записи, ответ узнаётся по половине ключевых слов эталона. Прогон — задание воркера, итоги по кейсам с «ожидали / получили». Платформенный набор из 66 кейсов остаётся в CI отдельно</small></li>
+    <li><b>Поиск по базе знаний, когда она вырастет</b><small>Порог из ТЗ — 30 000 токенов на клинику: до него вся база уходит в кэшируемый префикс промпта целиком, после — подбор нужных документов (<code>pgvector</code>). Схема заложена заранее, переписывать не придётся</small></li>
+    <li><b><span class="done-mark">✓</span> Метрики обучения</b><small>Доля ответов без человека, доля правок, длина очереди, «сколько вопросов бот выучил за неделю». Они же кормят ступени доверия (Ф7) — иначе «153 из 200» неоткуда взять. <b>Сделано 07.09:</b> <code>GET /clinic/assistant/metrics</code> за период (пресеты как в отчётах, границы в таймзоне клиники): автономия (auto / shadow / черновики с правками и отказами / эскалации, доли), качество (снятые валидатором, честные «не знаю», фактические ошибки V01–V03, неотложные, эскалации по причинам), обучение (очередь, выучено, время до ответа, база и глоссарий), регрессия (красные кейсы, последний прогон), токены, ряд по дням. <b>Гейт доверия</b> считается здесь же: одобренных за всё время против порога и ноль ошибок V01–V03 за неделю → <code>ready</code></small></li>
+  </ol>
+</section>
+
+<!-- ================= Ф7 ================= -->
+<section>
+  <div class="sec-head ph7"><span class="chip">Ф7</span><h2>Ступени доверия и новые умения</h2><span class="size">✓ 07.09 · лестница + гейт, перенос/отмена, матрица умений, подтверждение визита, долг и повторный осмотр</span></div>
+  <p class="kicker">Экран «Настройки → Ассистент». Наш <code>ai_mode</code> — правильная ось, но с клиникой макет говорит иначе: «Наблюдаю → Проверяю → Доверяю», и следующая ступень <b>открывается по цифрам, а не по кнопке</b>. Внутри enum не меняем — меняем язык наружу и добавляем то, чего у бота ещё нет.</p>
+  <ol class="steps ph7">
+    <li><b><span class="done-mark">✓</span> Ступени вместо режимов</b><small>«Наблюдаю» = теневой, «Проверяю» = черновики на одобрение, «Доверяю» = отвечает сам. Выключатель «ассистент выключен — отвечает человек» остаётся отдельно и выше ступеней <b>Сделано 07.09:</b> <code>GET/PUT /clinic/assistant/trust</code> — Наблюдаю / Проверяю / Доверяю = shadow / assisted / auto, <code>off</code> — отдельный выключатель с памятью заработанной ступени («включить» возвращает её); вверх только через гейт (409 с перечнем, чего не хватает), вниз всегда; у смены есть автор и причина — владелец, мониторинг, команда Skrezo; право <code>assistant.manage</code> (владелец всегда, остальным через роли)</small></li>
+    <li><b><span class="done-mark">✓</span> Гейт по одобренным ответам</b><small>«Доверяю» откроется после 200 одобренных — сейчас 153: считать одобрения, правки и отклонения (данные даёт Ф5) и открывать ступень автоматически. Из ТЗ добавить второе условие: ноль срабатываний запрещающих правил валидатора за неделю. Ступень, открытая по счётчику, — единственный способ не спорить с клиникой «а можно уже включить» <b>Сделано 07.09:</b> «Проверяю» — после N ответов, прошедших валидатор в тени (<code>AI_TRUST_GATE_SHADOW_REPLIES</code>=50); «Доверяю» — после N одобренных (<code>AI_TRUST_GATE_APPROVALS</code>=200); обе — при нуле ошибок V01–V03 за 7 дней. Цифры считает тот же репозиторий, что и метрики Ф6, прогресс «153 из 200» в ответе ручки</small></li>
+    <li><b><span class="done-mark">✓</span> Матрица умений</b><small>Сейчас один enum, а макет показывает девять умений с разной доступностью по ступеням. Нужна таблица «клиника × умение × включено» и дефолты по ступени: клиника может <b>выключить</b> доступное умение, но не включить недоступное <b>Сделано 07.09:</b> ступень (<code>aiMode</code>) — общий потолок, у умений <code>booking</code> и <code>changes</code> свои потолки off / assisted / auto в <code>PUT /clinic/assistant/trust {skills}</code>; действующий уровень = min(ступень, потолок). <code>off</code> убирает инструменты умения и его блок правил из промпта (плюс отказ данными, если модель вспомнит инструмент по истории); <code>assisted</code> — подбор за ботом, действие за администратором: вместо кнопки эскалация с карточкой (услуга, врач, время). Умение «отвечать» — сама ступень</small></li>
+    <li><b><span class="done-mark">✓</span> Перенос и отмена записи пациентом</b><small>Бот умеет только создавать. Достраивается тем же механизмом, что уже работает: предложение → кнопка → штатный use-case (перенос и отмена уже написаны, с правами и историей статусов). Отмена — с причиной из справочника. Это самое востребованное умение из списка, его можно вытащить вперёд Ф5 <b>Сделано 07.09:</b> инструменты <code>propose_reschedule</code> / <code>propose_cancel</code> → резерв с видом и кнопка; действие — тем же use-case правки приёма (занятость, события врачу, причина отмены patient_request). Только свои будущие записи (<code>canChange</code> в get_patient_appointments); повторная проверка состояния при нажатии — «пришёл» кнопка не отменит; повтор кнопки идемпотентен; в аудите «ассистент по кнопке пациента» (actorId = null, via = assistant)</small></li>
+    <li><b><span class="done-mark">✓</span> Подтверждение визита из напоминания</b><small>Напоминание приходит с кнопками «Подтверждаю / Перенести», ответ меняет статус приёма, а не просто копится в переписке. План локальных напоминаний из Ф3 уже есть — здесь к нему добавляется обратная связь <b>Сделано 07.09:</b> умение <code>reminders</code> (по умолчанию выключено), задание раз в час: шаблон WhatsApp с кнопками «Приду» / «Перенести» за сутки (шаблон — окно 24 ч закрыто), одно напоминание на приём с копией в истории диалога; «Приду» → <code>confirmed</code> той же механикой кнопки мимо модели с аудитом «ассистент», «Перенести» → в диалог с ботом; без ответа за 3 часа — событие <code>appointment.unconfirmed</code> администратору (пуш, TTL до начала приёма). Вне кода: зарегистрировать в Meta шаблон <code>visit_reminder</code> (ru/ky) с двумя quick-reply-кнопками</small></li>
+    <li><b><span class="done-mark">✓</span> Напоминание о долге и повторном осмотре</b><small>Долг по приёму уже считает касса, повторный осмотр — по дате последнего визита. Только на ступени «Доверяю» и только в рабочие часы: это самые щекотливые сообщения из всех <b>Сделано 07.09:</b> умения <code>debts</code> и <code>recall</code> (по умолчанию выключены), задание раз в сутки утром: долг по кассе старше 3 дней — шаблон без кнопок (о деньгах бот не разговаривает); последний визит старше 6 месяцев без будущей записи — шаблон с кнопками «Записаться» / «Не сейчас», «Записаться» возвращает в диалог с ботом. Одно напоминание на источник, копия в истории. Вне кода: шаблоны <code>debt_reminder</code> и <code>recall_reminder</code> в Meta</small></li>
+    <li><b>Один экран настроек</b><small>Ступень, матрица умений и тихие часы (Ф3 их уже умеет — нужна только ручка) в одном месте</small></li>
+  </ol>
+</section>
+
+<!-- ================= Ф8 ================= -->
+<section>
+  <div class="sec-head ph8"><span class="chip">Ф8</span><h2>Нагрузка и надёжность</h2><span class="size">✓ 08.09 · ядро, кэш префикса, общие клиенты, мониторинг раз в час, второй воркер, ретеншн; S3 отменён</span></div>
+  <p class="kicker">Целевая нагрузка: 100–150 клиник, у каждой свой WhatsApp, 15–50 пишущих пациентов в день. Это 2 000–7 500 диалогов и <b>10–60 тысяч входящих в сутки</b>; в среднем 0,5–1,5 сообщения в секунду, в пиках 5–10. Для Postgres и HTTP это ничтожно — всё упирается в другое: на каждое сообщение ассистент делает 1–3 вызова модели по несколько секунд каждый. Узкое место не «запросов много», а «каждый запрос долго ждёт внешний сервис».</p>
+  <div class="note"><b>Что измерено на локальном стенде (один воркер, настройки по умолчанию, SQL-эхо включено):</b> приём вебхука — <b>330–480 запросов/с</b>, p95 160–320 мс при 50 параллельных; воркер без ассистента — <b>300 сообщений за 15 с ≈ 20/с</b>, одно задание 0,21 с в среднем; диспетчер событий переварил те же 300 за 15 с со средней задержкой 0,2 с. Запас на тракте без модели — 2–4× от пикового спроса. <b>Переписывать архитектуру не нужно</b> — ни очередей Kafka, ни микросервисов: все находки ниже локальные и закрываются за считанные дни.</div>
+  <div class="note warn"><b>Закрыто 04.09 (effe996) — четыре пункта ниже были не «на вырост», а ошибками, которые проявились бы уже на десятке клиник:</b> потерянные ответы при пакетных вебхуках (2), двойные ответы на быстрые сообщения (3), лавина эскалаций при троттлинге модели (4) и резюме, которые никогда не построятся (7). Закрыты за день и проверены вживую: на исчерпанной квоте Gemini цепочка дала пять отложек с шагом 24 с, предохранитель разомкнулся на пятом сбое, шестой заход отбился за 0,07 с и передал диалог человеку — одна эскалация вместо шести.</div>
+  <ol class="steps ph8">
+    <li><b><span class="done-mark">✓</span> Вызов модели держит соединение с базой</b><small>По коду: <code>execute()</code> открывает транзакцию первым же запросом, а потом ждёт Gemini до 45 с × до 7 итераций — соединение из пула занято всё это время. Пул — дефолт SQLAlchemy (5 + 10), из env не настраивается: потолок ≈ 15 одновременных ответов на процесс, дальше <code>pool_timeout</code> и падения заданий, а Postgres копит «idle in transaction». Лечение: отпускать соединение на время вызова модели (закрыть транзакцию до <code>complete</code>, писать результат новой сессией) и вынести размеры пула и <code>max_jobs</code> воркера в настройки. <b>Сделано:</b> <code>commit</code> перед каждым вызовом модели (и перед перегенерацией), <code>DB_POOL_SIZE</code> / <code>DB_MAX_OVERFLOW</code> / <code>WORKER_MAX_JOBS</code></small></li>
+    <li><b><span class="done-mark">✓</span> Ответ ассистента живёт внутри задания приёма — последовательно по диалогам</b><small>Meta пакует сообщения разных людей в один вебхук; одно задание = N диалогов × 3–30 с при таймауте 120 с. arq убивает задание на середине, повтор находит все сообщения уже записанными (дедуп) — и <b>диалоги, не успевшие получить ответ, молча остаются без него</b>. Лечение: <code>process_wa_inbound</code> только сохраняет и ставит по заданию <code>ai_reply(conversation_id)</code> на диалог; у ответа свой таймаут и свои повторы, приём от него не зависит. <b>Сделано:</b> задание <code>ai_reply</code>, клиникам с выключенным ассистентом не ставится; приём без модели — 300 сообщений за 3,4 с вместо 15</small></li>
+    <li><b><span class="done-mark">✓</span> Нет сериализации по диалогу</b><small>Два быстрых сообщения от одного пациента → два параллельных задания → два ответа бота, причём первый — на недосказанную мысль. Лечение: лок по <code>conversation_id</code> (advisory-lock или Redis), пауза 2–3 с на «дописал?», и правило «отвечаем, только если это всё ещё последнее сообщение». <b>Сделано:</b> лок в Redis с токеном владельца, дебаунс 3 с, правило «после последнего сообщения пациента уже есть наш ход — выходим»</small></li>
+    <li><b><span class="done-mark">✓</span> Провайдер без повторов и без предохранителя</b><small>429/503 от Gemini → <code>AiProviderError</code> → эскалация человеку. При всплеске один троттлинг превращается в лавину эскалаций и critical-пушей администраторам — мы это видели на бесплатном тире. Лечение: 2–3 повтора с экспоненциальным бэкоффом на 429/5xx; предохранитель — N ошибок подряд переводят контур в «assisted» на минуту без эскалаций (мониторинг уже умеет опускать режим, но раз в 5 минут — слишком медленно для всплеска). <b>Сделано:</b> <code>ResilientProvider</code> — повторы с бэкоффом и <code>Retry-After</code>, предохранитель в Redis; отложки <code>AI_REPLY_DEFER_SECONDS</code> × <code>AI_REPLY_MAX_DEFERS</code>, потом человек</small></li>
+    <li><b><span class="done-mark">✓</span> Лимиты и цена модели</b><small>60 тыс. сообщений × 1–3 вызова = до 180 тыс. вызовов в день; пик ≈ 30 вызовов/с ≈ 1 800 в минуту — верхняя граница младших платных тиров, тир выбирать по RPM, а не по цене. Префикс промпта (правила + карточка + глоссарий + база знаний до 30 тыс. токенов) уходит на каждый ход — включить явное context caching Gemini на стабильный префикс клиники и считать токены по клинике, иначе счёт растёт линейно с базой знаний. <b>Сделано 04.09:</b> учёт по клиникам — токены каждого вызова, диалоги с ассистентом (один раз за диалог), платные WhatsApp из статусов Меты; смета по прайс-листу в настройках; <code>GET /admin/usage</code>. Осталось кэширование префикса <b>Кэш префикса сделан 08.09:</b> системный промпт клиники с инструментами — в <code>cachedContents</code> Gemini (один кэш на клинику и язык, TTL 30 мин, реестр имён в Redis по хэшу содержимого: правка базы знаний = новый кэш); ходы ссылаются на кэш и платят только новые токены — в учёте <code>modelCachedTokens</code> по своей ставке. Короткий префикс или сбой кэша — ход без кэша; пропавший кэш забывается и ход повторяется. Резюме прошлых обращений ушли из системного промпта в первую реплику диалога — иначе префикс не совпадал бы между пациентами</small></li>
+    <li><b><span class="done-mark">✓</span> Мониторинг здоровья дёргает Graph API по каждому номеру раз в 5 минут</b><small>При 150 клиниках — 43 тыс. вызовов в сутки одним и тем же токеном: лимиты Business Management API и бессмысленная нагрузка. Лечение: проверять токен один раз на уникальное значение, номера опрашивать раз в час <b>Сделано 08.09:</b> обход номеров вынесен в отдельное задание раз в час (<code>check_whatsapp_tokens</code>), пятиминутная проверка оставила себе модель, распознавание, молчащие клиники и деградацию — 3,6 тыс. вызовов в сутки вместо 43 тыс.</small></li>
+    <li><b><span class="done-mark">✓</span> Резюме диалогов — последовательно в одном cron с таймаутом 300 с</b><small>7 500 диалогов в день ≈ 150–300 закрытий за прогон × 3–5 с на резюме — задание убивают на середине, а уже закрытые диалоги без резюме больше не вернутся. Лечение: закрытие ставит по заданию <code>summarize(conversation_id)</code>, резюме идут с ограниченной параллельностью. <b>Сделано:</b> задание <code>summarize_conversation</code> на диалог</small></li>
+    <li><b><span class="done-mark">✓</span> Один процесс API и один воркер</b><small>uvicorn без <code>--workers</code>, воркер без реплик, <code>max_jobs</code> по умолчанию 10. Хорошая новость: <code>event</code> и <code>push_job</code> уже выбираются с <code>SKIP LOCKED</code>, LISTEN у каждого процесса свой — <b>и API, и воркер масштабируются горизонтально без правок логики</b>. Условия: медиа в S3-совместимое хранилище вместо <code>./storage</code> (сейчас общий том одного хоста); Socket.IO — либо только <code>websocket</code>, либо sticky sessions на nginx, иначе long-polling между процессами разваливается; второй воркер и второй процесс API — строкой в compose <b>Решение 08.09 (владелец):</b> S3 не используется — медиа лежит в папке <code>storage</code> на сервере проекта; в docker-compose это общий volume у api и worker, второй воркер на той же машине его разделит. Sticky/websocket-only для Socket.IO — когда появится второй процесс API <b>Второй воркер проверен 08.09:</b> <code>docker compose up -d --scale worker=2</code> — cron arq ставится по job_id в общем Redis, на тик одна строка <code>job_run</code>; диспетчер событий с SKIP LOCKED; хранилище общее. Второй процесс API — когда понадобится (sticky/websocket-only для Socket.IO)</small></li>
+    <li><b><span class="done-mark">✓</span> Один HTTP-клиент на процесс</b><small>Клиент WhatsApp создаёт <code>httpx.AsyncClient</code> на каждый вызов (четыре места) — TLS-рукопожатие на каждое исходящее, ~100 мс; при 60 тыс. в день это заметно. Мелочь, но дешёвая <b>Сделано 08.09:</b> общие httpx-пулы процесса (<code>shared/http</code>) для Meta и Google — клиент WhatsApp один на процесс (пересобирается при смене токена), модель и распознавание получают общий пул из фабрик; закрытие в lifespan API и на остановке воркера</small></li>
+    <li><b><span class="done-mark">✓</span> Рост данных</b><small><code>ai_message</code> прибавляет 10–60 тыс. строк в день (до 20 млн в год), рядом растут <code>ai_tool_call</code> и <code>event</code>; чистки переписки нет. Индексы под курсорную историю есть, но нужна политика: хранить переписку N месяцев, архив, партиционирование по месяцу к концу первого года <b>Сделано 08.09:</b> ночное задание <code>cleanup_ai_history</code> — журнал инструментов старше 90 дней, переписка закрытых диалогов старше 2 лет (с медиа на диске) и пустые закрытые диалоги удаляются порциями; открытые диалоги и резюме не трогаются</small></li>
+    <li><b>Нагрузочный прогон как регрессия</b><small>Скрипт залпа (300 вебхуков за секунду) уже есть; добавить фейк-провайдера с искусственной задержкой 3 с, чтобы измерять пропускную способность ответов ассистента без Gemini, и гонять перед изменениями воркера. Замер должен ловить ровно то, что нашли сейчас: потерянные ответы, дубли, потолок пула</small></li>
+  </ol>
+  <p class="small"><b>Наблюдение, не ошибка:</b> событие <code>conversation.inbound</code> адресовано только роли <code>manager</code> — в клинике, где на связи сам владелец, входящие не попадают ни в чей инбокс (на стенде: 300 сообщений, ноль записей инбокса). Ф5 вводит счётчики диалогов, но правило адресации стоит перепроверить с продуктом. <b>Порядок:</b> пункты 1–4 и 7 закрыты 04.09; 5, 6, 9 — по мере роста; 8 и 10 — вместе с переездом на второй хост.</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="chip">АДАПТАЦИЯ</span><h2>Спецификация → наша кодовая база</h2></div>
+  <p class="kicker">SQL в спеках — эскиз против идеализированной схемы. Семантика сохраняется, имена и связи — наши.</p>
+  <div class="tblwrap"><table>
+    <thead><tr><th>В спеке</th><th>У нас</th></tr></thead>
+    <tbody>
+      <tr><td><code>users</code>, <code>clinics</code>, множественное число таблиц</td><td><code>account</code>, <code>clinic</code>; единственное число, 1 таблица = 1 файл в <code>shared/db/models</code></td></tr>
+      <tr><td>Роли «врач / админ / владелец» в каталоге событий</td><td>Врач = членство со специализацией (у приёма — <code>doctor_membership_id</code>); админ = системная роль <code>manager</code>; владелец = <code>owner</code>. Кастомные роли — позже, через permissions</td></tr>
+      <tr><td><code>inbox_items.user_id</code></td><td><code>account_id</code> + <code>clinic_id</code>: сотрудник двух клиник получает два независимых инбокса</td></tr>
+      <tr><td>Пациент принадлежит клинике</td><td>Пациент глобальный; «пациент клиники» = наличие приёма. <code>create_patient</code> создаёт глобальную карточку, в клинике она появляется вместе с записью</td></tr>
+      <tr><td><code>slot_id</code> как сущность</td><td>Слоты вычисляются на лету — сущности нет. <code>slot_id</code> = строка <code>slot_hold</code> (врач + время + услуга, TTL 10 мин); <code>confirm_action</code> идёт через существующий use-case записи, EXCLUDE-констрейнт закрывает гонку. Длительность по числу зубов уже учитывается</td></tr>
+      <tr><td><code>price_kgs</code>, суммы в сомах</td><td>Внутри — только тыйыны (<code>*_tiyin</code>); в текстах бота и пушей — форматирование в сомы</td></tr>
+      <tr><td><code>lang: ru | ky</code></td><td>Наш enum <code>Lang</code>: <code>ky</code> ↔ наш <code>kg</code>; маппинг на границе WhatsApp</td></tr>
+      <tr><td><code>name_ru</code> / <code>name_ky</code> у услуг</td><td>У <code>service</code> одно поле <code>name</code>. Решить: MVP с одним именем или добавить <code>name_ky</code> (миграция дешёвая, можно отложить до Ф2)</td></tr>
+      <tr><td>WhatsApp «просто есть»</td><td>Существующий <code>shared/notifications</code> — OTP-каналы, не трогаем. Meta Cloud API — новый транспорт <code>shared/whatsapp</code></td></tr>
+      <tr><td>Cloudflare Worker <code>wa.skrezo.com</code></td><td>Опция ради стабильного Callback URL; стартуем вебхуком прямо в FastAPI</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= ВНЕШНИЕ ================= -->
+<section>
+  <div class="sec-head"><span class="chip">ВНЕ КОДА</span><h2>Внешние зависимости и решения</h2></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Что</th><th>Кто</th><th>Дедлайн</th></tr></thead>
+    <tbody>
+      <tr><td><b>Переименовать каналы Android в <code>.v1</code></b> + четыре новых, создавать по роли</td><td>Мобильная команда</td><td><b>До первого релиза с пушами — необратимо после</b></td></tr>
+      <tr><td><span class="done-mark">✓</span> Ключи доставки: FCM JSON и APNs <code>.p8</code> — есть. Остались team id + bundle id</td><td>Аибек / Apple-аккаунт</td><td>К Ф3-инкременту 4; ключи — только в env/секреты, не в репозиторий</td></tr>
+      <tr><td><span class="done-mark">✓</span> Режим номера — решено 04.10: клиники работают и в приложении WhatsApp Business, и в чате Skrezo (coexistence)</td><td>Аибек</td><td>До пилота</td></tr>
+      <tr><td>Компания в Meta подтверждена (04.10). Осталось: проверка приложения Meta на права WhatsApp, конфигурация Embedded Signup и поля вебхука — по docs/DEPLOY.md</td><td>Аибек</td><td>До подключения чужих номеров</td></tr>
+      <tr><td>Вычитка списка неотложных состояний практикующим стоматологом — сейчас работает стартовый набор по §9.2, намеренно избыточный</td><td>Аибек</td><td>До выхода из shadow</td></tr>
+      <tr><td>Кто платит за шаблоны напоминаний</td><td>Аибек</td><td>До запуска тарифов</td></tr>
+      <tr><td>Языковой тест 30–50 фраз + замер доли голосовых</td><td>Мы, на данных Ф1</td><td>До старта Ф2</td></tr>
+      <tr><td><span class="done-mark">✓</span> LISTEN мимо PgBouncer — сделано 27.09: прямое соединение <code>DATABASE_DIRECT_URL</code></td><td>Инфра</td><td>К Ф3 (диспетчер) и Ф4</td></tr>
+      <tr><td>Строка при запросе разрешения: «в уведомлениях будет имя пациента…»</td><td>Мобильная команда</td><td>Вместе с релизом пушей</td></tr>
+      <tr><td><b>Видит ли команда Skrezo переписки клиник целиком</b> — «все чаты подключённых» на нашей стороне означает доступ сотрудников Skrezo к жалобам и снимкам пациентов чужих клиник. Нужен явный ответ: полный доступ / только метаданные (кто, когда, статус, без текста) / доступ по обращению клиники и с записью в аудит</td><td>Аибек (продукт) + мы (реализация)</td><td>До первой ручки «чаты всех клиник»</td></tr>
+      <tr><td>Провайдер распознавания голосовых и бюджет на него (доля голосовых меряется на живом трафике Ф1)</td><td>Аибек + мы</td><td>До Ф5 — без расшифровки экран голосового пустой</td></tr>
+      <tr><td><b>Платный тир Gemini</b> — бесплатный отдаёт 20 запросов в сутки и может учиться на содержимом запросов. Тир выбирать по лимиту запросов в минуту: при 150 клиниках пик ≈ 1 800 вызовов/мин (Ф8·5)</td><td>Аибек</td><td>До реальных пациентов</td></tr>
+      <tr><td>S3-совместимое хранилище для медиа и второй хост под воркер/API — условие горизонтального масштабирования (Ф8·8)</td><td>Инфра</td><td>К подключению первых десятков клиник</td></tr>
+      <tr><td><b>Оплата подписки через FreedomPay и баланс клиники</b> (сделано 08.09: платёжная страница, серверный колбэк с подписью; журнал операций с остатком после каждой строки, кошелёк, пополнение и оплата с баланса, автопродление с баланса за 3 дня до конца периода с предупреждением о нехватке, ручные операции и возвраты в админке; задел под автосписание с карты по профилю провайдера). Вне кода: реквизиты мерчанта <code>FREEDOMPAY_MERCHANT_ID</code>/<code>SECRET_KEY</code> и <code>PUBLIC_API_URL</code> в прод-.env, страницы успеха/отказа на фронте, прогон на тестовых картах (4716047261941981, 12/30, CVV 123), затем <code>FREEDOMPAY_TESTING_MODE=false</code>; автосписание — когда провайдер откроет (через 2–3 месяца)</td><td>Аибек (FreedomPay), фронт</td><td>До первого платного клиента</td></tr>
+      <tr><td>Зарегистрировать в Meta шаблоны: <code>visit_reminder</code> (UTILITY, кнопки «Приду» / «Перенести»), <code>debt_reminder</code> (UTILITY, без кнопок: имя, сумма, клиника), <code>recall_reminder</code> (MARKETING, кнопки «Записаться» / «Не сейчас») — на ru и ky; без них соответствующие напоминания не уйдут</td><td>Аибек (Meta)</td><td>До включения умений «напоминания» / «долг» / «повторный осмотр»</td></tr>
+      <tr><td>Кто в клинике отвечает на очередь «Обучение» и как быстро — иначе очередь мёртвая, а бот не учится</td><td>Аибек (процесс)</td><td>К запуску Ф6</td></tr>
+      <tr><td><b>Прайс-лист ставок в настройках</b> (<code>AI_RATE_*</code> за миллион токенов, <code>WA_RATE_*</code> за сообщение) — без него учёт показывает счётчики, но не смету. Ставки Gemini — с платного тира, WhatsApp — из Business Manager по нашему региону</td><td>Аибек + мы</td><td>После первого месяца на платном тире</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>Skrezo · план составлен по: ТЗ на AI-ассистента (v1, обновлённая), ТЗ «События и уведомления», «Архитектурные решения» (ADR-1…8), план поставки Ф1–Ф4, задания Ф1/Ф3/Ф4 · Ф5–Ф7 добавлены по макетам кабинета от 02.09 · сверено с кодом на 04.09.2026, нагрузка измерена на локальном стенде 04.09, ядро Ф8 проверено вживую 04.09 · Embedded Signup сверен с кодом 04.10.2026</footer>
+</div>
+
+
+</body></html>
