@@ -1,6 +1,7 @@
 """Ф7, инкремент 1: ступени доверия — Наблюдаю → Проверяю → Доверяю.
 
-Вверх — только через гейт (цифры теневого режима, одобрения, чистая неделя),
+По умолчанию гейт выключен и ступени переключаются свободно. С включённым
+гейтом вверх — только по цифрам (теневой режим, одобрения, чистая неделя),
 вниз и «выключить» — всегда; выключение помнит заработанную ступень;
 команда Skrezo обходит гейт, и владелец видит, что менял не он.
 """
@@ -59,20 +60,15 @@ async def _approve_one(
     assert sent.status_code == 201, sent.text
 
 
-async def test_new_clinic_is_off_with_first_step_open(client: AsyncClient, ctx: Ctx) -> None:
+async def test_new_clinic_is_off_and_every_step_open(client: AsyncClient, ctx: Ctx) -> None:
+    """Гейт по умолчанию выключен: все три ступени открыты без условий."""
     ladder = await _ladder(client, ctx)
     assert ladder["mode"] == "off" and ladder["enabled"] is False and ladder["level"] is None
     assert [s["level"] for s in ladder["steps"]] == ["shadow", "assisted", "auto"]
-    shadow, assisted, auto = ladder["steps"]
-    assert (
-        shadow["title"] == "Наблюдаю" and shadow["ready"] is True and shadow["requirements"] == []
-    )
-    assert assisted["ready"] is False
-    assert assisted["requirements"][0]["key"] == "shadow_replies"
-    assert assisted["requirements"][0]["required"] == settings.ai_trust_gate_shadow_replies
-    assert (
-        auto["requirements"][0]["key"] == "approvals" and auto["requirements"][0]["required"] == 200
-    )
+    assert ladder["steps"][0]["title"] == "Наблюдаю"
+    for step in ladder["steps"]:
+        assert step["ready"] is True, step
+        assert step["requirements"] == [] and step["blockers"] == [], step
     assert ladder["next"]["level"] == "shadow"
     assert ladder["stats"] == {
         "shadowReplies": 0,
@@ -80,6 +76,21 @@ async def test_new_clinic_is_off_with_first_step_open(client: AsyncClient, ctx: 
         "factErrors": 0,
         "factErrorDays": 7,
     }
+
+
+async def test_steps_switch_freely_without_gate(client: AsyncClient, ctx: Ctx) -> None:
+    """Без гейта — любая ступень в любую сторону, хоть с нулём одобрений."""
+    for level in ("auto", "shadow", "assisted", "auto", "assisted"):
+        resp = await _set(client, ctx, level=level)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["level"] == level and resp.json()["reason"] == "manual"
+    assert (await _ladder(client, ctx))["stats"]["approvals"] == 0
+
+    off = await _set(client, ctx, enabled=False)
+    assert off.status_code == 200 and off.json()["levelBeforeOff"] == "assisted"
+    # Из выключенного — сразу на «Доверяю», минуя «включить».
+    on = await _set(client, ctx, level="auto")
+    assert on.status_code == 200 and on.json()["level"] == "auto" and on.json()["enabled"]
 
 
 async def test_climbing_requires_gates_and_descending_is_free(
@@ -90,6 +101,16 @@ async def test_climbing_requires_gates_and_descending_is_free(
     _resources: Resources,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "ai_trust_gate_enabled", True)
+    shadow, assisted, auto = (await _ladder(client, ctx))["steps"]
+    assert shadow["ready"] is True and shadow["requirements"] == []
+    assert assisted["ready"] is False
+    assert assisted["requirements"][0]["key"] == "shadow_replies"
+    assert assisted["requirements"][0]["required"] == settings.ai_trust_gate_shadow_replies
+    assert (
+        auto["requirements"][0]["key"] == "approvals" and auto["requirements"][0]["required"] == 200
+    )
+
     # Включить — «Наблюдаю», без условий.
     on = await _set(client, ctx, enabled=True)
     assert (

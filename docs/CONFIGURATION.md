@@ -71,6 +71,7 @@
 | `TOPUP_MIN_TIYIN` / `AUTOPAY_DAYS_BEFORE` | минимальное пополнение баланса; за сколько дней до конца периода или триала списывать месяц с баланса | `100000` / `3` |
 | `AI_RATE_CACHED_INPUT_TIYIN_PER_MTOK` | ставка за токены из кэша префикса (≈ четверть входной) | `0` |
 | `AI_REGRESSION_JOB_TIMEOUT` / `AI_REGRESSION_MAX_CASES` | регрессия клиники (Ф6): таймаут задания прогона, кейсов за прогон | `1800` / `200` |
+| `AI_TRUST_GATE_ENABLED` | гейт доверия (Ф7): `true` — подняться на ступень можно только по цифрам ниже; `false` — «Наблюдаю», «Проверяю», «Доверяю» переключаются свободно | `false` |
 | `AI_TRUST_GATE_APPROVALS` / `AI_TRUST_GATE_FACT_ERROR_DAYS` | гейт доверия (Ф7): одобренных ответов и дней без ошибок V01–V03 | `200` / `7` |
 | `AI_TRUST_GATE_SHADOW_REPLIES` | ступень «Проверяю»: ответов, прошедших валидатор в теневом режиме | `50` |
 | `WA_VISIT_REMINDER_TEMPLATE` / `WA_VISIT_REMINDER_BUTTONS` | напоминание о визите (Ф7): имя шаблона в Meta и есть ли у него две quick-reply-кнопки | `visit_reminder` / `true` |

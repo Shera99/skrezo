@@ -31,7 +31,10 @@ router = APIRouter()
 
 _GATE_CLOSED: dict[int | str, dict[str, Any]] = {
     409: {
-        "description": "Ступень закрыта гейтом — в ответе, чего не хватает",
+        "description": (
+            "Ступень закрыта гейтом — в ответе, чего не хватает. Только при "
+            "включённом гейте (`AI_TRUST_GATE_ENABLED=true`)"
+        ),
         "content": {
             "application/json": {
                 "example": {
@@ -115,10 +118,13 @@ async def get_trust_ladder(
     session: AsyncSession = Depends(get_session),
     service: TrustLadderService = Depends(get_trust_ladder_service),
 ) -> TrustLadderResponse:
-    """Наблюдаю → Проверяю → Доверяю. Каждая ступень показывает свои условия:
+    """Наблюдаю → Проверяю → Доверяю. Пока гейт выключен (по умолчанию), все
+    ступени открыты: `ready: true`, `requirements` и `blockers` пусты. С включённым
+    гейтом (`AI_TRUST_GATE_ENABLED=true`) каждая ступень показывает свои условия:
     «Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —
     одобренные ответы («153 из 200») и ноль фактических ошибок за неделю.
-    Смотреть может ресепшен, менять — право `assistant.manage` (владелец всегда)."""
+    `stats` считаются всегда. Смотреть может ресепшен, менять — право
+    `assistant.manage` (владелец всегда)."""
     clinic = await _clinic(context, session)
     return _response(await service.overview(clinic))
 
@@ -137,7 +143,8 @@ async def set_trust_ladder(
     service: TrustLadderService = Depends(get_trust_ladder_service),
     audit: AuditService = Depends(get_audit_service),
 ) -> TrustLadderResponse:
-    """`level` ставит ступень (и включает бота); вверх — только когда гейт открыт
+    """`level` ставит ступень (и включает бота) — любую, в любую сторону. Если
+    гейт включён (`AI_TRUST_GATE_ENABLED=true`), вверх — только когда он открыт
     (иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`
     выключает, помня ступень; `enabled:true` без `level` возвращает её.
     `skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у
