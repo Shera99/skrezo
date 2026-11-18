@@ -58,18 +58,23 @@ async def check_whatsapp_tokens(ctx: dict[str, Any]) -> int:
     """Раз в час: принимает ли Graph API токен каждого номера; число отказов.
 
     Номер клиники проверяется её собственным токеном (Embedded Signup). По
-    итогам монитор помечает «нужно переподключить», пишет команде Skrezo и
-    дозапрашивает контакты и историю приложения, пока открыто окно Meta.
+    итогам монитор помечает «нужно переподключить», пишет команде Skrezo,
+    дозапрашивает контакты и историю приложения, пока открыто окно Meta,
+    досоздаёт копии шаблонов напоминаний Skrezo в WABA клиники и подтягивает
+    решение Meta по шаблонам на проверке.
     """
     async with JobRunRecorder("check_whatsapp_tokens", attempt(ctx)) as run:
         async with session_factory() as session:
-            failed = await AiHealthService(session, None, build_whatsapp_client()).check_tokens()
+            wa = build_whatsapp_client()
+            failed = await AiHealthService(session, None, wa).check_tokens()
             report = await WhatsAppConnectionMonitor(
-                session, build_onboarding_client(), notifier(ctx)
+                session, build_onboarding_client(), notifier(ctx), wa
             ).run(failed)
         run.note(
             f"номеров с ошибкой токена: {len(failed)}, "
             f"нужно переподключить: +{report.flagged}, восстановилось: {report.cleared}, "
-            f"сообщено команде: {report.notified}, запрошено синхронизаций: {report.syncs}"
+            f"сообщено команде: {report.notified}, запрошено синхронизаций: {report.syncs}, "
+            f"скопировано шаблонов: {report.templates_copied}, "
+            f"каталогов шаблонов сверено: {report.catalogs}"
         )
         return len(failed)

@@ -121,7 +121,9 @@ async def list_templates(
     технического имени и `{{1}}`: у общих шаблонов их задаёт Skrezo, у шаблонов
     клиники показывается имя из Meta. Служебные шаблоны Meta
     (`WA_SERVICE_TEMPLATE_NAMES`, тестовый `hello_world`) в каталоге не
-    показываются."""
+    показываются. Общие шаблоны лежат в WABA Skrezo, поэтому номеру, который
+    клиника подключила сама, они не показываются: в её WABA вместо них создаются
+    копии шаблонов напоминаний."""
     if context.clinic_id is None:
         raise ForbiddenError("Не выбрана клиника", code="clinic_not_selected")
     items = await repository.list_templates(

@@ -9,7 +9,10 @@ API отверг. Здесь из этого делаются выводы:
 * команда Skrezo получает в чат одно сообщение на каждый новый случай — и для
   отметок отсюда, и для отметок вебхука ``account_update``;
 * недозапрошенные контакты и история приложения запрашиваются повторно, пока не
-  истекли 24 часа после подключения.
+  истекли 24 часа после подключения;
+* в WABA клиники досоздаются копии шаблонов напоминаний Skrezo, а каталог
+  сверяется, пока Meta рассматривает шаблоны клиники, — одобрение появляется
+  в кабинете само, без кнопки «Синхронизировать».
 """
 
 from __future__ import annotations
@@ -27,13 +30,19 @@ from app.modules.whatsapp.application.services.credentials import (
     clear_reconnect,
     flag_reconnect,
 )
+from app.modules.whatsapp.application.services.template_copies import PlatformTemplateCopier
+from app.modules.whatsapp.application.use_cases.sync_templates import refresh_catalog
 from app.modules.whatsapp.domain.connection import reconnect_message
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.notifications.notifier import Notifier
-from app.shared.whatsapp_cloud import MetaOnboardingClient, MetaOnboardingError
+from app.shared.whatsapp_cloud import (
+    MetaOnboardingClient,
+    MetaOnboardingError,
+    WhatsAppCloudClient,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +61,8 @@ class MonitorReport:
     cleared: int = 0
     notified: int = 0
     syncs: int = 0
+    templates_copied: int = 0  # копий шаблонов Skrezo создано в WABA клиник
+    catalogs: int = 0  # каталогов шаблонов сверено с Meta
 
 
 class WhatsAppConnectionMonitor:
@@ -60,17 +71,24 @@ class WhatsAppConnectionMonitor:
         session: AsyncSession,
         onboarding: MetaOnboardingClient | None,
         notifier: Notifier | None,
+        wa_client: WhatsAppCloudClient | None = None,
     ) -> None:
         self._session = session
         self._repository = WhatsAppRepository(session)
         self._onboarding = onboarding
         self._notifier = notifier
+        self._wa = wa_client
 
     async def run(self, failed_phone_ids: list[str], now: datetime | None = None) -> MonitorReport:
         now = now or datetime.now(UTC)
         failed = set(failed_phone_ids)
         report = MonitorReport()
         bindings = await self._repository.active_bindings()
+        copier = (
+            PlatformTemplateCopier(self._repository, self._onboarding)
+            if self._onboarding is not None
+            else None
+        )
         for binding in bindings:
             own_token = binding.connected_via == SELF_SERVICE and binding.access_token_enc
             if own_token and binding.phone_number_id in failed:
@@ -87,9 +105,31 @@ class WhatsAppConnectionMonitor:
                 report.cleared += 1
             if self._onboarding is not None:
                 report.syncs += await request_app_data(binding, self._onboarding, now)
+            if own_token and binding.phone_number_id not in failed:
+                await self._templates(binding, copier, report)
         report.notified = await self._notify_team(bindings, now)
         await self._session.commit()
         return report
+
+    async def _templates(
+        self,
+        binding: ClinicWhatsApp,
+        copier: PlatformTemplateCopier | None,
+        report: MonitorReport,
+    ) -> None:
+        """Шаблоны номера клиники: недостающие копии Skrezo и решение Meta по ним.
+
+        Каталог сверяется, только когда есть что узнать: появились копии или
+        Meta ещё рассматривает какой-то шаблон, — остальные номера Graph не дёргают.
+        """
+        copied = await copier.copy_missing(binding) if copier is not None else None
+        report.templates_copied += copied or 0
+        if self._wa is None:
+            return
+        if copied is None and not await self._repository.has_pending_templates(binding.clinic_id):
+            return
+        if await refresh_catalog(self._repository, self._wa, binding):
+            report.catalogs += 1
 
     async def _access_denied(self, binding: ClinicWhatsApp) -> bool:
         """Переспросить Meta о номере: отказ в доступе отличить от сетевого сбоя."""

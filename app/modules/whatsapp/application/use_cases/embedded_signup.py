@@ -6,7 +6,8 @@
 всё остальное делает бэкенд: обмен кода на токен клиники, поиск номера в её
 WABA, регистрацию нового номера, подписку нашего приложения на вебхуки WABA,
 сохранение привязки. Затем по возможности — запрос контактов и истории
-приложения WhatsApp Business и синхронизация шаблонов.
+приложения WhatsApp Business, копии шаблонов напоминаний Skrezo в WABA клиники
+и синхронизация шаблонов.
 
 Сбой до сохранения ничего не меняет: окно можно пройти ещё раз с новым кодом.
 """
@@ -28,6 +29,7 @@ from app.modules.whatsapp.application.services.credentials import (
     e164,
     new_two_step_pin,
 )
+from app.modules.whatsapp.application.services.template_copies import PlatformTemplateCopier
 from app.modules.whatsapp.application.use_cases.connection_status import signup_config
 from app.modules.whatsapp.application.use_cases.sync_templates import SyncTemplatesUseCase
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
@@ -130,6 +132,10 @@ class ConnectViaEmbeddedSignupUseCase:
         # Дальше — по возможности: номер уже работает, остальное догонит проверка.
         if await request_app_data(binding, onboarding, now):
             await self._session.commit()
+        # Шаблоны напоминаний Skrezo — копиями в WABA клиники: её номер
+        # отправляет только шаблоны своего WABA. Затем сверка покажет их в
+        # каталоге (на проверке Meta), а одобрение подхватит монитор.
+        await self._copy_templates(binding, onboarding)
         await self._sync_templates(clinic_id)
         logger.info(
             "wa_self_service_connected",
@@ -206,6 +212,16 @@ class ConnectViaEmbeddedSignupUseCase:
                 code="meta_step_failed",
                 extra={"step": step},
             ) from exc
+
+    async def _copy_templates(
+        self, binding: ClinicWhatsApp, onboarding: MetaOnboardingClient
+    ) -> None:
+        try:
+            await PlatformTemplateCopier(self._repository, onboarding).copy_missing(binding)
+        except Exception as exc:
+            # Как и сверка ниже: подключение уже сохранено, копии догонит монитор.
+            await self._session.rollback()
+            logger.warning("wa_self_service_template_copy_skipped", reason=type(exc).__name__)
 
     async def _sync_templates(self, clinic_id: uuid.UUID) -> None:
         try:

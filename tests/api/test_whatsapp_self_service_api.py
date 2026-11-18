@@ -37,17 +37,22 @@ from app.main import app
 from app.modules.whatsapp.application.services.connection_monitor import (
     WhatsAppConnectionMonitor,
 )
+from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
+    WhatsAppRepository,
+)
 from app.modules.whatsapp.presentation.deps import get_onboarding_client, get_whatsapp_client
 from app.shared.crypto import secret_box
 from app.shared.db.enums import AiConversationStatus
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.audit_log import AuditLog
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
+from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 from app.shared.whatsapp_cloud import (
     DownloadedMedia,
     MetaOnboardingError,
     PhoneNumberInfo,
     SentMessage,
+    TemplateDefinition,
     TemplateInfo,
 )
 from tests.conftest import API, Resources, otp_login
@@ -88,6 +93,11 @@ class FakeMeta:
     unsubscribed: list[tuple[str, str]] = field(default_factory=list)
     registered: list[tuple[str, str, str]] = field(default_factory=list)
     syncs: list[tuple[str, str, str]] = field(default_factory=list)
+    #: Шаблоны по WABA — и источник Skrezo, и WABA клиники (туда ложатся копии).
+    templates: dict[str, list[TemplateDefinition]] = field(default_factory=dict)
+    template_error: MetaOnboardingError | None = None
+    template_reads: list[tuple[str, str]] = field(default_factory=list)
+    created: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
 
     async def exchange_code(self, code: str) -> str:
         self.codes.append(code)
@@ -118,16 +128,37 @@ class FakeMeta:
     async def request_sync(self, phone_number_id: str, token: str, sync_type: str) -> None:
         self.syncs.append((phone_number_id, token, sync_type))
 
+    async def template_definitions(self, waba_id: str, token: str) -> list[TemplateDefinition]:
+        self.template_reads.append((waba_id, token))
+        if self.template_error is not None:
+            raise self.template_error
+        return list(self.templates.get(waba_id, []))
+
+    async def create_template(self, waba_id: str, token: str, template: TemplateDefinition) -> str:
+        self.created.append((waba_id, token, template.create_payload()))
+        copy = TemplateDefinition(
+            template.name, template.language, template.category, "PENDING", template.components
+        )
+        self.templates.setdefault(waba_id, []).append(copy)
+        return "PENDING"
+
 
 class RecordingWa:
     """Транспорт Cloud API: пишет, каким токеном и что отправлено."""
 
-    def __init__(self, token: str | None = None, log: list[tuple[Any, ...]] | None = None):
+    def __init__(
+        self,
+        token: str | None = None,
+        log: list[tuple[Any, ...]] | None = None,
+        catalog: list[TemplateInfo] | None = None,
+    ):
         self.token = token
         self.log: list[tuple[Any, ...]] = log if log is not None else []
+        #: Что Meta отдаёт на сверку каталога (общий для всех токенов).
+        self.catalog: list[TemplateInfo] = catalog if catalog is not None else []
 
     def for_token(self, access_token: str | None) -> RecordingWa:
-        return RecordingWa(access_token, self.log) if access_token else self
+        return RecordingWa(access_token, self.log, self.catalog) if access_token else self
 
     async def send_text(self, phone_number_id: str, to_phone: str, body: str) -> SentMessage:
         self.log.append(("text", self.token, phone_number_id, body))
@@ -151,7 +182,7 @@ class RecordingWa:
 
     async def fetch_templates(self, waba_id: str) -> list[TemplateInfo] | None:
         self.log.append(("templates", self.token, waba_id))
-        return []
+        return list(self.catalog)
 
 
 @dataclass
@@ -803,3 +834,176 @@ async def test_monitor_flags_on_denial_only_notifies_once_and_retries_sync(
         fake.syncs.clear()
         late = await monitor.run([])
         assert late.syncs == 0 and fake.syncs == []
+
+
+# ── 12. Шаблоны напоминаний в WABA клиники ──────────────────────────────────
+
+SOURCE_WABA = "200000000000001"
+CLINIC_WABA = "102290129340398"
+
+
+def _definition(
+    name: str, lang: str, *, status: str = "APPROVED", category: str = "UTILITY"
+) -> TemplateDefinition:
+    """Шаблон WABA так, как его отдаёт Graph API, — с кнопками и примером."""
+    return TemplateDefinition(
+        name=name,
+        language=lang,
+        category=category,
+        status=status,
+        components=(
+            {
+                "type": "BODY",
+                "text": "{{1}}, напоминаем о приёме {{2}} в {{3}}.",
+                "example": {"body_text": [["Айбек", "21.11", "10:00"]]},
+            },
+            {
+                "type": "BUTTONS",
+                "buttons": [
+                    {"type": "QUICK_REPLY", "text": "Приду"},
+                    {"type": "QUICK_REPLY", "text": "Перенести"},
+                ],
+            },
+        ),
+    )
+
+
+def _catalog_row(name: str, lang: str, status: str) -> TemplateInfo:
+    return TemplateInfo(
+        meta_name=name,
+        lang=lang,
+        category="UTILITY",
+        body_preview="{{1}}, напоминаем о приёме {{2}} в {{3}}.",
+        variables=["1", "2", "3"],
+        status=status,
+    )
+
+
+@pytest.fixture
+def template_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Шаблоны напоминаний Skrezo лежат в WABA Skrezo и читаются общим токеном."""
+    monkeypatch.setattr(settings, "wa_template_source_waba_id", SOURCE_WABA)
+    monkeypatch.setattr(settings, "wa_cloud_access_token", "platform-token")
+
+
+async def _shared_template(res: Resources) -> str:
+    """Общий одобренный шаблон платформы с уникальным именем."""
+    name = f"shared_{_digits(8)}"
+    async with res.factory() as session:
+        session.add(
+            WhatsAppTemplate(
+                clinic_id=None,
+                meta_name=name,
+                lang="ru",
+                category="UTILITY",
+                body_preview="Общий шаблон {{1}}",
+                variables=["1"],
+                status="approved",
+            )
+        )
+        await session.commit()
+    return name
+
+
+async def test_self_service_number_gets_template_copies_and_no_shared_templates(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    meta: tuple[FakeMeta, RecordingWa],
+    template_source: None,
+    _resources: Resources,
+) -> None:
+    fake, _ = meta
+    fake.templates = {
+        SOURCE_WABA: [
+            _definition("visit_reminder", "ru"),
+            _definition("visit_reminder", "ky"),
+            _definition("debt_reminder", "ru"),
+            # Отклонённый в Skrezo и чужой для напоминаний — не копируются.
+            _definition("recall_reminder", "ru", status="REJECTED", category="MARKETING"),
+            _definition("promo_autumn", "ru", category="MARKETING"),
+        ],
+        # Свой debt_reminder у клиники уже есть — дубля быть не должно.
+        CLINIC_WABA: [_definition("debt_reminder", "ru")],
+    }
+    clinic = await _clinic(admin_client, client)
+    clinic_id = uuid.UUID(clinic.clinic_id)
+    shared = await _shared_template(_resources)
+
+    # Пока номер не подключён самой клиникой, общий шаблон ей доступен.
+    async with _resources.factory() as session:
+        found = await WhatsAppRepository(session).templates_by_name(clinic_id, shared)
+        assert [t.meta_name for t in found] == [shared]
+
+    assert (await _connect(client, clinic)).status_code == 200
+
+    # Источник прочитан общим токеном Skrezo, копии созданы токеном клиники.
+    assert (SOURCE_WABA, "platform-token") in fake.template_reads
+    assert [(w, t, p["name"], p["language"]) for w, t, p in fake.created] == [
+        (CLINIC_WABA, fake.token, "visit_reminder", "ru"),
+        (CLINIC_WABA, fake.token, "visit_reminder", "ky"),
+    ]
+    payload = fake.created[0][2]
+    assert set(payload) == {"name", "language", "category", "components"}
+    assert payload["category"] == "UTILITY"
+    assert payload["components"] == list(_definition("visit_reminder", "ru").components)
+
+    # Общий шаблон живёт в WABA Skrezo — номеру клиники он больше не предлагается
+    # ни напоминаниям, ни каталогу кабинета.
+    async with _resources.factory() as session:
+        repository = WhatsAppRepository(session)
+        assert await repository.templates_by_name(clinic_id, shared) == []
+        assert shared not in {t.meta_name for t in await repository.list_templates(clinic_id)}
+    catalog = await client.get(f"{API}/clinic/whatsapp/templates", headers=clinic.headers)
+    assert catalog.status_code == 200, catalog.text
+    assert shared not in {t["metaName"] for t in catalog.json()["list"]}
+
+
+async def test_monitor_copies_late_templates_and_follows_meta_review(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    meta: tuple[FakeMeta, RecordingWa],
+    template_source: None,
+    _resources: Resources,
+) -> None:
+    fake, wa = meta
+    fake.templates = {SOURCE_WABA: [_definition("visit_reminder", "ru")]}
+    clinic = await _clinic(admin_client, client)
+    clinic_id = uuid.UUID(clinic.clinic_id)
+
+    # Meta не ответила на шаблоны при подключении — номер всё равно подключён.
+    fake.template_error = MetaOnboardingError("timeout")
+    assert (await _connect(client, clinic)).status_code == 200
+    assert fake.created == []
+    fake.template_error = None
+
+    async with _resources.factory() as session:
+        monitor = WhatsAppConnectionMonitor(session, fake, _TeamChat(), wa)  # type: ignore[arg-type]
+        repository = WhatsAppRepository(session)
+
+        # Час спустя монитор создаёт копию и сразу сверяет каталог.
+        report = await monitor.run([])
+        assert report.templates_copied == 1 and report.catalogs == 1
+        assert [(p["name"], p["language"]) for _, _, p in fake.created] == [
+            ("visit_reminder", "ru")
+        ]
+
+        # Meta рассматривает копию: каталог показывает её «на проверке», повторно
+        # не создаётся (в WABA клиники она уже есть).
+        wa.catalog[:] = [_catalog_row("visit_reminder", "ru", "pending")]
+        report = await monitor.run([])
+        assert report.templates_copied == 0 and report.catalogs == 1
+        assert len(fake.created) == 1
+        assert await repository.templates_by_name(clinic_id, "visit_reminder") == []
+
+        # Одобрение подтягивается само — напоминания находят СВОЙ шаблон клиники.
+        wa.catalog[:] = [_catalog_row("visit_reminder", "ru", "approved")]
+        report = await monitor.run([])
+        assert report.catalogs == 1
+        found = await repository.templates_by_name(clinic_id, "visit_reminder")
+        assert [(t.clinic_id, t.status) for t in found] == [(clinic_id, "approved")]
+
+        # Всё есть и ничего не на проверке — каталог Graph больше не спрашивает.
+        calls = len([e for e in wa.log if e[0] == "templates"])
+        report = await monitor.run([])
+        assert report.catalogs == 0 and report.templates_copied == 0
+        assert len([e for e in wa.log if e[0] == "templates"]) == calls

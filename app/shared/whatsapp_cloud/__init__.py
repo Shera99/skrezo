@@ -21,6 +21,7 @@ from app.shared.whatsapp_cloud.onboarding import (
     MetaOnboardingClient,
     MetaOnboardingError,
     PhoneNumberInfo,
+    TemplateDefinition,
 )
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "MetaOnboardingError",
     "PhoneNumberInfo",
     "SentMessage",
+    "TemplateDefinition",
     "TemplateInfo",
     "WhatsAppCloudClient",
     "WhatsAppSendError",

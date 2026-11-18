@@ -12,10 +12,11 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import case, delete, func, or_, select, true, tuple_, update
+from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, true, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.whatsapp.domain.connection import MANUAL, SELF_SERVICE
 from app.modules.whatsapp.domain.models import ConversationCounters, ConversationRow
 from app.shared.db.enums import (
     AiConversationStatus,
@@ -639,17 +640,12 @@ class WhatsAppRepository:
     async def list_templates(
         self, clinic_id: uuid.UUID, *, exclude_names: Sequence[str] = ()
     ) -> list[WhatsAppTemplate]:
-        """Шаблоны, доступные клинике: свои + общие платформы.
+        """Шаблоны, доступные клинике: свои + общие платформы (см. ``_visible_to``).
 
         ``exclude_names`` — служебные шаблоны Meta (``hello_world``): каталог
         кабинета их не показывает, даже если строка осталась с прежних сверок.
         """
-        stmt = select(WhatsAppTemplate).where(
-            or_(
-                WhatsAppTemplate.clinic_id == clinic_id,
-                WhatsAppTemplate.clinic_id.is_(None),
-            )
-        )
+        stmt = select(WhatsAppTemplate).where(_visible_to(clinic_id))
         hidden = [name.strip().lower() for name in exclude_names if name.strip()]
         if hidden:
             stmt = stmt.where(func.lower(WhatsAppTemplate.meta_name).not_in(hidden))
@@ -670,15 +666,33 @@ class WhatsAppRepository:
                 .where(
                     WhatsAppTemplate.meta_name == meta_name,
                     WhatsAppTemplate.status == "approved",
-                    or_(
-                        WhatsAppTemplate.clinic_id == clinic_id,
-                        WhatsAppTemplate.clinic_id.is_(None),
-                    ),
+                    _visible_to(clinic_id),
                 )
                 .order_by(WhatsAppTemplate.clinic_id.desc().nullslast(), WhatsAppTemplate.lang)
             )
         ).scalars()
         return list(rows)
+
+    async def template_keys(self, clinic_id: uuid.UUID) -> set[tuple[str, str]]:
+        """Пары (имя, язык) СВОИХ шаблонов клиники в любом статусе — без общих."""
+        rows = await self._session.execute(
+            select(WhatsAppTemplate.meta_name, WhatsAppTemplate.lang).where(
+                WhatsAppTemplate.clinic_id == clinic_id
+            )
+        )
+        return {(name, lang) for name, lang in rows.all()}
+
+    async def has_pending_templates(self, clinic_id: uuid.UUID) -> bool:
+        """Есть ли у клиники свои шаблоны, которые Meta ещё не рассмотрела."""
+        found = await self._session.execute(
+            select(WhatsAppTemplate.id)
+            .where(
+                WhatsAppTemplate.clinic_id == clinic_id,
+                WhatsAppTemplate.status.in_(_UNDER_REVIEW),
+            )
+            .limit(1)
+        )
+        return found.first() is not None
 
     async def template(
         self, clinic_id: uuid.UUID, template_id: uuid.UUID
@@ -688,10 +702,7 @@ class WhatsAppRepository:
             await self._session.execute(
                 select(WhatsAppTemplate).where(
                     WhatsAppTemplate.id == template_id,
-                    or_(
-                        WhatsAppTemplate.clinic_id == clinic_id,
-                        WhatsAppTemplate.clinic_id.is_(None),
-                    ),
+                    _visible_to(clinic_id),
                 )
             )
         ).scalar_one_or_none()
@@ -849,9 +860,37 @@ class WhatsAppRepository:
             return ZoneInfo(DEFAULT_TIMEZONE)
 
 
+#: Статусы шаблона «Meta ещё решает» (в нижнем регистре, как хранит сверка).
+_UNDER_REVIEW = ("pending", "in_appeal")
+
+
+def _visible_to(clinic_id: uuid.UUID) -> ColumnElement[bool]:
+    """Шаблоны, которые номер клиники может отправить: свои и, возможно, общие.
+
+    Шаблон живёт в одном WABA. Общие шаблоны платформы (``clinic_id IS NULL``)
+    зарегистрированы в WABA Skrezo — их отправит только номер, подключённый
+    командой вручную. Номер, который клиника подключила сама, сидит в её
+    собственном WABA: общий шаблон Meta отвергла бы («шаблон не существует»),
+    поэтому такой клинике видны только свои (туда же ложатся копии шаблонов
+    Skrezo, см. ``services/template_copies.py``).
+    """
+    self_service = (
+        select(ClinicWhatsApp.id)
+        .where(
+            ClinicWhatsApp.clinic_id == clinic_id,
+            ClinicWhatsApp.connected_via == SELF_SERVICE,
+        )
+        .exists()
+    )
+    return or_(
+        WhatsAppTemplate.clinic_id == clinic_id,
+        and_(WhatsAppTemplate.clinic_id.is_(None), ~self_service),
+    )
+
+
 def reset_self_service(binding: ClinicWhatsApp) -> None:
     """Забыть учётные данные и состояние, относящиеся к прежнему номеру клиники."""
-    binding.connected_via = "manual"
+    binding.connected_via = MANUAL
     binding.access_token_enc = None
     binding.two_step_pin_enc = None
     binding.connected_by = None

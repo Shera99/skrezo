@@ -15,6 +15,7 @@ from datetime import datetime
 import structlog
 
 from app.core.errors import AppError
+from app.modules.whatsapp.domain.connection import MANUAL, SELF_SERVICE
 from app.shared.crypto import SecretBoxError, secret_box
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.domain.value_objects import normalize_phone
@@ -22,9 +23,16 @@ from app.shared.whatsapp_cloud import WhatsAppCloudClient
 
 logger = structlog.get_logger(__name__)
 
-#: Пути подключения номера (``clinic_whatsapp.connected_via``).
-MANUAL = "manual"
-SELF_SERVICE = "embedded_signup"
+__all__ = [
+    "MANUAL",
+    "SELF_SERVICE",
+    "binding_token",
+    "clear_reconnect",
+    "client_for",
+    "e164",
+    "flag_reconnect",
+    "new_two_step_pin",
+]
 
 
 def binding_token(binding: ClinicWhatsApp) -> str | None:

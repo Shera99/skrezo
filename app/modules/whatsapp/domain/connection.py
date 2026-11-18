@@ -12,6 +12,12 @@ RECONNECT_REASONS: dict[str, str] = {
     "token_invalid": "Meta больше не принимает доступ клиники",
 }
 
+#: Пути подключения номера (``clinic_whatsapp.connected_via``): вручную командой
+#: Skrezo (номер в WABA Skrezo, общий токен) или самой клиникой через окно Meta
+#: (номер в WABA клиники, её бизнес-токен).
+MANUAL = "manual"
+SELF_SERVICE = "embedded_signup"
+
 #: Окно Meta для номера, который остаётся в приложении WhatsApp Business.
 SIGNUP_FEATURE_TYPE = "whatsapp_business_app_onboarding"
 SIGNUP_SESSION_INFO_VERSION = "3"

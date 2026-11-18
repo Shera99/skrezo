@@ -13,8 +13,28 @@ from app.modules.whatsapp.domain.templates import is_service_template
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
+from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
 from app.shared.whatsapp_cloud import WhatsAppCloudClient
+
+
+async def refresh_catalog(
+    repository: WhatsAppRepository, client: WhatsAppCloudClient, binding: ClinicWhatsApp
+) -> bool:
+    """Свериться с WABA номера без коммита; ``False`` — Graph не ответил, каталог цел.
+
+    Общая часть кнопки «Синхронизировать» и ежечасного монитора, который
+    дожидается решения Meta по шаблонам клиник, подключившихся сами.
+    """
+    if not binding.waba_id:
+        return False
+    fetched = await client_for(client, binding).fetch_templates(binding.waba_id)
+    if fetched is None:
+        return False
+    hidden = settings.wa_service_template_names
+    kept = [t for t in fetched if not is_service_template(t.meta_name, hidden)]
+    await repository.replace_templates(binding.clinic_id, kept)
+    return True
 
 
 class SyncTemplatesUseCase:
@@ -45,16 +65,14 @@ class SyncTemplatesUseCase:
                 "У привязки не указан WABA — без него шаблоны спросить не у кого",
                 code="waba_id_missing",
             )
-        fetched = await client_for(self._client, binding).fetch_templates(binding.waba_id)
-        if fetched is None:
+        if not await refresh_catalog(self._repository, self._client, binding):
             raise AppError(
                 "Синхронизация шаблонов недоступна: Graph API не ответил "
                 "(или канал работает без кредов Meta)",
                 code="wa_templates_unavailable",
                 status_code=502,
             )
-        hidden = settings.wa_service_template_names
-        kept = [t for t in fetched if not is_service_template(t.meta_name, hidden)]
-        await self._repository.replace_templates(clinic_id, kept)
         await self._session.commit()
-        return await self._repository.list_templates(clinic_id, exclude_names=hidden)
+        return await self._repository.list_templates(
+            clinic_id, exclude_names=settings.wa_service_template_names
+        )

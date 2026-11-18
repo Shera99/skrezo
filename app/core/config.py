@@ -147,6 +147,11 @@ class Settings(BaseSettings):
     #: номера привязывает команда Skrezo вручную (``/admin/clients/{id}/whatsapp``).
     wa_cloud_app_id: str = ""
     wa_embedded_signup_config_id: str = ""
+    #: WABA Skrezo, где команда регистрирует шаблоны напоминаний (визит, долг,
+    #: повторный осмотр). Клинике, подключившей номер сама, одобренные шаблоны
+    #: отсюда копируются в её WABA: шаблоны WABA Skrezo её номер отправить не
+    #: может. Читается общим ``wa_cloud_access_token``. Пусто — не копировать.
+    wa_template_source_waba_id: str = ""
     #: Служебные шаблоны Meta (тестовый ``hello_world`` и подобные): в каталог
     #: клиники не попадают и пациентам не отправляются. Список через запятую.
     wa_service_template_names: Annotated[list[str], NoDecode] = Field(

@@ -839,7 +839,7 @@ Gemini 3, иначе Google отклоняет запрос (`422 llm_request_re
 | `POST` | `/clinic/conversations/{id}/assistant` | `{active:false}` — «дальше отвечаю сам», `{active:true}` — вернуть диалог боту (эскалации закрываются); закрытый диалог возобновляется |
 | `GET` | `/clinic/conversations/{id}/messages?beforeId=&limit=` | История (новые сверху, курсор «старше id»); у недоставленного исходящего — `deliveryError`: почему WhatsApp его не принял |
 | `POST` | `/clinic/conversations/{id}/messages` | Ответ свободным текстом; окно закрыто → 422 `window_closed` |
-| `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы; служебные Meta (`hello_world`) скрыты. У шаблона — `title`, `variableLabels` и `variableSources` (у общих задаёт Skrezo, у своих — клиника; без подписи — подпись источника, без источника — `{{1}}`), `statusChangedAt` и `unavailableReason` на языке запроса («На проверке в Meta с 20 сентября»; `null` — можно отправлять) |
+| `GET` | `/clinic/whatsapp/templates` | Каталог шаблонов: свои + общие платформы (общие — только номеру, подключённому командой Skrezo: они лежат в WABA Skrezo); служебные Meta (`hello_world`) скрыты. У шаблона — `title`, `variableLabels` и `variableSources` (у общих задаёт Skrezo, у своих — клиника; без подписи — подпись источника, без источника — `{{1}}`), `statusChangedAt` и `unavailableReason` на языке запроса («На проверке в Meta с 20 сентября»; `null` — можно отправлять) |
 | `GET` | `/clinic/whatsapp/templates/variable-sources` | Откуда кабинет может брать значение переменной: `patient_name`, `patient_full_name`, `clinic_name`, `clinic_phone`, `clinic_address`, `doctor_name`, `appointment_date`, `appointment_time`, `debt_amount` или `manual`; подписи — на языке запроса |
 | `PATCH` | `/clinic/whatsapp/templates/{id}` | Клиника объясняет свой шаблон: `title`, `variableLabels`, `variableSources` (списки ровно по числу переменных, иначе 422 `labels_count_mismatch` / `sources_count_mismatch`); синхронизация их не стирает; общий шаблон → 403 `template_shared` |
 | `GET` | `/clinic/conversations/{id}/templates/{templateId}/prefill` | Значения переменных для этого диалога по их источникам: карточка пациента, клиника, ближайшая будущая запись (`ДД.ММ.ГГГГ`, время, врач), долг в сомах; не нашлось или `manual` — `value: null`; `complete` — всё найдено |
@@ -891,6 +891,18 @@ Skrezo — сообщения из приложения приходят эхо�
 
 Вся отправка по номеру клиники — ответы, шаблоны, кнопки, напоминания,
 ассистент, скачивание медиа, синхронизация шаблонов — идёт **её** токеном.
+
+Шаблон WhatsApp принадлежит одному WABA, поэтому общие шаблоны платформы (они в
+WABA Skrezo) такому номеру не предлагаются ни в каталоге, ни напоминаниям.
+Вместо них при подключении в WABA клиники создаются **копии** одобренных
+шаблонов напоминаний (`WA_VISIT_REMINDER_TEMPLATE`, `WA_DEBT_REMINDER_TEMPLATE`,
+`WA_RECALL_REMINDER_TEMPLATE`) из `WA_TEMPLATE_SOURCE_WABA_ID` — те же имя, язык,
+категория и кнопки. Meta проверяет копию заново: в каталоге она сначала «на
+проверке», одобрение ежечасная проверка подтягивает сама (сверяет каталог, пока
+у клиники есть шаблоны на рассмотрении). Недостающие копии — сбой Meta при
+подключении или шаблон, зарегистрированный в WABA Skrezo позже, — она же
+досоздаёт. Пока копия не одобрена, напоминание ложится строкой `failed` с
+причиной «нет одобренного шаблона».
 Архив из приложения (вебхук `history`) лежит отдельно от живой ленты
 (`GET /clinic/conversations/{id}/history`): Meta присылает его пачками не по
 порядку, и смешивание поставило бы прошлогоднее сообщение ниже вчерашнего, а

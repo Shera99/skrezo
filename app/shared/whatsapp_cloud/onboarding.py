@@ -10,7 +10,9 @@
    номер из приложения уже зарегистрирован — шаг пропускается;
 4. подписать наше приложение на вебхуки WABA клиники;
 5. номер из приложения — запросить синхронизацию контактов и истории: каждый
-   запрос разрешён один раз и только в первые 24 часа после подключения.
+   запрос разрешён один раз и только в первые 24 часа после подключения;
+6. создать в WABA клиники копии шаблонов напоминаний Skrezo: шаблон живёт в
+   одном WABA, и номер клиники отправляет только шаблоны своего WABA.
 
 Секрет приложения уходит только в обмен кода и никогда не попадает в лог.
 """
@@ -32,6 +34,9 @@ _PHONE_FIELDS = (
     "code_verification_status,is_on_biz_app"
 )
 
+#: Поля шаблона — те же, что спрашивает сверка каталога (проверены в бою).
+_TEMPLATE_FIELDS = "name,language,status,category,components"
+
 #: Типы синхронизации данных приложения WhatsApp Business (SMB App Data API).
 SYNC_CONTACTS = "smb_app_state_sync"
 SYNC_HISTORY = "history"
@@ -52,6 +57,30 @@ class PhoneNumberInfo:
     @property
     def on_cloud_api(self) -> bool:
         return self.platform_type == "CLOUD_API"
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateDefinition:
+    """Шаблон WABA целиком — в той форме, из которой Meta создаёт его заново.
+
+    Нужен для копий шаблонов Skrezo в WABA клиники: шаблон принадлежит одному
+    WABA, и номер клиники не может отправить шаблон, которого нет в её WABA.
+    """
+
+    name: str
+    language: str  # код языка Meta: ru, ky…
+    category: str  # UTILITY | MARKETING | AUTHENTICATION
+    status: str  # APPROVED | PENDING | REJECTED … — как отдаёт Meta
+    components: tuple[dict[str, Any], ...]
+
+    def create_payload(self) -> dict[str, Any]:
+        """Тело ``POST /{waba_id}/message_templates`` — без статуса и id источника."""
+        return {
+            "name": self.name,
+            "language": self.language,
+            "category": self.category,
+            "components": [dict(c) for c in self.components],
+        }
 
 
 class MetaOnboardingError(Exception):
@@ -100,6 +129,14 @@ class MetaOnboardingClient(Protocol):
         """Запросить контакты или историю приложения WhatsApp Business."""
         ...
 
+    async def template_definitions(self, waba_id: str, token: str) -> list[TemplateDefinition]:
+        """Все шаблоны WABA с компонентами (источник копий или проверка наличия)."""
+        ...
+
+    async def create_template(self, waba_id: str, token: str, template: TemplateDefinition) -> str:
+        """Создать шаблон в WABA; вернуть статус Meta (обычно ``PENDING``)."""
+        ...
+
 
 def _phone_info(row: dict[str, Any]) -> PhoneNumberInfo:
     return PhoneNumberInfo(
@@ -110,6 +147,16 @@ def _phone_info(row: dict[str, Any]) -> PhoneNumberInfo:
         platform_type=row.get("platform_type"),
         code_verification_status=row.get("code_verification_status"),
         is_on_biz_app=bool(row.get("is_on_biz_app")),
+    )
+
+
+def _template_definition(row: dict[str, Any]) -> TemplateDefinition:
+    return TemplateDefinition(
+        name=str(row.get("name") or ""),
+        language=str(row.get("language") or ""),
+        category=str(row.get("category") or ""),
+        status=str(row.get("status") or "").upper(),
+        components=tuple(c for c in row.get("components") or [] if isinstance(c, dict)),
     )
 
 
@@ -218,3 +265,34 @@ class GraphOnboardingClient:
             json={"messaging_product": "whatsapp", "sync_type": sync_type},
             step=f"sync_{sync_type}",
         )
+
+    async def template_definitions(self, waba_id: str, token: str) -> list[TemplateDefinition]:
+        items: list[TemplateDefinition] = []
+        params = {"fields": _TEMPLATE_FIELDS, "limit": "100"}
+        # Потолок страниц — защита от бесконечного paging; тысяча шаблонов на
+        # WABA в жизни не встречается.
+        for _ in range(10):
+            data = await self._call(
+                "GET",
+                f"{waba_id}/message_templates",
+                token=token,
+                params=params,
+                step="template_definitions",
+            )
+            items.extend(_template_definition(row) for row in data.get("data") or [])
+            paging = data.get("paging") or {}
+            after = (paging.get("cursors") or {}).get("after")
+            if not paging.get("next") or not after:
+                break
+            params = {**params, "after": str(after)}
+        return items
+
+    async def create_template(self, waba_id: str, token: str, template: TemplateDefinition) -> str:
+        data = await self._call(
+            "POST",
+            f"{waba_id}/message_templates",
+            token=token,
+            json=template.create_payload(),
+            step="create_template",
+        )
+        return str(data.get("status") or "PENDING")
