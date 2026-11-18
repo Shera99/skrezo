@@ -20,7 +20,7 @@ from content import DANGER, SECTIONS, WARN, C, S
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_OUT = ROOT / "docs" / "SERVER_OPS.html"
-DEFAULT_DOMAIN = "api.skrezo.com"
+DEFAULT_DOMAIN = "gateway.skrezo.com"
 GENERATED_NOTE = (
     "<!-- Сгенерировано scripts/server_ops/build.py из scripts/server_ops/content.py. "
     "Руками не править: make server-ops -->"
