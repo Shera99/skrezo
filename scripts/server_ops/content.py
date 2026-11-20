@@ -516,7 +516,7 @@ SECTIONS.append(
                 "Пуши отправляются по-настоящему",
                 "Как воркер собрал каналы доставки при старте.",
                 r"""sudo journalctl -u 'skrezo-worker@*' --no-pager | grep push_transport_built | tail -2""",
-                "`android=fcm ios=apns`. Значение `log` значит, что ключи не прочитались: см. «Неполадки».",
+                "`fcm=fcm apns=apns`. Значение `log` значит, что ключи не прочитались: см. «Неполадки».",
                 kw="push пуш fcm apns",
             ),
             C(
@@ -1315,7 +1315,7 @@ SECTIONS.append(
                 "Пуши пишутся в журнал, а не уходят",
                 "Воркер не может прочитать ключи в `secrets`: обычно после переноса файлов через `mv` владельцем остался другой пользователь.",
                 r"""sudo chown -R skrezo:skrezo /opt/skrezo/app/secrets && sudo chmod 700 /opt/skrezo/app/secrets && sudo chmod 600 /opt/skrezo/app/secrets/* && sudo systemctl restart skrezo-worker@1 skrezo-worker@2""",
-                "После перезапуска `push_transport_built android=fcm ios=apns`.",
+                "После перезапуска `push_transport_built fcm=fcm apns=apns`.",
                 kw="push пуши log permission denied",
             ),
             C(

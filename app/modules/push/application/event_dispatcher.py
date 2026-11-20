@@ -580,7 +580,7 @@ class EventDispatcher:
             clinic_id=clinic_id,
             account_id=device.account_id,
             platform=device.platform.value,
-            provider=self._transport.channel_name(device.platform),
+            provider=self._transport.channel_name(device.platform, device.token),
             sent_at=None if error else datetime.now(UTC),
             error=(error or None) and error[:500],
         )

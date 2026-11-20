@@ -25090,7 +25090,7 @@
             "type": "string",
             "minLength": 1,
             "title": "Token",
-            "description": "Токен FCM (Android) или device token APNs (iOS)"
+            "description": "Токен устройства. Android — токен FCM. iOS — токен FCM (Firebase SDK) **или** device token APNs (hex): сервер различает их сам и шлёт через FCM или напрямую в APNs."
           },
           "platform": {
             "$ref": "#/components/schemas/DevicePlatform",

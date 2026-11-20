@@ -255,7 +255,7 @@ sudo -u skrezo cat /opt/skrezo/app/.env /opt/skrezo/app/secrets/* > /dev/null &&
 
 `chown` — строго после `mv`: перенесённый файл сохраняет владельца (`skrezouser`), и
 воркер получит «Permission denied». Пуши при этом не падают громко — в логе
-`fcm_channel_init_failed` и `push_transport_built android=log ios=log`, то есть
+`fcm_channel_init_failed` и `push_transport_built fcm=log apns=log`, то есть
 уведомления пишутся в журнал вместо отправки.
 
 Что меняется в `.env` под этот сервер (остальное — как на старом проде):
@@ -336,7 +336,7 @@ systemctl start skrezo.target skrezo-backup.timer
 systemctl status 'skrezo-*' --no-pager
 curl -s http://127.0.0.1:8001/health && curl -s http://127.0.0.1:8002/health
 journalctl -u skrezo-worker@1 -n 30 --no-pager       # event_listener_connected, cron'ы;
-                                                     # при PUSH_ENABLED=true — push_transport_built android=fcm ios=apns
+                                                     # при PUSH_ENABLED=true — push_transport_built fcm=fcm apns=apns
 journalctl -u skrezo-api@8001 -n 30 --no-pager       # realtime_listener_connected
 ```
 

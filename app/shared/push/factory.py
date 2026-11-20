@@ -1,8 +1,9 @@
 """Сборка транспорта пушей из настроек — композиционный корень.
 
 Config-driven: ``PUSH_ENABLED=true`` + заполненные креды включают живые каналы
-(FCM для Android, APNs для iOS) без правки кода; чего не хватает — те
-платформы уходят в лог-фолбэк, и система работает дальше. Кеш на процесс:
+(FCM — Android и iOS-токены Firebase, APNs — «сырые» iOS-токены) без правки
+кода; чего не хватает — те устройства уходят в лог-фолбэк, и система работает
+дальше. Кеш на процесс:
 каналы держат долгоживущие httpx-клиенты и кеш auth-токенов.
 """
 
@@ -17,19 +18,23 @@ from app.shared.push.apns import ApnsChannel
 from app.shared.push.channels import PushChannel
 from app.shared.push.fcm import FcmChannel
 from app.shared.push.logging_channel import LoggingPushChannel
-from app.shared.push.transport import PushTransport
+from app.shared.push.transport import APNS, FCM, PushTransport
 
 logger = structlog.get_logger(__name__)
 
 
 @lru_cache
 def build_push_transport() -> PushTransport:
-    """Собрать транспорт: живые каналы по кредам, остальное — в лог."""
+    """Собрать транспорт: живые каналы по кредам, остальное — в лог.
+
+    Канал FCM обслуживает Android и iPhone с токеном Firebase, канал APNs —
+    iPhone с «сырым» device token APNs (маршрут — :func:`provider_for`).
+    """
     channels: dict[str, PushChannel] = {}
     if settings.push_enabled:
         if settings.fcm_service_account_json:
             try:
-                channels["android"] = FcmChannel(settings.fcm_service_account_json)
+                channels[FCM] = FcmChannel(settings.fcm_service_account_json)
             except Exception as exc:  # битый JSON/ключ не должен ронять процесс
                 logger.error("fcm_channel_init_failed", error=str(exc))
         if (
@@ -39,7 +44,7 @@ def build_push_transport() -> PushTransport:
             and settings.apns_bundle_id
         ):
             try:
-                channels["ios"] = ApnsChannel(
+                channels[APNS] = ApnsChannel(
                     settings.apns_key,
                     settings.apns_key_id,
                     settings.apns_team_id,
@@ -50,7 +55,7 @@ def build_push_transport() -> PushTransport:
                 logger.error("apns_channel_init_failed", error=str(exc))
     logger.info(
         "push_transport_built",
-        android=("fcm" if "android" in channels else "log"),
-        ios=("apns" if "ios" in channels else "log"),
+        fcm=(FCM if FCM in channels else "log"),
+        apns=(APNS if APNS in channels else "log"),
     )
     return PushTransport(channels=channels, fallback=LoggingPushChannel())

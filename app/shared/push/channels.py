@@ -1,6 +1,7 @@
 """Контракт канала доставки пуша и ошибки доставки.
 
-Канал знает одну платформу (FCM для Android, APNs для iOS) и умеет одно —
+Канал знает одного провайдера (FCM — Android и iOS-токены Firebase, APNs —
+«сырые» iOS-токены; выбор — :func:`~app.shared.push.transport.provider_for`) и умеет одно —
 доставить :class:`~app.shared.push.message.PushMessage` на токен. Настроек он не
 читает: адреса и ключи ему передаёт фабрика (:mod:`app.shared.push.factory`),
 поэтому канал собирается и в тесте, не трогая глобальные ``settings``.
@@ -26,7 +27,7 @@ class DeadTokenError(PushDeliveryError):
 
 
 class PushChannel(Protocol):
-    """Канал доставки пуша на одну платформу."""
+    """Канал доставки пуша одного провайдера."""
 
     #: Короткое имя канала — для логов (``fcm``, ``apns``, ``log``).
     name: str

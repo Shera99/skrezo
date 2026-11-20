@@ -1,4 +1,9 @@
-"""Канал FCM (HTTP v1) — доставка пушей на Android.
+"""Канал FCM (HTTP v1) — доставка пушей на Android и на iPhone с токеном Firebase.
+
+iPhone, приложение на котором получило токен через Firebase SDK, тоже ходит
+сюда: до устройства пуш доводит сам Firebase ключом APNs из настроек проекта.
+Нет ключа — FCM отвечает ``THIRD_PARTY_AUTH_ERROR``, это ошибка настройки, а
+не мёртвый токен.
 
 Авторизация — OAuth2 сервис-аккаунтом: подписываем JWT (RS256) приватным
 ключом из JSON и меняем его на access token, который кешируем до истечения.
@@ -20,6 +25,7 @@ import httpx
 import jwt
 import structlog
 
+from app.shared.push.apns import apns_aps, apns_headers
 from app.shared.push.channels import DeadTokenError, PushDeliveryError
 from app.shared.push.message import PushMessage
 
@@ -92,6 +98,13 @@ class FcmChannel:
         return self._access_token
 
     def _build_message(self, token: str, message: PushMessage) -> dict[str, Any]:
+        """Сообщение HTTP v1 сразу под обе платформы токена FCM.
+
+        Блок ``android`` FCM применит к Android-токену, блок ``apns`` — к
+        iPhone с токеном Firebase; лишний блок провайдер игнорирует. ``aps`` и
+        заголовки — те же, что у прямого канала APNs: пуш на iPhone выглядит
+        одинаково, каким бы путём ни пришёл.
+        """
         android: dict[str, Any] = {
             # ВСЕГДА HIGH: Doze копит NORMAL-приоритет до окна обслуживания
             # (§7 «иначе Doze копит»), а «неважных» пушей у нас не бывает —
@@ -102,7 +115,13 @@ class FcmChannel:
             android["collapse_key"] = message.collapse_key
         if message.ttl_seconds is not None:
             android["ttl"] = f"{max(message.ttl_seconds, 0)}s"
-        body: dict[str, Any] = {"token": token, "data": message.data, "android": android}
+        apns = {"headers": apns_headers(message), "payload": {"aps": apns_aps(message)}}
+        body: dict[str, Any] = {
+            "token": token,
+            "data": message.data,
+            "android": android,
+            "apns": apns,
+        }
         if not message.is_silent:
             body["notification"] = {"title": message.title, "body": message.body or ""}
             android_notification: dict[str, Any] = {"channel_id": message.android_channel}
@@ -131,5 +150,13 @@ class FcmChannel:
             raise DeadTokenError(f"FCM: {resp.status_code}")
         if resp.status_code == 400 and "registration token" in text.lower():
             raise DeadTokenError("FCM: invalid registration token")
+        if "THIRD_PARTY_AUTH_ERROR" in text:
+            # Токен жив: Firebase не может достучаться до APNs — в проект не
+            # загружен (или отозван) ключ APNs. Чинится в консоли Firebase.
+            logger.warning("fcm_send_failed", status=resp.status_code, body=text)
+            raise PushDeliveryError(
+                "FCM: нет ключа APNs в Firebase (THIRD_PARTY_AUTH_ERROR) — загрузить "
+                ".p8 в Project settings → Cloud Messaging → Apple app configuration"
+            )
         logger.warning("fcm_send_failed", status=resp.status_code, body=text)
         raise PushDeliveryError(f"FCM: HTTP {resp.status_code}")

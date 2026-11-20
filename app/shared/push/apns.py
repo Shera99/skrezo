@@ -1,4 +1,8 @@
-"""Канал APNs (token-based) — доставка пушей на iOS.
+"""Канал APNs (token-based) — доставка пушей на iOS по «сырому» device token.
+
+Сюда попадают только hex-токены APNs; iPhone с токеном Firebase обслуживает
+канал FCM (маршрут — :func:`app.shared.push.transport.provider_for`), но
+заголовки и ``aps`` у обоих путей общие — :func:`apns_headers`/:func:`apns_aps`.
 
 Авторизация — JWT ES256 ключом ``.p8`` (key id + team id); Apple требует
 обновлять его раз в 20–60 минут — кешируем на 50. Соединение HTTP/2 (это
@@ -36,6 +40,46 @@ def load_key(value: str) -> str:
     if not raw.startswith("-----"):
         return Path(raw).read_text()
     return raw.replace("\\n", "\n")
+
+
+def apns_headers(message: PushMessage) -> dict[str, str]:
+    """Заголовки APNs, общие для прямого канала и для блока ``apns`` у FCM.
+
+    Без авторизации и ``apns-topic``: их ставит прямой канал, а у FCM — сам
+    Firebase (ключом APNs, загруженным в проект).
+    """
+    headers = {
+        # Тихий пуш Apple принимает только как background с приоритетом 5.
+        "apns-push-type": "background" if message.is_silent else "alert",
+        # 10 — немедленно; 5 — с учётом энергосбережения устройства.
+        "apns-priority": "10" if message.urgent and not message.is_silent else "5",
+    }
+    if message.collapse_key:
+        headers["apns-collapse-id"] = message.collapse_key[:_COLLAPSE_LIMIT]
+    if message.ttl_seconds is not None:
+        headers["apns-expiration"] = str(int(time.time()) + max(message.ttl_seconds, 0))
+    return headers
+
+
+def apns_aps(message: PushMessage) -> dict[str, Any]:
+    """Словарь ``aps``: текст, звук, бейдж, группировка, срочность, категория."""
+    aps: dict[str, Any] = {}
+    if message.is_silent:
+        aps["content-available"] = 1
+    else:
+        aps["alert"] = {"title": message.title, "body": message.body or ""}
+        aps["sound"] = "default"
+    if message.badge is not None:
+        aps["badge"] = message.badge
+    if message.thread_id:
+        aps["thread-id"] = message.thread_id
+    if message.urgent and not message.is_silent:
+        # Требует entitlement time-sensitive у приложения; без него Apple
+        # молча понизит до active — деградация, а не отказ.
+        aps["interruption-level"] = "time-sensitive"
+    if message.ios_category:
+        aps["category"] = message.ios_category
+    return aps
 
 
 class ApnsChannel:
@@ -77,36 +121,15 @@ class ApnsChannel:
         return self._jwt
 
     def _headers(self, message: PushMessage) -> dict[str, str]:
-        headers = {
+        return {
             "authorization": f"bearer {self._auth_token()}",
             "apns-topic": self._bundle_id,
-            "apns-push-type": "alert",
-            # 10 — немедленно; 5 — с учётом энергосбережения устройства.
-            "apns-priority": "10" if message.urgent else "5",
+            **apns_headers(message),
         }
-        if message.collapse_key:
-            headers["apns-collapse-id"] = message.collapse_key[:_COLLAPSE_LIMIT]
-        if message.ttl_seconds is not None:
-            headers["apns-expiration"] = str(int(time.time()) + max(message.ttl_seconds, 0))
-        return headers
 
     def _body(self, message: PushMessage) -> dict[str, Any]:
-        aps: dict[str, Any] = {}
-        if not message.is_silent:
-            aps["alert"] = {"title": message.title, "body": message.body or ""}
-            aps["sound"] = "default"
-        if message.badge is not None:
-            aps["badge"] = message.badge
-        if message.thread_id:
-            aps["thread-id"] = message.thread_id
-        if message.urgent:
-            # Требует entitlement time-sensitive у приложения; без него Apple
-            # молча понизит до active — деградация, а не отказ.
-            aps["interruption-level"] = "time-sensitive"
-        if message.ios_category:
-            aps["category"] = message.ios_category
         # data — на верхнем уровне payload'а, рядом с aps (правило APNs).
-        return {"aps": aps, **message.data}
+        return {"aps": apns_aps(message), **message.data}
 
     async def send(self, token: str, message: PushMessage) -> None:
         try:

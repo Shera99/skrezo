@@ -404,7 +404,7 @@ class _RecordingChannel:
 
 def _recording_transport() -> tuple[PushTransport, _RecordingChannel]:
     channel = _RecordingChannel()
-    channels: dict[str, PushChannel] = {"android": channel, "ios": channel}
+    channels: dict[str, PushChannel] = {"fcm": channel, "apns": channel}
     return PushTransport(channels=channels, fallback=channel), channel
 
 
@@ -722,6 +722,7 @@ from app.modules.push.infrastructure.repositories.delivery_repository import (  
 from app.modules.push.infrastructure.repositories.event_repository import (  # noqa: E402
     EventRepository,
 )
+from app.shared.db.models.device import Device  # noqa: E402
 from app.shared.db.models.notification_delivery import NotificationDelivery  # noqa: E402
 from app.shared.push.channels import DeadTokenError  # noqa: E402
 
@@ -790,7 +791,7 @@ async def test_dead_token_recorded_as_error(
 ) -> None:
     """Мёртвый токен: устройство снято, в телеметрии — error, не отправка (Д16)."""
     await _set_hours(client, ctx, around_clock=True)
-    dead: dict[str, PushChannel] = {"android": _DeadChannel(), "ios": _DeadChannel()}
+    dead: dict[str, PushChannel] = {"fcm": _DeadChannel(), "apns": _DeadChannel()}
     transport = PushTransport(channels=dead, fallback=_DeadChannel())
     await _register_device(client, ctx.doctor_headers, "telemetry-dead-1")
 
@@ -812,6 +813,41 @@ async def test_dead_token_recorded_as_error(
     assert cancel.status_code == 200, cancel.text
     await _run(_resources, transport)
     assert len(await _deliveries(_resources)) == before
+
+
+async def test_iphone_with_firebase_token_goes_through_fcm(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """iPhone с токеном Firebase: срочный пуш уходит через FCM, а не в APNs.
+
+    Раньше iOS-устройство всегда шло в APNs: тот отвечал ``BadDeviceToken`` на
+    токен FCM, и диспетчер снимал устройство как мёртвое — пуши на iPhone не
+    доходили никогда.
+    """
+    await _set_hours(client, ctx, around_clock=True)
+    fcm, apns = _RecordingChannel(), _RecordingChannel()
+    fcm.name, apns.name = "fcm", "apns"
+    transport = PushTransport(channels={"fcm": fcm, "apns": apns}, fallback=_DeadChannel())
+    token = f"ios-{uuid.uuid4().hex}:APA91b"
+    resp = await client.post(
+        f"{API}/clinic/devices",
+        headers=ctx.doctor_headers,
+        json={"token": token, "platform": "ios", "locale": "ru"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await _book(client, ctx, hours=0.5)  # critical → пуш сразу
+    await _run(_resources, transport)
+
+    assert token in [sent_token for sent_token, _ in fcm.sent]
+    assert apns.sent == []
+    rows = [r for r in await _deliveries(_resources) if r.provider == "fcm"]
+    assert rows and rows[-1].platform == "ios" and rows[-1].error is None
+    async with _resources.factory() as session:
+        alive = (
+            await session.execute(select(Device.id).where(Device.token == token))
+        ).scalar_one_or_none()
+    assert alive is not None  # устройство не снято как «мёртвое»
 
 
 async def test_cleanup_respects_retention(ctx: Ctx, _resources: Resources) -> None:

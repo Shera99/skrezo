@@ -768,7 +768,7 @@ draft → scheduled → confirmed → arrived → in_progress → completed
 | `POST` | `/clinic/inbox/displayed` | Подтвердить ПОКАЗ записей (пачкой, идемпотентно) — отменяет отложенные normal-пуши и пишет телеметрию |
 | `GET` | `/admin/notifications/telemetry?days=` | Skrezo: доставляемость пушей по платформам (sent/failed/displayed, `displayRate`) |
 | `GET` | `/clinic/notifications/plan?date=&doctorId=` | План локальных напоминаний врача на день (soon/arrival, готовые тексты) |
-| `POST` | `/clinic/devices` | Зарегистрировать/обновить токен устройства (звать при входе и каждом запуске) |
+| `POST` | `/clinic/devices` | Зарегистрировать/обновить токен устройства (звать при входе, каждом запуске и смене клиники). iOS — токен FCM или device token APNs: сервер различает их сам |
 | `DELETE` | `/clinic/devices/{token}` | Снять токен — **обязательно при выходе из аккаунта** (общий планшет ресепшена) |
 | `PUT` | `/clinic/notifications/prefs` | Отключённые типы и тихие часы (по времени клиники) |
 

@@ -26,7 +26,14 @@ _DISABLED_DESCRIPTION = (
 class RegisterDeviceRequest(CamelModel):
     """Регистрация токена устройства на пуши."""
 
-    token: str = Field(min_length=1, description="Токен FCM (Android) или device token APNs (iOS)")
+    token: str = Field(
+        min_length=1,
+        description=(
+            "Токен устройства. Android — токен FCM. iOS — токен FCM (Firebase SDK) "
+            "**или** device token APNs (hex): сервер различает их сам и шлёт через "
+            "FCM или напрямую в APNs."
+        ),
+    )
     platform: DevicePlatform = Field(description="Платформа устройства", examples=["android"])
     app_version: str | None = Field(
         default=None, description="Версия приложения, если известна", examples=["1.4.0"]

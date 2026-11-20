@@ -6,7 +6,8 @@
   канала нет (иначе проверка доставки врёт ровно там, где нужна);
 * мёртвый токен и ошибка провайдера видны по каждому устройству отдельно, и
   одно сломанное устройство не мешает отправке на остальные;
-* скрипт ничего не меняет в базе — мёртвое устройство остаётся на месте.
+* скрипт ничего не меняет в базе — мёртвое устройство остаётся на месте;
+* iPhone с токеном Firebase уходит через FCM, а не в APNs (там он «мёртвый»).
 
 Провайдеры подменяются каналами-заглушками; скрипт открывает сессию сам, поэтому
 ``session_factory`` патчится в его модуле.
@@ -57,8 +58,19 @@ def _script_db(_resources: Resources, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(push_test, "session_factory", _resources.factory)
 
 
+def _token(platform: DevicePlatform, *, ios_fcm: bool) -> str:
+    """Android — токен FCM; iOS — «сырой» hex APNs или токен Firebase (``ios_fcm``)."""
+    if platform is DevicePlatform.IOS and not ios_fcm:
+        return uuid.uuid4().hex * 2
+    return f"{platform.value}-{uuid.uuid4().hex}:APA91b"
+
+
 async def _account_with_devices(
-    admin_client: AsyncClient, res: Resources, platforms: list[DevicePlatform]
+    admin_client: AsyncClient,
+    res: Resources,
+    platforms: list[DevicePlatform],
+    *,
+    ios_fcm: bool = False,
 ) -> str:
     """Клиника с владельцем и его устройствами; вернуть телефон владельца."""
     phone = _phone()
@@ -86,7 +98,7 @@ async def _account_with_devices(
                 Device(
                     account_id=account.id,
                     clinic_id=clinic_id,
-                    token=f"{platform.value}-{uuid.uuid4().hex}",
+                    token=_token(platform, ios_fcm=ios_fcm),
                     platform=platform,
                     app_version="1.0.0",
                 )
@@ -104,12 +116,14 @@ async def test_sends_to_every_device_and_reports_each(
     )
     apns = _Channel("apns", DeadTokenError("APNs: 400"))
     fcm = _Channel("fcm")
-    transport = PushTransport({"ios": apns, "android": fcm}, LoggingPushChannel())
+    transport = PushTransport({"apns": apns, "fcm": fcm}, LoggingPushChannel())
 
     code = await push_test.run(phone, transport=transport)
 
     out = capsys.readouterr().out
     assert code == 0
+    assert "токены FCM → fcm · токены APNs → apns" in out
+    assert "токен APNs" in out and "токен FCM" in out
     assert len(fcm.sent) == 1
     message = fcm.sent[0][1]
     assert message.title == "Проверка уведомлений Skrezo"
@@ -122,6 +136,27 @@ async def test_sends_to_every_device_and_reports_each(
     async with _resources.factory() as session:
         devices = (await session.execute(select(Device.platform))).scalars().all()
     assert DevicePlatform.IOS in devices
+
+
+async def test_iphone_with_firebase_token_goes_through_fcm(
+    admin_client: AsyncClient, _resources: Resources, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """iPhone с токеном Firebase (TestFlight) — через FCM, а не в APNs."""
+    phone = await _account_with_devices(
+        admin_client, _resources, [DevicePlatform.IOS], ios_fcm=True
+    )
+    apns = _Channel("apns", DeadTokenError("APNs: 400 BadDeviceToken"))
+    fcm = _Channel("fcm")
+
+    code = await push_test.run(
+        phone, transport=PushTransport({"apns": apns, "fcm": fcm}, LoggingPushChannel())
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert apns.sent == [] and len(fcm.sent) == 1
+    assert "ios · " in out and "токен FCM" in out
+    assert "✅ FCM принял пуш" in out
 
 
 async def test_log_fallback_is_not_reported_as_delivered(
@@ -145,7 +180,7 @@ async def test_provider_error_is_shown_with_reason(
     """Временная ошибка провайдера видна с причиной; код 1 — никто не принял."""
     phone = await _account_with_devices(admin_client, _resources, [DevicePlatform.ANDROID])
     transport = PushTransport(
-        {"android": _Channel("fcm", PushDeliveryError("FCM: HTTP 403"))}, LoggingPushChannel()
+        {"fcm": _Channel("fcm", PushDeliveryError("FCM: HTTP 403"))}, LoggingPushChannel()
     )
 
     code = await push_test.run(phone, transport=transport)

@@ -2,7 +2,8 @@
 
 Шлёт пуш напрямую через транспорт, в обход событий, тихих часов и ленты
 уведомлений: проверяется только цепочка «наши ключи → провайдер → телефон».
-По каждому устройству печатает ответ провайдера и подсказку, что чинить.
+По каждому устройству печатает вид токена (FCM или APNs — от него зависит,
+каким провайдером уйдёт пуш), ответ провайдера и подсказку, что чинить.
 
     make push-test phone=0700123456
     uv run python -m app.scripts.push_test --phone 0700123456 --body "Привет"
@@ -41,7 +42,7 @@ from app.shared.notifications.team_format import team_datetime
 from app.shared.push.channels import DeadTokenError, PushDeliveryError
 from app.shared.push.factory import build_push_transport
 from app.shared.push.message import PushMessage
-from app.shared.push.transport import PushTransport
+from app.shared.push.transport import APNS, FCM, Provider, PushTransport, provider_for
 
 # Канал Android, который приложение создаёт первым делом: пуш в несозданный
 # канал Android 8+ молча уводит в «Прочее» — проверка тогда врала бы о звуке.
@@ -75,10 +76,10 @@ def _message(title: str | None, body: str | None) -> PushMessage:
     )
 
 
-def _dead_token_hint(platform: DevicePlatform) -> str:
-    if platform is DevicePlatform.IOS:
+def _dead_token_hint(provider: Provider) -> str:
+    if provider == APNS:
         return (
-            "токен недействителен. Для iOS чаще всего это несовпадение среды APNs: "
+            "токен недействителен. Для токена APNs чаще всего это несовпадение среды: "
             "TestFlight и App Store → APNS_USE_SANDBOX=false, сборка из Xcode → true. "
             "Иначе — приложение удалено или переустановлено: войти в него заново."
         )
@@ -132,8 +133,8 @@ async def run(
     print(f"Аккаунт: {account.full_name} ({phone})")
     print(
         f"PUSH_ENABLED={str(settings.push_enabled).lower()} · "
-        f"android → {transport.channel_name(DevicePlatform.ANDROID)} · "
-        f"ios → {transport.channel_name(DevicePlatform.IOS)}"
+        f"токены FCM → {transport.provider_channel_name(FCM)} · "
+        f"токены APNs → {transport.provider_channel_name(APNS)}"
     )
     if not targets:
         print(
@@ -147,23 +148,25 @@ async def run(
     print(f"Устройств: {len(targets)}\n")
     for number, target in enumerate(targets, start=1):
         seen = team_datetime(target.last_seen_at) if target.last_seen_at else "—"
+        kind = provider_for(target.platform, target.token)
         print(
             f"{number}. {target.platform.value} · версия {target.app_version or '—'} · "
-            f"«{target.clinic_name}» · последний вход {seen} · токен {target.token[:10]}…"
+            f"«{target.clinic_name}» · последний вход {seen} · "
+            f"токен {_PROVIDER[kind]} {target.token[:10]}…"
         )
-        channel = transport.channel_name(target.platform)
+        channel = transport.channel_name(target.platform, target.token)
         if channel == "log":
             # Лог-фолбэк «доставляет» молча — без этой проверки отчёт соврал бы ✅.
             print(
                 "   ⚠️ живой канал не настроен — пуш ушёл только в лог. Нужны PUSH_ENABLED=true "
-                "и ключи " + ("FCM" if target.platform is DevicePlatform.ANDROID else "APNs")
+                f"и ключи {_PROVIDER[kind]}"
             )
             continue
         provider = _PROVIDER.get(channel, channel)
         try:
             await transport.send(target.platform, target.token, message)
         except DeadTokenError:
-            print(f"   💀 {provider}: {_dead_token_hint(target.platform)}")
+            print(f"   💀 {provider}: {_dead_token_hint(kind)}")
         except PushDeliveryError as exc:
             print(f"   ❌ {exc} — подробности в логе (fcm_send_failed / apns_send_failed)")
         except Exception as exc:  # ключ, сеть, OAuth — для диагностики важен любой отказ
