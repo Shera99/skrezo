@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final, Literal
+
 #: Почему номер перестал работать у нас — код в API, текст для людей.
 RECONNECT_REASONS: dict[str, str] = {
     "partner_removed": "Доступ Skrezo к аккаунту WhatsApp Business отозван в Meta",
@@ -17,6 +19,26 @@ RECONNECT_REASONS: dict[str, str] = {
 #: (номер в WABA клиники, её бизнес-токен).
 MANUAL = "manual"
 SELF_SERVICE = "embedded_signup"
+
+#: Состояние подключения для списка команды Skrezo: номер работает; номер
+#: включён, но Meta его больше не обслуживает у нас (нужно переподключить);
+#: клиника или команда отключила номер (строка и история сохранены).
+ConnectionState = Literal["working", "needs_reconnect", "disconnected"]
+WORKING: Final = "working"
+NEEDS_RECONNECT: Final = "needs_reconnect"
+DISCONNECTED: Final = "disconnected"
+
+
+def connection_state(*, active: bool, needs_reconnect: bool) -> ConnectionState:
+    """Одно из ``working`` / ``needs_reconnect`` / ``disconnected``.
+
+    Отключённый номер — ``disconnected`` независимо от отметки о переподключении:
+    он и так не принимает сообщения.
+    """
+    if not active:
+        return DISCONNECTED
+    return NEEDS_RECONNECT if needs_reconnect else WORKING
+
 
 #: Окно Meta для номера, который остаётся в приложении WhatsApp Business.
 SIGNUP_FEATURE_TYPE = "whatsapp_business_app_onboarding"

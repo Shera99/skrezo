@@ -2983,6 +2983,54 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Подключения WhatsApp клиник",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/whatsapp/connections?connectedVia=manual&state=working&query=string&page=1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "whatsapp",
+                    "connections"
+                  ],
+                  "query": [
+                    {
+                      "key": "connectedVia",
+                      "value": "manual",
+                      "disabled": true,
+                      "description": "`embedded_signup` — подключили сами; `manual` — привязала команда"
+                    },
+                    {
+                      "key": "state",
+                      "value": "working",
+                      "disabled": true,
+                      "description": "`working` / `needs_reconnect` / `disconnected`"
+                    },
+                    {
+                      "key": "query",
+                      "value": "string",
+                      "disabled": true,
+                      "description": "Поиск: клиника, номер (можно цифрами без «+»), имя бизнеса у Meta"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": true,
+                      "description": "Страница (1-based), по 25 строк"
+                    }
+                  ]
+                },
+                "description": "Номера WhatsApp всех клиник — и подключённые сами, и привязанные командой.\n\nСвежие подключения сверху. `state` показывает, работает ли номер у нас:\n`needs_reconnect` — Meta больше не пускает к номеру (клиника отозвала\nдоступ, перерегистрировала номер на другом телефоне, удалила аккаунт),\nпричина и текст — в `needsReconnect`. Отключённые номера (`disconnected`)\nостаются в списке: строка и история переписки сохраняются.\n\n`summary` — числа по всем подключениям для вкладок, фильтры на них не\nвлияют. Секреты (токены клиник, PIN) не отдаются никогда."
+              },
+              "response": []
             }
           ]
         },

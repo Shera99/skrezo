@@ -12017,6 +12017,145 @@
         }
       }
     },
+    "/api/v1/admin/whatsapp/connections": {
+      "get": {
+        "tags": [
+          "whatsapp-admin"
+        ],
+        "summary": "Подключения WhatsApp клиник",
+        "description": "Номера WhatsApp всех клиник — и подключённые сами, и привязанные командой.\n\nСвежие подключения сверху. `state` показывает, работает ли номер у нас:\n`needs_reconnect` — Meta больше не пускает к номеру (клиника отозвала\nдоступ, перерегистрировала номер на другом телефоне, удалила аккаунт),\nпричина и текст — в `needsReconnect`. Отключённые номера (`disconnected`)\nостаются в списке: строка и история переписки сохраняются.\n\n`summary` — числа по всем подключениям для вкладок, фильтры на них не\nвлияют. Секреты (токены клиник, PIN) не отдаются никогда.",
+        "operationId": "admin_list_connections_api_v1_admin_whatsapp_connections_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connectedVia",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "embedded_signup"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`embedded_signup` — подключили сами; `manual` — привязала команда",
+              "title": "Connectedvia"
+            },
+            "description": "`embedded_signup` — подключили сами; `manual` — привязала команда"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "working",
+                    "needs_reconnect",
+                    "disconnected"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`working` / `needs_reconnect` / `disconnected`",
+              "title": "State"
+            },
+            "description": "`working` / `needs_reconnect` / `disconnected`"
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Поиск: клиника, номер (можно цифрами без «+»), имя бизнеса у Meta",
+              "title": "Query"
+            },
+            "description": "Поиск: клиника, номер (можно цифрами без «+»), имя бизнеса у Meta"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Страница (1-based), по 25 строк",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Страница (1-based), по 25 строк"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница подключений и числа для вкладок",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нет токена или он невалиден",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "invalid_token",
+                  "message": "Невалидный токен"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Токен не администратора Skrezo",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_platform_admin",
+                  "message": "Требуется доступ администратора Skrezo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неизвестное значение фильтра или страница меньше 1",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "validation_error",
+                  "message": "Тело запроса не прошло валидацию"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/usage": {
       "get": {
         "tags": [
@@ -29975,6 +30114,142 @@
         "title": "WhatsAppAppSyncOut",
         "description": "Перенос данных приложения WhatsApp Business: контакты и история переписки."
       },
+      "WhatsAppConnectionListItem": {
+        "properties": {
+          "clinicId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Clinicid"
+          },
+          "clinicName": {
+            "type": "string",
+            "title": "Clinicname",
+            "examples": [
+              "Стоматология Улыбка"
+            ]
+          },
+          "phoneNumberId": {
+            "type": "string",
+            "title": "Phonenumberid",
+            "description": "ID номера в Meta",
+            "examples": [
+              "106540352242922"
+            ]
+          },
+          "displayPhone": {
+            "type": "string",
+            "title": "Displayphone",
+            "examples": [
+              "+996700123456"
+            ]
+          },
+          "verifiedName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifiedname",
+            "description": "Отображаемое имя бизнеса, одобренное Meta"
+          },
+          "wabaId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wabaid",
+            "description": "WhatsApp Business Account: у подключившейся сама — WABA клиники",
+            "examples": [
+              "102290129340398"
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/WhatsAppMode",
+            "description": "`coexistence` — номер работает и в приложении WhatsApp Business; `api_only`"
+          },
+          "connectedVia": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "embedded_signup"
+            ],
+            "title": "Connectedvia",
+            "description": "`embedded_signup` — подключила клиника сама; `manual` — команда Skrezo"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_reconnect",
+              "disconnected"
+            ],
+            "title": "State",
+            "description": "`working` — номер принимает сообщения; `needs_reconnect` — включён, но Meta больше не пускает нас к номеру (подробности в `needsReconnect`); `disconnected` — отключён клиникой или командой, история сохранена"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Connectedat",
+            "description": "Когда подключён; у привязки вручную — когда команда её завела"
+          },
+          "qualityRating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualityrating",
+            "description": "Рейтинг качества номера у Meta: GREEN / YELLOW / RED"
+          },
+          "statusCheckedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statuscheckedat",
+            "description": "Когда состояние номера последний раз спрашивали у Meta"
+          },
+          "needsReconnect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhatsAppReconnectOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Заполнено — Meta больше не пускает к номеру (у отключённого не отдаётся)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "clinicId",
+          "clinicName",
+          "phoneNumberId",
+          "displayPhone",
+          "mode",
+          "connectedVia",
+          "state",
+          "connectedAt"
+        ],
+        "title": "WhatsAppConnectionListItem",
+        "description": "Подключение WhatsApp одной клиники в списке команды Skrezo."
+      },
       "WhatsAppConnectionResponse": {
         "properties": {
           "connected": {
@@ -30155,6 +30430,132 @@
           "verifiedName": "Стоматология Улыбка",
           "wabaId": "102290129340398"
         }
+      },
+      "WhatsAppConnectionsResponse": {
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/WhatsAppConnectionListItem"
+            },
+            "type": "array",
+            "title": "List"
+          },
+          "currentPage": {
+            "type": "integer",
+            "title": "Currentpage"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize",
+            "default": 25
+          },
+          "totalCount": {
+            "type": "integer",
+            "title": "Totalcount",
+            "description": "Сколько подключений под фильтром"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/WhatsAppConnectionsSummaryOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "list",
+          "currentPage",
+          "totalCount",
+          "summary"
+        ],
+        "title": "WhatsAppConnectionsResponse",
+        "description": "Страница подключений WhatsApp всех клиник.",
+        "example": {
+          "currentPage": 1,
+          "list": [
+            {
+              "clinicId": "8f14e45f-ceea-467f-a8f0-6f1e1c4b2a10",
+              "clinicName": "DentalPlus",
+              "connectedAt": "2026-11-20T09:15:00Z",
+              "connectedVia": "embedded_signup",
+              "displayPhone": "+996700123456",
+              "mode": "coexistence",
+              "phoneNumberId": "106540352242922",
+              "qualityRating": "GREEN",
+              "state": "working",
+              "statusCheckedAt": "2026-11-20T10:00:00Z",
+              "verifiedName": "DentalPlus",
+              "wabaId": "102290129340398"
+            }
+          ],
+          "pageSize": 25,
+          "summary": {
+            "disconnected": 2,
+            "embeddedSignup": 6,
+            "manual": 8,
+            "needsReconnect": 1,
+            "total": 14,
+            "working": 11
+          },
+          "totalCount": 1
+        }
+      },
+      "WhatsAppConnectionsSummaryOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Все привязки номеров, включая отключённые",
+            "examples": [
+              14
+            ]
+          },
+          "working": {
+            "type": "integer",
+            "title": "Working",
+            "examples": [
+              11
+            ]
+          },
+          "needsReconnect": {
+            "type": "integer",
+            "title": "Needsreconnect",
+            "examples": [
+              1
+            ]
+          },
+          "disconnected": {
+            "type": "integer",
+            "title": "Disconnected",
+            "examples": [
+              2
+            ]
+          },
+          "embeddedSignup": {
+            "type": "integer",
+            "title": "Embeddedsignup",
+            "description": "Подключили сами через окно Meta",
+            "examples": [
+              6
+            ]
+          },
+          "manual": {
+            "type": "integer",
+            "title": "Manual",
+            "description": "Привязала команда Skrezo",
+            "examples": [
+              8
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "working",
+          "needsReconnect",
+          "disconnected",
+          "embeddedSignup",
+          "manual"
+        ],
+        "title": "WhatsAppConnectionsSummaryOut",
+        "description": "Числа по всем подключениям — для вкладок; фильтры запроса на них не влияют."
       },
       "WhatsAppMode": {
         "type": "string",
@@ -30469,7 +30870,7 @@
     },
     {
       "name": "whatsapp-admin",
-      "description": "Общие шаблоны WhatsApp платформы: каталог и понятные названия с подписями переменных для кабинетов клиник (только `is_platform_admin`).",
+      "description": "Общие шаблоны WhatsApp платформы: каталог и понятные названия с подписями переменных для кабинетов клиник; подключения WhatsApp всех клиник — кто подключился сам через окно Meta, кого привязала команда, работает ли номер (только `is_platform_admin`).",
       "x-displayName": "WhatsApp (Skrezo)"
     },
     {

@@ -1,7 +1,8 @@
 """Сборка роутов WhatsApp: вебхук Meta, диалоги клиники, привязка номера.
 
 Отдельный ``admin_router`` — платформенный контур Skrezo: общие шаблоны и их
-подписи для кабинетов клиник (только ``is_platform_admin``).
+подписи для кабинетов клиник, список подключений WhatsApp всех клиник
+(только ``is_platform_admin``).
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.modules.whatsapp.presentation.routes import (
+    admin_connections,
     admin_templates,
     clinic_whatsapp,
     connect_whatsapp,
@@ -36,3 +38,4 @@ router.include_router(clinic_whatsapp.router)
 
 admin_router = APIRouter(tags=["whatsapp-admin"])
 admin_router.include_router(admin_templates.router)
+admin_router.include_router(admin_connections.router)

@@ -10,8 +10,8 @@ from pydantic import ConfigDict, Field
 
 from app.modules.whatsapp.application.use_cases.connection_status import ConnectionStatus
 from app.modules.whatsapp.application.use_cases.prefill_template import TemplatePrefill
-from app.modules.whatsapp.domain.connection import reconnect_message
-from app.modules.whatsapp.domain.models import ConversationRow
+from app.modules.whatsapp.domain.connection import ConnectionState, reconnect_message
+from app.modules.whatsapp.domain.models import ConnectionRow, ConversationRow
 from app.modules.whatsapp.domain.template_sources import VariableSource, normalize_sources
 from app.modules.whatsapp.domain.templates import (
     template_title,
@@ -673,6 +673,132 @@ class WhatsAppConnectionResponse(CamelModel):
             ),
             signup=signup,
         )
+
+
+class WhatsAppConnectionListItem(CamelModel):
+    """Подключение WhatsApp одной клиники в списке команды Skrezo."""
+
+    clinic_id: uuid.UUID
+    clinic_name: str = Field(examples=["Стоматология Улыбка"])
+    phone_number_id: str = Field(description="ID номера в Meta", examples=["106540352242922"])
+    display_phone: str = Field(examples=["+996700123456"])
+    verified_name: str | None = Field(
+        default=None, description="Отображаемое имя бизнеса, одобренное Meta"
+    )
+    waba_id: str | None = Field(
+        default=None,
+        description="WhatsApp Business Account: у подключившейся сама — WABA клиники",
+        examples=["102290129340398"],
+    )
+    mode: WhatsAppMode = Field(
+        description="`coexistence` — номер работает и в приложении WhatsApp Business; `api_only`"
+    )
+    connected_via: Literal["manual", "embedded_signup"] = Field(
+        description="`embedded_signup` — подключила клиника сама; `manual` — команда Skrezo"
+    )
+    state: ConnectionState = Field(
+        description=(
+            "`working` — номер принимает сообщения; `needs_reconnect` — включён, но Meta "
+            "больше не пускает нас к номеру (подробности в `needsReconnect`); "
+            "`disconnected` — отключён клиникой или командой, история сохранена"
+        )
+    )
+    connected_at: datetime = Field(
+        description="Когда подключён; у привязки вручную — когда команда её завела"
+    )
+    quality_rating: str | None = Field(
+        default=None, description="Рейтинг качества номера у Meta: GREEN / YELLOW / RED"
+    )
+    status_checked_at: datetime | None = Field(
+        default=None, description="Когда состояние номера последний раз спрашивали у Meta"
+    )
+    needs_reconnect: WhatsAppReconnectOut | None = Field(
+        default=None,
+        description="Заполнено — Meta больше не пускает к номеру (у отключённого не отдаётся)",
+    )
+
+    @classmethod
+    def from_row(cls, row: ConnectionRow) -> WhatsAppConnectionListItem:
+        reconnect = (
+            WhatsAppReconnectOut(
+                since=row.needs_reconnect_at,
+                reason=row.needs_reconnect_reason or "token_invalid",
+                message=reconnect_message(row.needs_reconnect_reason) or "",
+            )
+            if row.needs_reconnect_at is not None and row.active
+            else None
+        )
+        return cls(
+            clinic_id=row.clinic_id,
+            clinic_name=row.clinic_name,
+            phone_number_id=row.phone_number_id,
+            display_phone=row.display_phone,
+            verified_name=row.verified_name,
+            waba_id=row.waba_id,
+            mode=row.mode,
+            connected_via="embedded_signup" if row.connected_via == "embedded_signup" else "manual",
+            state=row.state,
+            connected_at=row.connected_at,
+            quality_rating=row.quality_rating,
+            status_checked_at=row.status_checked_at,
+            needs_reconnect=reconnect,
+        )
+
+
+class WhatsAppConnectionsSummaryOut(CamelModel):
+    """Числа по всем подключениям — для вкладок; фильтры запроса на них не влияют."""
+
+    total: int = Field(description="Все привязки номеров, включая отключённые", examples=[14])
+    working: int = Field(examples=[11])
+    needs_reconnect: int = Field(examples=[1])
+    disconnected: int = Field(examples=[2])
+    embedded_signup: int = Field(description="Подключили сами через окно Meta", examples=[6])
+    manual: int = Field(description="Привязала команда Skrezo", examples=[8])
+
+
+class WhatsAppConnectionsResponse(CamelModel):
+    """Страница подключений WhatsApp всех клиник."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "list": [
+                    {
+                        "clinicId": "8f14e45f-ceea-467f-a8f0-6f1e1c4b2a10",
+                        "clinicName": "DentalPlus",
+                        "phoneNumberId": "106540352242922",
+                        "displayPhone": "+996700123456",
+                        "verifiedName": "DentalPlus",
+                        "wabaId": "102290129340398",
+                        "mode": "coexistence",
+                        "connectedVia": "embedded_signup",
+                        "state": "working",
+                        "connectedAt": "2026-11-20T09:15:00Z",
+                        "qualityRating": "GREEN",
+                        "statusCheckedAt": "2026-11-20T10:00:00Z",
+                        "needsReconnect": None,
+                    }
+                ],
+                "currentPage": 1,
+                "pageSize": 25,
+                "totalCount": 1,
+                "summary": {
+                    "total": 14,
+                    "working": 11,
+                    "needsReconnect": 1,
+                    "disconnected": 2,
+                    "embeddedSignup": 6,
+                    "manual": 8,
+                },
+            }
+        }
+    )
+
+    list: list[WhatsAppConnectionListItem]
+    current_page: int
+    page_size: int = 25
+    total_count: int = Field(description="Сколько подключений под фильтром")
+    summary: WhatsAppConnectionsSummaryOut
 
 
 class EmbeddedSignupRequest(CamelModel):

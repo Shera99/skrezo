@@ -849,6 +849,7 @@ Gemini 3, иначе Google отклоняет запрос (`422 llm_request_re
 | `POST` | `/clinic/conversations/{id}/templates` | Отправить одобренный шаблон — работает и в закрытое окно; служебный Meta → 422 `template_service` |
 | `GET` | `/clinic/conversations/{id}/messages/{mid}/media` | Вложение (голосовое, снимок, документ) |
 | `PUT` | `/admin/clients/{clinicId}/whatsapp` | Привязать номер Cloud API к клинике вручную (Skrezo, общий токен платформы); `phoneNumberId` уникален → 409 |
+| `GET` | `/admin/whatsapp/connections?connectedVia=&state=&query=&page=` | Skrezo: номера WhatsApp всех клиник — подключённые сами (`embedded_signup`) и привязанные командой (`manual`); `state`: `working` / `needs_reconnect` (причина в `needsReconnect`) / `disconnected`; поиск по клинике, номеру (цифрами без «+») и имени бизнеса; по 25, свежие сверху; `summary` — числа для вкладок без учёта фильтров. Токены не отдаются |
 | `GET` | `/clinic/whatsapp` | Номер клиники (имя, качество, режим, «нужно переподключить», ход переноса истории) и параметры окна Meta `signup` (`whatsapp.manage` или `conversations.manage`) |
 | `POST` | `/clinic/whatsapp/embedded-signup` | Завершить подключение после окна Meta: `{code, wabaId, phoneNumberId?}` — сразу, код живёт 30 с (`whatsapp.manage`) |
 | `POST` | `/clinic/whatsapp/refresh` | Перечитать имя, качество и доступ к номеру у Meta |

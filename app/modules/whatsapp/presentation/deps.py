@@ -17,6 +17,9 @@ from app.modules.whatsapp.application.use_cases.embedded_signup import (
     ConnectViaEmbeddedSignupUseCase,
 )
 from app.modules.whatsapp.application.use_cases.get_messages import GetMessagesUseCase
+from app.modules.whatsapp.application.use_cases.list_connections import (
+    ListWhatsAppConnectionsUseCase,
+)
 from app.modules.whatsapp.application.use_cases.list_conversations import (
     ListConversationsUseCase,
 )
@@ -58,6 +61,12 @@ def get_list_conversations_use_case(
     repository: WhatsAppRepository = Depends(get_whatsapp_repository),
 ) -> ListConversationsUseCase:
     return ListConversationsUseCase(repository)
+
+
+def get_list_connections_use_case(
+    repository: WhatsAppRepository = Depends(get_whatsapp_repository),
+) -> ListWhatsAppConnectionsUseCase:
+    return ListWhatsAppConnectionsUseCase(repository)
 
 
 def get_mark_read_use_case(

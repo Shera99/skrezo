@@ -6,7 +6,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang
+from app.modules.whatsapp.domain.connection import ConnectionState, connection_state
+from app.shared.db.enums import AiConversationStatus, AiMessageRole, Lang, WhatsAppMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,3 +56,44 @@ class ConversationCounters:
     awaiting: int
     needs_human: int
     unread: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionRow:
+    """Подключение WhatsApp одной клиники — строка списка для команды Skrezo."""
+
+    clinic_id: uuid.UUID
+    clinic_name: str
+    phone_number_id: str
+    display_phone: str
+    verified_name: str | None
+    waba_id: str | None
+    mode: WhatsAppMode
+    active: bool
+    #: ``manual`` — привязала команда Skrezo; ``embedded_signup`` — клиника сама.
+    connected_via: str
+    #: Когда подключён; у привязки вручную — когда команда завела строку.
+    connected_at: datetime
+    quality_rating: str | None
+    status_checked_at: datetime | None
+    needs_reconnect_at: datetime | None
+    needs_reconnect_reason: str | None
+
+    @property
+    def state(self) -> ConnectionState:
+        """``working`` / ``needs_reconnect`` / ``disconnected``."""
+        return connection_state(
+            active=self.active, needs_reconnect=self.needs_reconnect_at is not None
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionSummary:
+    """Числа по всем подключениям — для вкладок списка, без учёта фильтров."""
+
+    total: int
+    working: int
+    needs_reconnect: int
+    disconnected: int
+    embedded_signup: int
+    manual: int

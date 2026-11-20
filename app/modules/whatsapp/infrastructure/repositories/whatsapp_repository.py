@@ -16,8 +16,19 @@ from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, tru
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.whatsapp.domain.connection import MANUAL, SELF_SERVICE
-from app.modules.whatsapp.domain.models import ConversationCounters, ConversationRow
+from app.modules.whatsapp.domain.connection import (
+    DISCONNECTED,
+    MANUAL,
+    NEEDS_RECONNECT,
+    SELF_SERVICE,
+    WORKING,
+)
+from app.modules.whatsapp.domain.models import (
+    ConnectionRow,
+    ConnectionSummary,
+    ConversationCounters,
+    ConversationRow,
+)
 from app.shared.db.enums import (
     AiConversationStatus,
     AiMessageRole,
@@ -94,6 +105,112 @@ class WhatsAppRepository:
         return (
             await self._session.execute(select(Clinic.id).where(Clinic.id == clinic_id))
         ).scalar_one_or_none() is not None
+
+    # ── Подключения всех клиник (контур Skrezo) ─────────────────────────────
+
+    @staticmethod
+    def _state_condition(state: str) -> ColumnElement[bool]:
+        """Условие состояния подключения — то же, что ``connection_state``."""
+        if state == DISCONNECTED:
+            return ClinicWhatsApp.active.is_(False)
+        reconnect = ClinicWhatsApp.needs_reconnect_at.is_not(None)
+        return and_(
+            ClinicWhatsApp.active.is_(True),
+            reconnect if state == NEEDS_RECONNECT else ~reconnect,
+        )
+
+    async def list_connections(
+        self,
+        *,
+        connected_via: str | None,
+        state: str | None,
+        query: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[ConnectionRow], int]:
+        """Страница подключений всех клиник и общее число под фильтром.
+
+        Поиск — по названию клиники, номеру и имени бизнеса у Meta; номер
+        находится и по цифрам без «+» и пробелов. Свежие подключения сверху.
+        """
+        conditions: list[ColumnElement[bool]] = []
+        if connected_via is not None:
+            conditions.append(ClinicWhatsApp.connected_via == connected_via)
+        if state is not None:
+            conditions.append(self._state_condition(state))
+        if query and query.strip():
+            text_ = query.strip()
+            options: list[ColumnElement[bool]] = [
+                Clinic.name.icontains(text_, autoescape=True),
+                ClinicWhatsApp.display_phone.icontains(text_, autoescape=True),
+                ClinicWhatsApp.verified_name.icontains(text_, autoescape=True),
+            ]
+            digits = "".join(ch for ch in text_ if ch.isdigit())
+            if len(digits) >= 3:
+                options.append(
+                    func.regexp_replace(ClinicWhatsApp.display_phone, r"\D", "", "g").contains(
+                        digits
+                    )
+                )
+            conditions.append(or_(*options))
+
+        base = (
+            select(ClinicWhatsApp, Clinic.name)
+            .join(Clinic, Clinic.id == ClinicWhatsApp.clinic_id)
+            .where(*conditions)
+        )
+        total = (
+            await self._session.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar_one()
+        connected_at = func.coalesce(ClinicWhatsApp.connected_at, ClinicWhatsApp.created_at)
+        rows = await self._session.execute(
+            base.order_by(connected_at.desc(), ClinicWhatsApp.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        items = [
+            ConnectionRow(
+                clinic_id=b.clinic_id,
+                clinic_name=name,
+                phone_number_id=b.phone_number_id,
+                display_phone=b.display_phone,
+                verified_name=b.verified_name,
+                waba_id=b.waba_id,
+                mode=b.mode,
+                active=b.active,
+                connected_via=SELF_SERVICE if b.connected_via == SELF_SERVICE else MANUAL,
+                connected_at=b.connected_at or b.created_at,
+                quality_rating=b.quality_rating,
+                status_checked_at=b.status_checked_at,
+                needs_reconnect_at=b.needs_reconnect_at,
+                needs_reconnect_reason=b.needs_reconnect_reason,
+            )
+            for b, name in rows.tuples()
+        ]
+        return items, total
+
+    async def connections_summary(self) -> ConnectionSummary:
+        """Числа по всем подключениям одним запросом — для вкладок списка."""
+        row = (
+            await self._session.execute(
+                select(
+                    func.count(),
+                    func.count().filter(self._state_condition(WORKING)),
+                    func.count().filter(self._state_condition(NEEDS_RECONNECT)),
+                    func.count().filter(self._state_condition(DISCONNECTED)),
+                    func.count().filter(ClinicWhatsApp.connected_via == SELF_SERVICE),
+                ).select_from(ClinicWhatsApp)
+            )
+        ).one()
+        total, working, reconnect, disconnected, self_service = row
+        return ConnectionSummary(
+            total=total,
+            working=working,
+            needs_reconnect=reconnect,
+            disconnected=disconnected,
+            embedded_signup=self_service,
+            manual=total - self_service,
+        )
 
     async def upsert_binding(
         self,
