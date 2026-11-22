@@ -12,6 +12,10 @@
 Напоминание, которое не дошло (отказ при отправке или статус ``failed`` от
 Meta позже), остаётся у приёма со статусом ``failed``: кабинет показывает по
 нему «звонить».
+
+Каждая смена состояния напоминания — отправка, ответ кнопкой, «не ответил»,
+отказ — сигналит открытым экранам ``appointment.updated`` с полем ``reminder``:
+статус приёма при этом обычно не меняется, и событие каталога о ней не скажет.
 """
 
 from __future__ import annotations
@@ -195,6 +199,9 @@ class VisitReminderService:
             "conversation.message",
             {"conversationId": str(conversation.id), "direction": "out"},
         )
+        # Статус приёма не менялся, события каталога нет — а «напоминание
+        # отправлено» кабинет должен показать сразу, без перечитывания.
+        await signal_appointment_updated(self._session, clinic.id, appointment.id, ["reminder"])
         await self._session.commit()
         return True
 
@@ -237,6 +244,11 @@ class VisitReminderService:
         unanswered = 0
         for reminder, appointment in rows:
             reminder.answered_at = now
+            # Состояние у приёма меняется в обеих ветках: без сигнала «не
+            # ответил» кабинет увидел бы только при следующем перечитывании.
+            await signal_appointment_updated(
+                self._session, reminder.clinic_id, reminder.appointment_id, ["reminder"]
+            )
             if appointment.status is not AppointmentStatus.SCHEDULED:
                 # Подтвердили из кабинета, отменили или перенесли — вопрос снят.
                 reminder.status = (
@@ -323,6 +335,11 @@ class VisitReminderService:
         if reminder is not None:
             reminder.status = "confirmed"
             reminder.answered_at = now
+            # О статусе приёма экраны узнают из события; этот сигнал — чтобы
+            # рядом с подтверждённым приёмом не осталось «ждём ответа».
+            await signal_appointment_updated(
+                self._session, appointment.clinic_id, appointment.id, ["reminder"]
+            )
             await self._session.commit()
         return booking_text("visit_confirmed", lang).format(when=when)
 

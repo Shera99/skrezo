@@ -22,6 +22,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 import app.jobs.tasks.visits as visit_tasks
+import app.modules.appointments.application.services.signals as appointment_signals
 from app.core.config import settings
 from app.shared.db.enums import AppointmentStatus
 from app.shared.db.models.ai_message import AiMessage
@@ -453,3 +454,55 @@ async def test_refused_reminder_is_failed_with_readable_reason(
     shown = await _shown_reminder(client, ctx, other_id)
     assert shown["status"] == "failed"
     assert "повторно оно не уйдёт" in shown["error"] and "уйдёт позже" not in shown["error"]
+
+
+_Signals = list[tuple[str, dict[str, Any]]]
+
+
+@pytest.fixture
+def signals(monkeypatch: pytest.MonkeyPatch) -> _Signals:
+    """Сигналы ``appointment.updated``, ушедшие в шину (вместо pg_notify)."""
+    recorded: _Signals = []
+
+    async def _record(_session: Any, _clinic_id: Any, type_: str, payload: dict[str, Any]) -> None:
+        recorded.append((type_, payload))
+
+    monkeypatch.setattr(appointment_signals, "publish_realtime", _record)
+    return recorded
+
+
+async def test_every_reminder_change_is_signalled_to_open_screens(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+    signals: _Signals,
+) -> None:
+    """Отправка, «Приду» и «не ответил» — каждый раз ``appointment.updated`` с ``reminder``.
+
+    Статус приёма при отправке и при «не ответил» не меняется, события каталога
+    нет: без сигнала кабинет увидел бы новое состояние только при перечитывании.
+    """
+    await _template(_resources)
+    await _enable(admin_client, client, ctx)
+    coming_id = await _book(client, ctx, phone=LOCAL_PHONE, first_name="Айгуль")
+    silent_id = await _book(client, ctx, phone="0700900504", first_name="Бермет", hour=11)
+    fake = _FakeWa()
+
+    def _signalled(appointment_id: str) -> int:
+        return signals.count(
+            ("appointment.updated", {"id": appointment_id, "fields": ["reminder"]})
+        )
+
+    assert "напоминаний: 2" in await _run(monkeypatch, _resources, fake)
+    assert (_signalled(coming_id), _signalled(silent_id)) == (1, 1)  # sent
+
+    await _press(admin_client, ctx, f"visit:{coming_id}:confirm")
+    assert (_signalled(coming_id), _signalled(silent_id)) == (2, 1)  # confirmed
+
+    monkeypatch.setattr(settings, "visit_unconfirmed_hours_before", _HORIZON_HOURS)
+    assert "без ответа: 1" in await _run(monkeypatch, _resources, fake)
+    # Отвеченное напоминание контрольный срок не трогает — и повторно не сигналит.
+    assert (_signalled(coming_id), _signalled(silent_id)) == (2, 2)  # no_answer
+    assert (await _shown_reminder(client, ctx, silent_id))["status"] == "no_answer"
