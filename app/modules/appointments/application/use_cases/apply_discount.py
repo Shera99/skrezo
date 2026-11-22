@@ -115,4 +115,5 @@ class ApplyDiscountUseCase:
             patient_name=patient_name,
             doctor_name=doctor_name,
             items=list(await self._appointments.items(appointment_id)),
+            reminder=await self._appointments.reminder(appointment_id),
         )

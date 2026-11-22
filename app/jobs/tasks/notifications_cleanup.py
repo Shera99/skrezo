@@ -4,7 +4,9 @@
 * ``event`` (только обработанные — упавшие остаются алертом) — 12 месяцев;
   ``inbox_item`` уходит вместе с событием каскадом, отдельной чистки не нужно;
 * ``slot_hold`` — просроченные и не подтверждённые резервы слотов (Ф2):
-  час после истечения им ни к чему, подтверждённые хранятся (след записи).
+  час после истечения им ни к чему, подтверждённые хранятся (след записи);
+* ``push_event`` — отметки «этот пуш уже слали» планировщика (сводки дня,
+  «приём не подтверждён»): нужны до наступления события, хранятся месяц.
 """
 
 from __future__ import annotations
@@ -22,12 +24,16 @@ from app.modules.push.infrastructure.repositories.delivery_repository import (
 )
 from app.modules.push.infrastructure.repositories.event_repository import EventRepository
 from app.shared.db.models import SlotHold
+from app.shared.db.models.push_event import PushEvent
 
 #: Сроки хранения (§14): телеметрия — 3 месяца, события с инбоксом — 12.
 DELIVERY_RETENTION_DAYS = 90
 EVENT_RETENTION_DAYS = 365
 #: Просроченный резерв слота держим час — на случай разбора «кнопка не сработала».
 HOLD_GRACE = timedelta(hours=1)
+#: Отметка идемпотентности нужна, пока событие не наступило: сводке — сутки,
+#: неподтверждённому приёму — час. Месяц — запас на разбор «почему не пришёл пуш».
+PUSH_EVENT_RETENTION_DAYS = 30
 
 
 async def cleanup_notifications(ctx: dict[str, Any]) -> int:
@@ -48,8 +54,15 @@ async def cleanup_notifications(ctx: dict[str, Any]) -> int:
                 )
             )
             holds = int(getattr(holds_result, "rowcount", 0) or 0)
+            marks_result = await session.execute(
+                delete(PushEvent).where(
+                    PushEvent.created_at < now - timedelta(days=PUSH_EVENT_RETENTION_DAYS)
+                )
+            )
+            marks = int(getattr(marks_result, "rowcount", 0) or 0)
             await session.commit()
         run.note(
-            f"телеметрии: {deliveries}, событий (с инбоксом): {events}, резервов: {holds}"
+            f"телеметрии: {deliveries}, событий (с инбоксом): {events}, резервов: {holds}, "
+            f"отметок планировщика: {marks}"
         )
-        return deliveries + events + holds
+        return deliveries + events + holds + marks

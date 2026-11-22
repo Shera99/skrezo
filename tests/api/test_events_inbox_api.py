@@ -1069,3 +1069,187 @@ async def test_dispatcher_emits_client_named_signals(
     await _run_with_gateway()
     assert [t for t, _ in gateway.signals] == ["appointment.deleted", "inbox.new"]
     assert gateway.signals[0][1] == {"id": appointment_id}
+
+
+# ── 9. Пуш «приём не подтверждён» (скан расписания за час до начала) ────────
+
+from app.core.config import settings  # noqa: E402
+from app.modules.push.application.unconfirmed_service import (  # noqa: E402
+    UnconfirmedVisitService,
+)
+from app.shared.db.models.appointment import Appointment  # noqa: E402
+
+_UNCONFIRMED = "appointment.unconfirmed"
+
+
+async def _backdate(resources: Resources, appointment_id: str, hours: float = 5) -> None:
+    """Сделать запись «давней»: свежую скан считает подтверждённой у стойки."""
+    async with resources.factory() as session:
+        await session.execute(
+            update(Appointment)
+            .where(Appointment.id == uuid.UUID(appointment_id))
+            .values(created_at=datetime.now(UTC) - timedelta(hours=hours))
+        )
+        await session.commit()
+
+
+async def _scan(resources: Resources) -> int:
+    """Тик задания ``notify_unconfirmed_visits`` на тестовой сессии."""
+    async with resources.factory() as session:
+        return await UnconfirmedVisitService(session).run()
+
+
+async def _unconfirmed_items(client: AsyncClient, headers: dict[str, str]) -> list[Any]:
+    box = await _inbox(client, headers)
+    return [item for item in box["items"] if item["type"] == _UNCONFIRMED]
+
+
+async def test_unconfirmed_visit_reaches_doctor_and_owner_once(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Приём за час до начала всё ещё scheduled — врачу и владельцу, один раз.
+
+    WhatsApp у клиники не подключён и напоминаний нет: скан от них не зависит.
+    """
+    appointment_id = await _book(client, ctx, hours=0.75)
+    await _backdate(_resources, appointment_id)
+
+    assert await _scan(_resources) == 1
+    assert await _scan(_resources) == 0  # повторный тик события не дублирует
+    await _dispatch(_resources)
+
+    for headers in (ctx.doctor_headers, ctx.owner_headers):
+        items = await _unconfirmed_items(client, headers)
+        assert len(items) == 1
+        item = items[0]
+        assert item["title"].startswith("Приём в ") and item["title"].endswith(" не подтверждён")
+        assert item["body"] == "Инбоксова Аружан — позвоните и уточните, придёт ли"
+        assert item["entityId"] == appointment_id
+
+
+async def test_unconfirmed_scan_skips_confirmed_fresh_and_distant(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Подтверждённый, только что записанный и далёкий приёмы скан не поднимает."""
+    confirmed_id = await _book(client, ctx, hours=0.2)  # слоты по 30 минут не пересекаются
+    await _backdate(_resources, confirmed_id)
+    confirm = await client.patch(
+        f"{API}/clinic/appointments/{confirmed_id}",
+        headers=ctx.owner_headers,
+        json={"status": "confirmed"},
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    await _book(client, ctx, hours=0.8)  # записали за 48 минут до начала — у стойки
+    distant_id = await _book(client, ctx, hours=3)  # до срока ещё два часа
+    await _backdate(_resources, distant_id)
+
+    assert await _scan(_resources) == 0
+
+
+async def test_unconfirmed_fresh_booking_rule_can_be_disabled(
+    client: AsyncClient, ctx: Ctx, _resources: Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``VISIT_UNCONFIRMED_FRESH_BOOKING_MINUTES=0`` — поднимается и свежая запись."""
+    await _book(client, ctx, hours=0.5)
+    assert await _scan(_resources) == 0
+    monkeypatch.setattr(settings, "visit_unconfirmed_fresh_booking_minutes", 0)
+    assert await _scan(_resources) == 1
+
+
+async def test_unconfirmed_moved_visit_is_raised_again_for_new_time(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Перенос на другое время — новый срок и новый пуш: приём всё ещё не подтверждён."""
+    appointment_id = await _book(client, ctx, hours=0.5)
+    await _backdate(_resources, appointment_id)
+    assert await _scan(_resources) == 1
+
+    moved = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=ctx.owner_headers,
+        json={"scheduledAt": _at(0.9), "force": True},
+    )
+    assert moved.status_code == 200, moved.text
+    assert await _scan(_resources) == 1
+    assert await _scan(_resources) == 0
+
+
+async def test_unconfirmed_push_passes_clinic_quiet_hours(
+    client: AsyncClient, ctx: Ctx, _resources: Resources
+) -> None:
+    """Клиника «спит», а пуш о неподтверждённом приёме уходит; личная тишина действует.
+
+    Пуш за час до первого приёма дня приходится на время до открытия: если бы
+    тишина клиники его глушила, о первых приёмах не узнавал бы никто.
+    """
+    today = datetime.now(_BISHKEK).weekday()
+    await _set_hours(client, ctx, day_off=today)
+    prefs = await client.put(
+        f"{API}/clinic/notifications/prefs",
+        headers=ctx.owner_headers,
+        json={"quietFrom": "00:00:00", "quietTo": "23:59:59"},
+    )
+    assert prefs.status_code == 200, prefs.text
+    transport, recorder = _recording_transport()
+    await _register_device(client, ctx.doctor_headers, "unconfirmed-doc")
+    await _register_device(client, ctx.owner_headers, "unconfirmed-owner")
+
+    appointment_id = await _book(client, ctx, hours=0.75)
+    await _backdate(_resources, appointment_id)
+    assert await _scan(_resources) == 1
+    await _run(_resources, transport)
+    await _ripen_jobs(_resources)
+    await _run(_resources, transport)
+
+    pushes = {t: m for t, m in recorder.sent if m.data["type"] == _UNCONFIRMED}
+    assert set(pushes) == {"unconfirmed-doc"}  # владелец — в персональной тишине
+    message = pushes["unconfirmed-doc"]
+    assert message.title is not None and message.title.endswith(" не подтверждён")
+    assert message.body == "Инбоксова Аружан — позвоните и уточните, придёт ли"
+    assert message.data["appointmentId"] == appointment_id
+    assert message.data["entityId"] == appointment_id
+    assert message.ttl_seconds is not None and 0 < message.ttl_seconds <= 3600
+
+
+async def test_cleanup_drops_old_scheduler_marks(
+    ctx: Ctx, _resources: Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Отметка «этот пуш уже слали» старше месяца уходит уборкой, свежая остаётся."""
+    import app.jobs.tasks.notifications_cleanup as cleanup_tasks
+    from app.shared.db.models.push_event import PushEvent
+
+    monkeypatch.setattr(cleanup_tasks, "session_factory", _resources.factory)
+    monkeypatch.setattr(
+        "app.modules.jobs.application.services.job_recorder.session_factory", _resources.factory
+    )
+    clinic_id = uuid.UUID(ctx.clinic_id)
+    async with _resources.factory() as session:
+        session.add(
+            PushEvent(
+                id="unconfirmed:old",
+                type=_UNCONFIRMED,
+                clinic_id=clinic_id,
+                dedup_key="appointment:old",
+                created_at=datetime.now(UTC) - timedelta(days=40),
+            )
+        )
+        session.add(
+            PushEvent(
+                id="unconfirmed:new",
+                type=_UNCONFIRMED,
+                clinic_id=clinic_id,
+                dedup_key="appointment:new",
+            )
+        )
+        await session.commit()
+
+    assert await cleanup_tasks.cleanup_notifications({}) == 1
+
+    async with _resources.factory() as session:
+        left = (
+            (await session.execute(select(PushEvent.id).where(PushEvent.clinic_id == clinic_id)))
+            .scalars()
+            .all()
+        )
+    assert left == ["unconfirmed:new"]

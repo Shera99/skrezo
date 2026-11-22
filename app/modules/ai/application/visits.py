@@ -5,8 +5,13 @@
 переводит приём в ``confirmed`` той же механикой кнопки, что и запись:
 детерминированно, мимо модели, штатным use-case правки приёма. «Перенести»
 возвращает пациента в диалог с ботом — перенос он умеет (Ф7·2). Без ответа
-к контрольному сроку — событие администратору: не подтверждённый визит
-важнее подтверждённого.
+к контрольному сроку напоминание закрывается как ``no_answer``; сотрудникам о
+неподтверждённом приёме сообщает отдельный скан расписания за час до начала
+(``UnconfirmedVisitService``) — он от напоминаний не зависит.
+
+Напоминание, которое не дошло (отказ при отправке или статус ``failed`` от
+Meta позже), остаётся у приёма со статусом ``failed``: кабинет показывает по
+нему «звонить».
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.modules.ai.domain.skills import effective_level
 from app.modules.ai.domain.texts import booking_text
+from app.modules.appointments.application.services.signals import signal_appointment_updated
 from app.modules.appointments.application.use_cases.update_appointment import (
     UpdateAppointmentUseCase,
 )
@@ -31,12 +37,12 @@ from app.modules.appointments.infrastructure.repositories.appointment_repository
 )
 from app.modules.audit.application.services.audit_service import AuditService
 from app.modules.audit.infrastructure.repositories.audit_repository import AuditRepository
-from app.modules.push.application.outbox import emit_event
 from app.modules.schedule.application.services.availability_service import (
     build_availability_service,
 )
 from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
+from app.modules.whatsapp.domain.delivery import describe_failure, reminder_failure_text
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
@@ -137,10 +143,11 @@ class VisitReminderService:
             sent_at=now,
         )
         if template is None:
-            reminder.status = "failed"
-            reminder.note = f"нет одобренного шаблона {settings.wa_visit_reminder_template}"
-            self._session.add(reminder)
-            await self._session.commit()
+            await self._save_failed(
+                reminder,
+                "Напоминание не отправлено: у клиники нет одобренного шаблона "
+                f"{settings.wa_visit_reminder_template}",
+            )
             logger.warning("visit_reminder_no_template", clinic_id=str(clinic.id))
             return False
         assert appointment.scheduled_at is not None
@@ -162,11 +169,15 @@ class VisitReminderService:
                 buttons=buttons,
             )
         except WhatsAppSendError as exc:
-            reminder.status = "failed"
-            reminder.note = str(exc)[:300]
-            self._session.add(reminder)
-            await self._session.commit()
-            logger.warning("visit_reminder_send_failed", appointment_id=str(appointment.id))
+            # То же объяснение, что в чате клиники: «Graph API 400» администратору
+            # ничего не говорит, а «у номера нет WhatsApp» — повод позвонить.
+            failure = describe_failure(status=exc.status, code=exc.code, detail=exc.detail)
+            await self._save_failed(reminder, reminder_failure_text(failure))
+            logger.warning(
+                "visit_reminder_send_failed",
+                appointment_id=str(appointment.id),
+                meta_code=exc.code,
+            )
             return False
         reminder.wa_message_id = result.wa_message_id
         self._session.add(reminder)
@@ -187,8 +198,29 @@ class VisitReminderService:
         await self._session.commit()
         return True
 
-    async def escalate_unanswered(self, now: datetime | None = None) -> int:
-        """Напоминание без ответа к контрольному сроку — событие администратору."""
+    async def _save_failed(self, reminder: AppointmentReminder, reason: str) -> None:
+        """Сохранить недоставленное напоминание и сказать о нём открытым экранам.
+
+        По ``reminder.status = failed`` кабинет показывает у приёма «звонить»:
+        пациент о визите не предупреждён, и подтверждения от него не будет.
+        """
+        reminder.status = "failed"
+        reminder.note = reason[:300]
+        self._session.add(reminder)
+        await signal_appointment_updated(
+            self._session, reminder.clinic_id, reminder.appointment_id, ["reminder"]
+        )
+        await self._session.commit()
+
+    async def close_unanswered(self, now: datetime | None = None) -> int:
+        """Напоминания без ответа к контрольному сроку закрыть как ``no_answer``.
+
+        Событие сотрудникам здесь больше не рождается: о неподтверждённом
+        приёме за час до начала сообщает скан расписания
+        (:class:`~app.modules.push.application.unconfirmed_service.UnconfirmedVisitService`)
+        — он не зависит от того, ушло ли напоминание вообще. Возвращает число
+        напоминаний, оставшихся без ответа.
+        """
         now = now or datetime.now(UTC)
         cutoff = now + timedelta(hours=settings.visit_unconfirmed_hours_before)
         rows = (
@@ -202,7 +234,7 @@ class VisitReminderService:
                 .limit(500)
             )
         ).all()
-        escalated = 0
+        unanswered = 0
         for reminder, appointment in rows:
             reminder.answered_at = now
             if appointment.status is not AppointmentStatus.SCHEDULED:
@@ -215,16 +247,9 @@ class VisitReminderService:
                 reminder.note = f"приём в статусе {appointment.status.value}"
                 continue
             reminder.status = "no_answer"
-            await emit_event(
-                self._session,
-                clinic_id=appointment.clinic_id,
-                type_="appointment.unconfirmed",
-                entity_type="appointment",
-                entity_id=appointment.id,
-            )
-            escalated += 1
+            unanswered += 1
         await self._session.commit()
-        return escalated
+        return unanswered
 
     # ── Кнопка (инбаунд, мимо модели) ────────────────────────────────────────
 
@@ -265,6 +290,11 @@ class VisitReminderService:
             if reminder is not None:
                 reminder.status = "change_requested"
                 reminder.answered_at = now
+                # Статус приёма не меняется, события нет — а кабинету важно
+                # увидеть «просит перенести» сразу, не дожидаясь перечитывания.
+                await signal_appointment_updated(
+                    self._session, appointment.clinic_id, appointment.id, ["reminder"]
+                )
             await self._session.commit()
             return booking_text("visit_change", lang)
 

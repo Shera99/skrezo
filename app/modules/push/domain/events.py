@@ -56,6 +56,11 @@ class EventSpec:
     android_channel: str = "schedule-changes.v1"
     # Срок годности пуша (сек); None — «до начала приёма» (динамический TTL).
     ttl_seconds: int | None = None
+    # Тишина клиники (вне графика, выходной) normal-пуш этого типа не глушит:
+    # событие привязано ко времени приёма, а не к рабочему дню. Пуш за час до
+    # первого приёма падает на время до открытия — без флага о первых приёмах
+    # дня не узнавал бы никто. Персональные тихие часы сотрудника действуют.
+    ignores_clinic_quiet: bool = False
 
 
 _ALL = frozenset({Audience.DOCTOR, Audience.MANAGER, Audience.OWNER})
@@ -71,10 +76,13 @@ EVENT_CATALOG: dict[str, EventSpec] = {
     "appointment.status_changed": EventSpec(
         frozenset({Audience.DOCTOR, Audience.MANAGER}), Rung.LOW, ttl_seconds=12 * _HOUR
     ),
-    # Ф7: пациент не ответил на напоминание — администратору решать: звонить или
-    # отдать слот. TTL до начала приёма: после него сообщение бессмысленно.
+    # Приём за час до начала всё ещё не подтверждён — позвонить пациенту или
+    # отдать слот. Врачу приёма тоже: у соло-врача и в клинике без
+    # администратора звонить больше некому. Эмитит скан расписания
+    # (UnconfirmedVisitService), от напоминаний пациенту не зависит. TTL до
+    # начала приёма: после него сообщение бессмысленно.
     "appointment.unconfirmed": EventSpec(
-        frozenset({Audience.MANAGER, Audience.OWNER}), Rung.NORMAL, ttl_seconds=None
+        _ALL, Rung.NORMAL, ttl_seconds=None, ignores_clinic_quiet=True
     ),
     "payment.created": EventSpec(
         frozenset({Audience.MANAGER, Audience.OWNER}),

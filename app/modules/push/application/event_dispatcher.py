@@ -204,13 +204,20 @@ class EventDispatcher:
         утренняя сводка соберёт план дня. Персональные тихие часы сотрудника
         снимают job только ему. Сводки (``digest.*``) под подавление не
         подпадают — иначе утренняя сводка не пробилась бы никогда.
+
+        Тип с ``ignores_clinic_quiet`` (``appointment.unconfirmed``) тишину
+        клиники проходит: он привязан ко времени приёма, и пуш за час до
+        первого приёма дня приходится на время до открытия. Персональные тихие
+        часы для него действуют как обычно.
         """
         if not inserted_ids:
             return
         now = datetime.now(UTC)
         is_digest = event.type.startswith("digest.")
+        spec = EVENT_CATALOG.get(event.type)
+        through_clinic_quiet = is_digest or (spec is not None and spec.ignores_clinic_quiet)
         moment = await self._quiet.moment(event.clinic_id, now)
-        if not is_digest and moment.quiet:
+        if not through_clinic_quiet and moment.quiet:
             return
         ids = inserted_ids
         if not is_digest:
@@ -533,6 +540,10 @@ class EventDispatcher:
         if item.entity_type and item.entity_id:
             data["entityType"] = item.entity_type
             data["entityId"] = str(item.entity_id)
+            if item.entity_type == "appointment":
+                # Тот же id прямым ключом: по тапу приложение открывает приём,
+                # не разбирая пару entityType/entityId.
+                data["appointmentId"] = str(item.entity_id)
         message = PushMessage(
             data=data,
             title=item.title or None,
@@ -644,6 +655,8 @@ class EventDispatcher:
             if event.entity_type and event.entity_id:
                 data["entityType"] = event.entity_type
                 data["entityId"] = str(event.entity_id)
+                if event.entity_type == "appointment":
+                    data["appointmentId"] = str(event.entity_id)
             if texts.get("speak"):
                 data["speak"] = texts["speak"]
             message = PushMessage(

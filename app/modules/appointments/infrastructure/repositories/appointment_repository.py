@@ -19,6 +19,7 @@ from app.modules.appointments.domain.models import (
     AppointmentItemRow,
     AppointmentRow,
     ItemInput,
+    ReminderState,
 )
 from app.modules.appointments.domain.pricing import apply_discount
 from app.shared.db.enums import AppointmentItemStatus, AppointmentStatus, AppointmentType
@@ -26,6 +27,7 @@ from app.shared.db.models.account import Account
 from app.shared.db.models.appointment import Appointment
 from app.shared.db.models.appointment_item import AppointmentItem
 from app.shared.db.models.appointment_item_tooth import AppointmentItemTooth
+from app.shared.db.models.appointment_reminder import AppointmentReminder
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.membership import Membership
 from app.shared.db.models.patient import Patient
@@ -70,6 +72,25 @@ _NOT_NULL_FIELDS = frozenset(
         "discount_tiyin",
     }
 )
+
+
+def _reminder_state(
+    status: str | None, sent_at: datetime | None, answered_at: datetime | None, note: str | None
+) -> ReminderState | None:
+    """Колонки ``appointment_reminder`` → состояние для выдачи приёма.
+
+    ``note`` — служебная заметка; сотруднику она показывается только как
+    причина отказа (``failed``): у закрытых напоминаний в ней техническая
+    пометка вроде «приём в статусе confirmed».
+    """
+    if status is None or sent_at is None:
+        return None  # LEFT JOIN не нашёл напоминания
+    return ReminderState(
+        status=status,
+        sent_at=sent_at,
+        answered_at=answered_at,
+        error=note if status == "failed" else None,
+    )
 
 
 class AppointmentRepository:
@@ -256,10 +277,18 @@ class AppointmentRepository:
                 Appointment.price_total_tiyin,
                 Appointment.doctor_membership_id,
                 Patient.phone,
+                # Свои имена: ``status`` уже занят статусом приёма, а запрос
+                # оборачивается в подзапрос для подсчёта страниц.
+                AppointmentReminder.status.label("reminder_status"),
+                AppointmentReminder.sent_at.label("reminder_sent_at"),
+                AppointmentReminder.answered_at.label("reminder_answered_at"),
+                AppointmentReminder.note.label("reminder_note"),
             )
             .join(Patient, Patient.id == Appointment.patient_id)
             .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
             .outerjoin(Account, Account.id == Membership.account_id)
+            # Напоминание одно на приём (уникальный индекс) — строки не множатся.
+            .outerjoin(AppointmentReminder, AppointmentReminder.appointment_id == Appointment.id)
             .where(Appointment.clinic_id == clinic_id)
         )
         if patient_id is not None:
@@ -298,6 +327,7 @@ class AppointmentRepository:
                 price_total_tiyin=r[8],
                 doctor_membership_id=r[9],
                 patient_phone=r[10],
+                reminder=_reminder_state(r[11], r[12], r[13], r[14]),
             )
             for r in rows
         ]
@@ -306,6 +336,22 @@ class AppointmentRepository:
     async def get(self, clinic_id: uuid.UUID, appointment_id: uuid.UUID) -> Appointment | None:
         appt = await self._session.get(Appointment, appointment_id)
         return appt if appt is not None and appt.clinic_id == clinic_id else None
+
+    async def reminder(self, appointment_id: uuid.UUID) -> ReminderState | None:
+        """Напоминание пациенту о визите; ``None`` — не отправлялось."""
+        row = (
+            await self._session.execute(
+                select(
+                    AppointmentReminder.status,
+                    AppointmentReminder.sent_at,
+                    AppointmentReminder.answered_at,
+                    AppointmentReminder.note,
+                ).where(AppointmentReminder.appointment_id == appointment_id)
+            )
+        ).first()
+        if row is None:
+            return None
+        return _reminder_state(row[0], row[1], row[2], row[3])
 
     async def patient_name(self, patient_id: uuid.UUID) -> str:
         row = (

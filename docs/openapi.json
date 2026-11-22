@@ -16121,6 +16121,17 @@
             "type": "array",
             "title": "Items",
             "description": "Позиции чека"
+          },
+          "reminder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppointmentReminderOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Напоминание пациенту о визите в WhatsApp. `null` — не отправлялось: срок ещё не подошёл, напоминания у клиники выключены или WhatsApp не подключён. `status = failed` — пациент напоминания не получил: показывайте «звонить»"
           }
         },
         "type": "object",
@@ -16330,6 +16341,17 @@
             "examples": [
               425000
             ]
+          },
+          "reminder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppointmentReminderOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Напоминание пациенту о визите в WhatsApp. `null` — не отправлялось: срок ещё не подошёл, напоминания у клиники выключены или WhatsApp не подключён. `status = failed` — пациент напоминания не получил: показывайте «звонить»"
           }
         },
         "type": "object",
@@ -16344,6 +16366,71 @@
           "priceTotalTiyin"
         ],
         "title": "AppointmentListItem"
+      },
+      "AppointmentReminderOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "confirmed",
+              "change_requested",
+              "no_answer",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "`sent` — ушло, ждём ответа; `confirmed` — пациент ответил «Приду»; `change_requested` — попросил перенести; `no_answer` — не ответил к контрольному сроку; `failed` — не доставлено",
+            "examples": [
+              "sent"
+            ]
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sentat",
+            "description": "Когда напоминание отправлено (или не ушло)"
+          },
+          "answeredAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answeredat",
+            "description": "Когда пациент ответил либо истёк срок ожидания; `null` — ещё ждём"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Почему напоминание не дошло — текстом для сотрудника; только у `failed`",
+            "examples": [
+              null
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "sentAt"
+        ],
+        "title": "AppointmentReminderOut",
+        "description": "Состояние напоминания пациенту о визите (WhatsApp).",
+        "example": {
+          "error": "WhatsApp не доставил сообщение: сообщение не доставляется на этот номер: у него нет WhatsApp, приложение устарело или пациент не принял условия WhatsApp",
+          "sentAt": "2026-11-23T12:00:00Z",
+          "status": "failed"
+        }
       },
       "AppointmentStatus": {
         "type": "string",

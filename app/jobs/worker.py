@@ -64,7 +64,7 @@ from app.jobs.tasks.subscriptions import (
     warn_period_ending,
     warn_trial_ending,
 )
-from app.jobs.tasks.visits import send_visit_reminders
+from app.jobs.tasks.visits import notify_unconfirmed_visits, send_visit_reminders
 from app.jobs.tasks.whatsapp import close_stale_conversations, process_wa_inbound
 from app.shared.http import close_shared_clients
 
@@ -164,6 +164,10 @@ class WorkerSettings:
         cron(check_whatsapp_tokens, minute=37),
         # Ф7: напоминания о визите за сутки и контроль ответа — раз в час.
         cron(send_visit_reminders, minute=7),
+        # Пуш «приём не подтверждён» за час до начала. Тик на ровных пяти
+        # минутах: приёмы начинаются в :00 и :30, и пуш приходит ровно за час,
+        # а не «за 56 минут». Повторный тик безвреден — дедуп в push_event.
+        cron(notify_unconfirmed_visits, minute=set(range(0, 60, 5))),
         # Ф7: долг и повторный осмотр — раз в сутки утром (04:12 UTC = 10:12 Бишкек).
         cron(send_patient_reminders, hour=4, minute=12),
         # Сводки дня: тик раз в 5 минут, окно совпадения 15 — момент сводки

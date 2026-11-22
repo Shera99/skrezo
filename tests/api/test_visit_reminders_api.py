@@ -2,12 +2,17 @@
 
 За сутки до приёма — шаблон WhatsApp с кнопками; «Приду» переводит приём в
 confirmed мимо модели штатным use-case; «Перенести» возвращает в диалог;
-без ответа к контрольному сроку — событие администратору. Напоминание одно
-на приём и только при включённом умении.
+без ответа к контрольному сроку напоминание закрывается (событие сотрудникам
+шлёт отдельный скан расписания — см. ``test_events_inbox_api``). Напоминание
+одно на приём и только при включённом умении.
+
+Состояние напоминания видно у приёма (``reminder``): недоставленное —
+``failed`` с причиной, по нему кабинет показывает «звонить».
 """
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,8 +30,8 @@ from app.shared.db.models.appointment_reminder import AppointmentReminder
 from app.shared.db.models.audit_log import AuditLog
 from app.shared.db.models.event import Event
 from app.shared.db.models.whatsapp_template import WhatsAppTemplate
-from app.shared.whatsapp_cloud import SentMessage
-from tests.api.conftest import Ctx, _set_mode
+from app.shared.whatsapp_cloud import SentMessage, WhatsAppSendError
+from tests.api.conftest import Ctx, _set_mode, _webhook
 from tests.conftest import API, Resources, own_membership_id
 
 WA_PHONE = "+996700900500"
@@ -36,9 +41,11 @@ LOCAL_PHONE = "0700900500"
 class _FakeWa:
     """Записывает отправленные шаблоны и тексты; без Meta."""
 
-    def __init__(self) -> None:
+    def __init__(self, refuse_code: int | None = None) -> None:
         self.templates: list[dict[str, Any]] = []
         self.texts: list[tuple[str, str]] = []
+        #: Код Meta, которым Graph API отказывает в отправке шаблона.
+        self.refuse_code = refuse_code
 
     async def send_text(self, phone_number_id: str, to_phone: str, body: str) -> SentMessage:
         self.texts.append((to_phone, body))
@@ -53,6 +60,10 @@ class _FakeWa:
         variables: list[str],
         buttons: list[str] | None = None,
     ) -> SentMessage:
+        if self.refuse_code is not None:
+            raise WhatsAppSendError(
+                f"Graph API 400 ({self.refuse_code})", status=400, code=self.refuse_code
+            )
         self.templates.append(
             {
                 "to": to_phone,
@@ -272,7 +283,7 @@ async def test_confirm_button_sets_confirmed_and_change_button_returns_to_dialog
     assert reminder is not None and reminder.status == "change_requested"
 
 
-async def test_unanswered_reminder_escalates_to_admin(
+async def test_unanswered_reminder_closes_without_event(
     admin_client: AsyncClient,
     client: AsyncClient,
     ctx: Ctx,
@@ -292,15 +303,153 @@ async def test_unanswered_reminder_escalates_to_admin(
     assert "без ответа: 1" in summary
     reminder = await _reminder(_resources, appointment_id)
     assert reminder is not None and reminder.status == "no_answer"
+    assert reminder.answered_at is not None
+    # Событие сотрудникам отсюда больше не рождается: за час до начала его
+    # поднимает скан расписания, и второго пуша о том же приёме быть не должно.
     async with _resources.factory() as session:
-        event = (
+        events = (
+            (
+                await session.execute(
+                    select(Event).where(
+                        Event.type == "appointment.unconfirmed",
+                        Event.entity_id == uuid.UUID(appointment_id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert events == []
+    # Второй прогон закрытое напоминание не трогает.
+    assert "без ответа: 0" in await _run(monkeypatch, _resources, fake)
+    shown = await _shown_reminder(client, ctx, appointment_id)
+    assert shown is not None and shown["status"] == "no_answer" and shown["error"] is None
+
+
+async def _shown_reminder(client: AsyncClient, ctx: Ctx, appointment_id: str) -> Any:
+    """``reminder`` приёма так, как его видит кабинет: в карточке и в списке."""
+    detail = await client.get(
+        f"{API}/clinic/appointments/{appointment_id}", headers=ctx.owner_headers
+    )
+    assert detail.status_code == 200, detail.text
+    listed = await client.get(f"{API}/clinic/appointments", headers=ctx.owner_headers)
+    assert listed.status_code == 200, listed.text
+    row = next(item for item in listed.json()["list"] if item["id"] == appointment_id)
+    assert row["reminder"] == detail.json()["reminder"]  # список и карточка не расходятся
+    return detail.json()["reminder"]
+
+
+def _failed_status(ctx: Ctx, wa_message_id: str) -> dict[str, Any]:
+    """Вебхук Meta: сообщение принято, но позже не доставлено — у номера нет WhatsApp."""
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {"phone_number_id": ctx.phone_number_id},
+                            "statuses": [
+                                {
+                                    "id": wa_message_id,
+                                    "status": "failed",
+                                    "timestamp": str(int(time.time())),
+                                    "recipient_id": WA_PHONE.removeprefix("+"),
+                                    "errors": [
+                                        {
+                                            "code": 131026,
+                                            "title": "Message undeliverable",
+                                            "error_data": {"details": "Message Undeliverable."},
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        ],
+    }
+
+
+async def test_reminder_state_is_shown_and_late_failure_marks_it_failed(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Meta приняла напоминание, а позже прислала ``failed`` — у приёма «звонить»."""
+    await _template(_resources)
+    await _enable(admin_client, client, ctx)
+    appointment_id = await _book(client, ctx, phone=LOCAL_PHONE, first_name="Айгуль")
+    assert await _shown_reminder(client, ctx, appointment_id) is None  # ещё не отправляли
+
+    fake = _FakeWa()  # один на тест: идентификаторы сообщений не должны повторяться
+    assert "напоминаний: 1" in await _run(monkeypatch, _resources, fake)
+    shown = await _shown_reminder(client, ctx, appointment_id)
+    assert shown["status"] == "sent" and shown["sentAt"] and shown["answeredAt"] is None
+    assert shown["error"] is None
+
+    await _webhook(client, _failed_status(ctx, "fake-tpl-1"))
+    shown = await _shown_reminder(client, ctx, appointment_id)
+    assert shown["status"] == "failed"
+    assert "нет WhatsApp" in shown["error"]
+
+    # Ответ на правку приёма несёт то же состояние — экран его не теряет.
+    patched = await client.patch(
+        f"{API}/clinic/appointments/{appointment_id}",
+        headers=ctx.owner_headers,
+        json={"status": "confirmed"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["reminder"]["status"] == "failed"
+
+    # Поздний отказ по сообщению, на которое пациент уже ответил, ничего не меняет.
+    other_id = await _book(client, ctx, phone="0700900502", first_name="Бермет", hour=11)
+    assert "напоминаний: 1" in await _run(monkeypatch, _resources, fake)
+    async with _resources.factory() as session:
+        other = (
             await session.execute(
-                select(Event).where(
-                    Event.type == "appointment.unconfirmed",
-                    Event.entity_id == uuid.UUID(appointment_id),
+                select(AppointmentReminder).where(
+                    AppointmentReminder.appointment_id == uuid.UUID(other_id)
                 )
             )
         ).scalar_one()
-    assert event.clinic_id == uuid.UUID(ctx.clinic_id)
-    # Второй прогон не дублирует событие.
-    assert "без ответа: 0" in await _run(monkeypatch, _resources, fake)
+        other.status = "confirmed"
+        wa_message_id = other.wa_message_id
+        await session.commit()
+    assert wa_message_id is not None
+    await _webhook(client, _failed_status(ctx, wa_message_id))
+    assert (await _shown_reminder(client, ctx, other_id))["status"] == "confirmed"
+
+
+async def test_refused_reminder_is_failed_with_readable_reason(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    _resources: Resources,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph API отказал сразу (у номера нет WhatsApp) — причина словами, не кодом."""
+    await _template(_resources)
+    await _enable(admin_client, client, ctx)
+    appointment_id = await _book(client, ctx, phone=LOCAL_PHONE, first_name="Айгуль")
+
+    assert "напоминаний: 0" in await _run(monkeypatch, _resources, _FakeWa(refuse_code=131026))
+    shown = await _shown_reminder(client, ctx, appointment_id)
+    assert shown["status"] == "failed"
+    assert shown["error"].startswith("WhatsApp не доставил сообщение")
+    assert "Graph" not in shown["error"]
+    # Недоставленное напоминание повторно не шлётся — одно на приём.
+    assert "напоминаний: 0" in await _run(monkeypatch, _resources, _FakeWa())
+
+    # Временный сбой (лимит Meta): чату обещают «уйдёт позже», а напоминание не
+    # повторяется — причина у приёма не должна обещать того, чего не будет.
+    other_id = await _book(client, ctx, phone="0700900503", first_name="Бермет", hour=11)
+    assert "напоминаний: 0" in await _run(monkeypatch, _resources, _FakeWa(refuse_code=130429))
+    shown = await _shown_reminder(client, ctx, other_id)
+    assert shown["status"] == "failed"
+    assert "повторно оно не уйдёт" in shown["error"] and "уйдёт позже" not in shown["error"]

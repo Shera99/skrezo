@@ -6,13 +6,14 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from app.modules.appointments.domain.duration import MAX_DURATION_MIN
 from app.modules.appointments.domain.models import (
     AppointmentDetail,
     AppointmentItemRow,
     AppointmentRow,
+    ReminderState,
 )
 from app.shared.api.schemas import CamelModel, NotNullFieldsModel
 from app.shared.db.enums import (
@@ -29,6 +30,66 @@ from app.shared.db.enums import (
 # Потолок количества в позиции: столько единиц одной услуги за приём не оказывают,
 # а без границы опечатка в количестве раздувает чек и выручку в отчётах.
 MAX_ITEM_QUANTITY = 999
+
+
+#: Описание поля ``reminder`` — одно на список и карточку приёма.
+_REMINDER_DESCRIPTION = (
+    "Напоминание пациенту о визите в WhatsApp. `null` — не отправлялось: срок "
+    "ещё не подошёл, напоминания у клиники выключены или WhatsApp не подключён. "
+    "`status = failed` — пациент напоминания не получил: показывайте «звонить»"
+)
+
+
+class AppointmentReminderOut(CamelModel):
+    """Состояние напоминания пациенту о визите (WhatsApp)."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "failed",
+                "sentAt": "2026-11-23T12:00:00Z",
+                "answeredAt": None,
+                "error": (
+                    "WhatsApp не доставил сообщение: сообщение не доставляется на этот "
+                    "номер: у него нет WhatsApp, приложение устарело или пациент не "
+                    "принял условия WhatsApp"
+                ),
+            }
+        }
+    )
+
+    status: str = Field(
+        description=(
+            "`sent` — ушло, ждём ответа; `confirmed` — пациент ответил «Приду»; "
+            "`change_requested` — попросил перенести; `no_answer` — не ответил к "
+            "контрольному сроку; `failed` — не доставлено"
+        ),
+        examples=["sent"],
+        json_schema_extra={
+            "enum": ["sent", "confirmed", "change_requested", "no_answer", "failed"]
+        },
+    )
+    sent_at: datetime = Field(description="Когда напоминание отправлено (или не ушло)")
+    answered_at: datetime | None = Field(
+        default=None,
+        description="Когда пациент ответил либо истёк срок ожидания; `null` — ещё ждём",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Почему напоминание не дошло — текстом для сотрудника; только у `failed`",
+        examples=[None],
+    )
+
+    @classmethod
+    def from_state(cls, state: ReminderState | None) -> AppointmentReminderOut | None:
+        if state is None:
+            return None
+        return cls(
+            status=state.status,
+            sent_at=state.sent_at,
+            answered_at=state.answered_at,
+            error=state.error,
+        )
 
 
 class AppointmentListItem(CamelModel):
@@ -52,6 +113,7 @@ class AppointmentListItem(CamelModel):
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     status: AppointmentStatus
     price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
+    reminder: AppointmentReminderOut | None = Field(default=None, description=_REMINDER_DESCRIPTION)
 
     @classmethod
     def from_row(cls, r: AppointmentRow) -> AppointmentListItem:
@@ -67,6 +129,7 @@ class AppointmentListItem(CamelModel):
             duration_min=r.duration_min,
             status=r.status,
             price_total_tiyin=r.price_total_tiyin,
+            reminder=AppointmentReminderOut.from_state(r.reminder),
         )
 
 
@@ -293,6 +356,7 @@ class AppointmentDetailResponse(CamelModel):
         default=None, description="Пояснение к бесплатному приёму"
     )
     items: list[AppointmentItemOut] = Field(description="Позиции чека")
+    reminder: AppointmentReminderOut | None = Field(default=None, description=_REMINDER_DESCRIPTION)
 
     @classmethod
     def from_detail(cls, d: AppointmentDetail) -> AppointmentDetailResponse:
@@ -317,6 +381,7 @@ class AppointmentDetailResponse(CamelModel):
             no_charge=a.no_charge,
             no_charge_comment=a.no_charge_comment,
             items=[AppointmentItemOut.from_row(i) for i in d.items],
+            reminder=AppointmentReminderOut.from_state(d.reminder),
         )
 
 

@@ -39,6 +39,7 @@ from app.shared.db.models.account import Account
 from app.shared.db.models.ai_conversation import AiConversation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.appointment import Appointment
+from app.shared.db.models.appointment_reminder import AppointmentReminder
 from app.shared.db.models.clinic import DEFAULT_TIMEZONE, Clinic
 from app.shared.db.models.clinic_whatsapp import ClinicWhatsApp
 from app.shared.db.models.event import Event
@@ -559,6 +560,33 @@ class WhatsAppRepository:
                 select(AiMessage).where(AiMessage.wa_message_id == wa_message_id)
             )
         ).scalar_one_or_none()
+
+    async def fail_visit_reminder(
+        self, clinic_id: uuid.UUID, wa_message_id: str, reason: str
+    ) -> uuid.UUID | None:
+        """Напоминание о визите, которое Meta не доставила, пометить ``failed``.
+
+        Возвращает приём напоминания; ``None`` — сообщение напоминанием не
+        было либо пациент на него уже ответил (нажать кнопку в недоставленном
+        сообщении нельзя — значит, поздний ``failed`` относится не к нему).
+        ``no_answer`` тоже переводится в ``failed``: отказ Meta может прийти
+        после контрольного срока, а «не ответил» и «не получил» для клиники —
+        разные причины звонить.
+        """
+        reminder = (
+            await self._session.execute(
+                select(AppointmentReminder).where(
+                    AppointmentReminder.clinic_id == clinic_id,
+                    AppointmentReminder.status.in_(("sent", "no_answer")),
+                    AppointmentReminder.wa_message_id == wa_message_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if reminder is None:
+            return None
+        reminder.status = "failed"
+        reminder.note = reason[:300]
+        return reminder.appointment_id
 
     async def last_message_role(self, conversation_id: uuid.UUID) -> AiMessageRole | None:
         """Кто написал последним — «ждёт ли пациент ответа» одним запросом."""

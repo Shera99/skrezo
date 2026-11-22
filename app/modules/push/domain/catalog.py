@@ -122,14 +122,16 @@ PUSH_TEXTS: dict[str, dict[Lang, dict[str, str]]] = {
     },
     "appointment.unconfirmed": {
         Lang.RU: {
-            "title": "Визит не подтверждён",
-            "body": "{patientName} — {time}, не ответил на напоминание",
-            "speak": "Пациент {patientName} не подтвердил визит в {time}",
+            "title": "Приём в {time} не подтверждён",
+            "body": "{patientName} — позвоните и уточните, придёт ли",
+            "speak": "Приём в {time} не подтверждён: {patientName}. Позвоните и уточните",
         },
         Lang.KG: {
-            "title": "Визит ырасталган жок",
-            "body": "{patientName} — {time}, эскертүүгө жооп берген жок",
-            "speak": "{patientName} пациент {time} визитин ырастаган жок",
+            "title": "{time} убактысындагы кабыл алуу ырасталган жок",
+            "body": "{patientName} — чалып, келерин тактаңыз",
+            "speak": (
+                "{time} убактысындагы кабыл алуу ырасталган жок: {patientName}. Чалып тактаңыз"
+            ),
         },
     },
     "appointment.created": {

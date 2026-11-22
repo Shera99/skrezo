@@ -72,6 +72,8 @@ Telegram отклонит разметку или кнопку (HTTP 400), со�
 | `cleanup_job_runs` | ежедневно, 02:30 UTC | Удаляет журнал старше `JOB_RUN_RETENTION_DAYS` |
 | `return_escalations_to_bot` | ежеминутно | Пациент написал в диалог у администратора, и `AI_ESCALATION_RETURN_MINUTES` (15) минут с этого сообщения сотрудник не ответил → снова боту; бот отвечает пациенту |
 | `remind_escalations` | каждые 5 минут | Передача человеку висит `AI_ESCALATION_REMINDER_MINUTES` (30) минут без ответа сотрудника → одно напоминание `ai.escalation_reminder` владельцу и менеджеру (кроме «отвечаю сам») |
+| `send_visit_reminders` | ежечасно, :07 | Напоминание пациенту о визите шаблоном WhatsApp (умение `reminders`); напоминания без ответа к контрольному сроку закрываются как `no_answer` |
+| `notify_unconfirmed_visits` | каждые 5 минут | Приём, который за `VISIT_UNCONFIRMED_PUSH_MINUTES_BEFORE` (60) минут до начала всё ещё `scheduled` → событие `appointment.unconfirmed` врачу приёма, менеджеру и владельцу; одно на приём и время (дедуп в `push_event`), от WhatsApp не зависит |
 | `heartbeat` | ежеминутно и на старте | Отметка «воркер жив» в Redis (в журнал не пишется) |
 
 **По событию** — ставятся из обработчика запроса: `send_notification` (телефон,

@@ -30,6 +30,23 @@ class ItemInput:
 
 
 @dataclass(frozen=True, slots=True)
+class ReminderState:
+    """Напоминание пациенту о визите в WhatsApp — как оно видно у приёма.
+
+    ``status``: ``sent`` — ушло, ждём ответа; ``confirmed`` — пациент ответил
+    «Приду»; ``change_requested`` — попросил перенести; ``no_answer`` — не
+    ответил к контрольному сроку; ``failed`` — не доставлено (у номера нет
+    WhatsApp, нет шаблона, отказ Meta). ``error`` — объяснение отказа для
+    сотрудника, только у ``failed``.
+    """
+
+    status: str
+    sent_at: datetime
+    answered_at: datetime | None
+    error: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class AppointmentRow:
     id: uuid.UUID
     patient_id: uuid.UUID
@@ -44,6 +61,8 @@ class AppointmentRow:
     doctor_membership_id: uuid.UUID | None = None
     #: Телефон пациента — без отдельного запроса карточки.
     patient_phone: str = ""
+    #: Напоминание пациенту о визите; ``None`` — не отправлялось.
+    reminder: ReminderState | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,3 +90,6 @@ class AppointmentDetail:
     patient_name: str
     doctor_name: str | None
     items: list[AppointmentItemRow]
+    #: Без значения по умолчанию намеренно: ответ на правку приёма без
+    #: ``reminder`` затёр бы на экране состояние, которое только что было видно.
+    reminder: ReminderState | None

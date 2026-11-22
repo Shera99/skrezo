@@ -76,7 +76,9 @@
 | `AI_TRUST_GATE_SHADOW_REPLIES` | ступень «Проверяю»: ответов, прошедших валидатор в теневом режиме | `50` |
 | `WA_VISIT_REMINDER_TEMPLATE` / `WA_VISIT_REMINDER_BUTTONS` | напоминание о визите (Ф7): имя шаблона в Meta и есть ли у него две quick-reply-кнопки | `visit_reminder` / `true` |
 | `WA_SERVICE_TEMPLATE_NAMES` | служебные шаблоны Meta (через запятую): в каталог клиники не попадают, отправка → 422 `template_service` | `hello_world` |
-| `VISIT_REMINDER_HOURS_BEFORE` / `VISIT_UNCONFIRMED_HOURS_BEFORE` | за сколько часов напоминать; за сколько считать визит неподтверждённым | `24` / `3` |
+| `VISIT_REMINDER_HOURS_BEFORE` / `VISIT_UNCONFIRMED_HOURS_BEFORE` | за сколько часов напоминать пациенту; за сколько перестать ждать ответа на напоминание (позже оно уже не уходит) | `24` / `3` |
+| `VISIT_UNCONFIRMED_PUSH_MINUTES_BEFORE` | пуш «приём не подтверждён» врачу и администраторам: за сколько минут до начала поднимать приём в `scheduled`; `0` — выключить | `60` |
+| `VISIT_UNCONFIRMED_FRESH_BOOKING_MINUTES` | запись, созданная позже чем за столько минут до начала, считается подтверждённой при записи — пуш о ней не шлём; `0` — без исключения | `120` |
 | `WA_DEBT_REMINDER_TEMPLATE` / `DEBT_REMINDER_DAYS_AFTER` | напоминание о долге (Ф7): шаблон и через сколько дней после приёма | `debt_reminder` / `3` |
 | `WA_RECALL_REMINDER_TEMPLATE` / `WA_RECALL_BUTTONS` / `RECALL_MONTHS` | повторный осмотр (Ф7): шаблон, кнопки «Записаться»/«Не сейчас», месяцев после визита | `recall_reminder` / `true` / `6` |
 | `AI_RATE_INPUT_TIYIN_PER_MTOK` / `AI_RATE_OUTPUT_TIYIN_PER_MTOK` | прайс-лист сметы: тыйын за миллион токенов запроса / ответа; `0` — только счётчики | `0` / `0` |

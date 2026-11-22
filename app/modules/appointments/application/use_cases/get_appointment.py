@@ -27,4 +27,5 @@ class GetAppointmentUseCase:
             patient_name=patient_name,
             doctor_name=doctor_name,
             items=items,
+            reminder=await self._appointments.reminder(appointment_id),
         )
