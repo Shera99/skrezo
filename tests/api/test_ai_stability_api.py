@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -37,6 +37,7 @@ from app.shared.db.models.ai_escalation import AiEscalation
 from app.shared.db.models.ai_message import AiMessage
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.event import Event
+from app.shared.notifications.notifier import Notifier
 from app.shared.whatsapp_cloud.logging_client import LoggingWhatsAppClient
 from tests.api.conftest import Ctx, _FakeProvider, _reply_json, _set_mode, _simulate
 from tests.conftest import API, Resources
@@ -76,7 +77,13 @@ async def _health(
 ) -> Any:
     async with res.factory() as session:
         return await AiHealthService(
-            session, provider, LoggingWhatsAppClient(), redis=redis, notifier=team
+            session,
+            provider,
+            LoggingWhatsAppClient(),
+            redis=redis,
+            # Подмена, а не наследник Notifier: сервису от него нужен один
+            # notify_team, а настоящий тянет за собой очередь и каналы доставки.
+            notifier=cast("Notifier | None", team),
         ).check()
 
 

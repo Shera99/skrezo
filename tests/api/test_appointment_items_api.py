@@ -82,8 +82,14 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
 
 
 async def _book(
-    client: AsyncClient, ctx: ClinicCtx, items: list[dict[str, Any]], *, when: str | None = None
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    items: list[dict[str, Any]],
+    *,
+    when: str | None = None,
+    force: bool = False,
 ) -> str:
+    """Записать пациента; ``force`` — вне графика (слот «сегодня» в выходной)."""
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
@@ -92,6 +98,7 @@ async def _book(
             "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": when or working_slot(),
             "items": items,
+            "force": force,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -450,7 +457,14 @@ async def test_item_status_visible_in_tooth_history(
 async def test_services_report_counts_quantity(client: AsyncClient, ctx: ClinicCtx) -> None:
     """«Снимок ×3» — три оказанные услуги, а не одна строка отчёта."""
     # Отчёт за период: приём должен попасть в него, поэтому дата — сегодняшняя.
-    await _book(client, ctx, [{"serviceId": ctx.cleaning_id, "quantity": 3}], when=today_slot())
+    # force: сегодня может быть выходной, а проверяется отчёт, не график.
+    await _book(
+        client,
+        ctx,
+        [{"serviceId": ctx.cleaning_id, "quantity": 3}],
+        when=today_slot(),
+        force=True,
+    )
 
     report = await client.get(f"{API}/clinic/reports/services", headers=ctx.headers)
     assert report.status_code == 200, report.text

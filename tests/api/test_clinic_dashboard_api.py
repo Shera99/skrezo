@@ -32,11 +32,12 @@ _hour_seq = itertools.count(9)
 
 
 def _today_slot() -> str:
-    """Слот на СЕГОДНЯ в рабочих часах клиники.
+    """Слот на СЕГОДНЯ по времени клиники.
 
     Общий ``working_slot`` из conftest намеренно бронирует завтра, а сводка дня
-    — про сегодня, поэтому здесь свой хелпер. Час берётся из рабочего окна и не
-    повторяется, чтобы приёмы не занимали один слот.
+    — про сегодня, поэтому здесь свой хелпер. Час не повторяется, чтобы приёмы
+    не занимали один слот. Сегодня бывает выходным (воскресенье — по
+    умолчанию), поэтому записывают на этот слот с ``"force": True``.
     """
     today = datetime.now(ZoneInfo("Asia/Bishkek")).date()
     return f"{today.isoformat()}T{next(_hour_seq):02d}:00:00+06:00"
@@ -91,6 +92,7 @@ async def test_dashboard_counts_today_in_clinic_timezone(
             "doctorMembershipId": ctx["doctor"],
             "scheduledAt": _today_slot(),
             "items": [{"serviceId": ctx["service"], "teeth": [46]}],
+            "force": True,  # сегодня может быть выходной — сводке нужна дата, не график
         },
     )
     assert booked.status_code == 201, booked.text
@@ -120,8 +122,10 @@ async def test_dashboard_shows_day_revenue_and_total_debt(
             "doctorMembershipId": await own_membership_id(client, headers),
             "scheduledAt": _today_slot(),
             "items": [{"serviceId": ctx["service"], "teeth": [46]}],
+            "force": True,  # сегодня может быть выходной — сводке нужна дата, не график
         },
     )
+    assert booked.status_code == 201, booked.text
     appointment_id = booked.json()["id"]
     completed = await client.post(
         f"{API}/clinic/appointments/{appointment_id}/complete",

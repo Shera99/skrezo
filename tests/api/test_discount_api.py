@@ -86,8 +86,14 @@ async def ctx(admin_client: AsyncClient, client: AsyncClient) -> ClinicCtx:
 
 
 async def _book(
-    client: AsyncClient, ctx: ClinicCtx, quantity: int = 1, *, when: str | None = None
+    client: AsyncClient,
+    ctx: ClinicCtx,
+    quantity: int = 1,
+    *,
+    when: str | None = None,
+    force: bool = False,
 ) -> str:
+    """Записать пациента; ``force`` — вне графика (слот «сегодня» в выходной)."""
     resp = await client.post(
         f"{API}/clinic/appointments",
         headers=ctx.headers,
@@ -96,6 +102,7 @@ async def _book(
             "doctorMembershipId": ctx.doctor_id,
             "scheduledAt": when or working_slot(),
             "items": [{"serviceId": ctx.service_id, "teeth": [46], "quantity": quantity}],
+            "force": force,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -292,7 +299,8 @@ async def test_percent_over_hundred_is_422(client: AsyncClient, ctx: ClinicCtx) 
 async def test_discounts_visible_in_summary(client: AsyncClient, ctx: ClinicCtx) -> None:
     """Сколько клиника раздала скидками — видно в отчёте."""
     # Отчёт за период: приём должен попасть в него, поэтому дата — сегодняшняя.
-    appointment_id = await _book(client, ctx, when=today_slot())
+    # force: сегодня может быть выходной, а проверяется отчёт, не график.
+    appointment_id = await _book(client, ctx, when=today_slot(), force=True)
     await _discount(client, ctx, appointment_id, 10)
     await client.post(f"{API}/clinic/appointments/{appointment_id}/complete", headers=ctx.headers)
 
