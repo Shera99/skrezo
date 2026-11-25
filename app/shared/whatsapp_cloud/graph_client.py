@@ -178,6 +178,15 @@ class GraphWhatsAppClient:
     async def send_confirm_button(
         self, phone_number_id: str, to_phone: str, body: str, button_id: str, title: str
     ) -> SentMessage:
+        return await self.send_buttons(phone_number_id, to_phone, body, [(button_id, title)])
+
+    async def send_buttons(
+        self,
+        phone_number_id: str,
+        to_phone: str,
+        body: str,
+        buttons: list[tuple[str, str]],
+    ) -> SentMessage:
         return await self._post_message(
             phone_number_id,
             {
@@ -188,7 +197,10 @@ class GraphWhatsAppClient:
                     "type": "button",
                     "body": {"text": body},
                     "action": {
-                        "buttons": [{"type": "reply", "reply": {"id": button_id, "title": title}}]
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": button_id, "title": title}}
+                            for button_id, title in buttons
+                        ]
                     },
                 },
             },

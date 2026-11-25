@@ -6,6 +6,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.modules.ai.application.visits import VisitReminderService
 from app.modules.appointments.application.use_cases.apply_discount import ApplyDiscountUseCase
 from app.modules.appointments.application.use_cases.complete_appointment import (
     CompleteAppointmentUseCase,
@@ -29,6 +30,8 @@ from app.modules.schedule.application.services.availability_service import (
     AvailabilityService,
     build_availability_service,
 )
+from app.modules.whatsapp.presentation.deps import get_whatsapp_client
+from app.shared.whatsapp_cloud import WhatsAppCloudClient
 
 
 def get_appointment_repository(
@@ -101,3 +104,11 @@ def get_complete_appointment_use_case(
     cash: CashService = Depends(get_cash_service),
 ) -> CompleteAppointmentUseCase:
     return CompleteAppointmentUseCase(session, appointments, cash)
+
+
+def get_visit_reminder_service(
+    session: AsyncSession = Depends(get_session),
+    wa_client: WhatsAppCloudClient = Depends(get_whatsapp_client),
+) -> VisitReminderService:
+    """Напоминания о визите — та же механика, что у плановой рассылки."""
+    return VisitReminderService(session, wa_client)

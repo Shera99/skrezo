@@ -29,6 +29,7 @@ class MembershipRepository:
                 Role.name,
                 Role.key,
                 Role.is_owner,
+                Clinic.demo,
             )
             .join(Clinic, Clinic.id == Membership.clinic_id)
             .join(Role, Role.id == Membership.role_id)
@@ -46,6 +47,7 @@ class MembershipRepository:
             role_name=row[5],
             role_key=row[6],
             is_owner=row[7],
+            demo=row[8],
         )
 
     async def list_active_context(self, account_id: uuid.UUID) -> list[MembershipContext]:

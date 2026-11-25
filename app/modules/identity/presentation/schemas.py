@@ -69,6 +69,13 @@ class ClinicMembershipOut(CamelModel):
     role_id: uuid.UUID
     role_name: str
     is_owner: bool
+    demo: bool = Field(
+        default=False,
+        description=(
+            "Демо-клиника для показов: показывать ли кнопку сброса `POST /clinic/demo/reset`"
+        ),
+        examples=[False],
+    )
 
     @classmethod
     def from_context(cls, membership: MembershipContext) -> ClinicMembershipOut:
@@ -80,6 +87,7 @@ class ClinicMembershipOut(CamelModel):
             role_id=membership.role_id,
             role_name=membership.role_name,
             is_owner=membership.is_owner,
+            demo=membership.demo,
         )
 
 

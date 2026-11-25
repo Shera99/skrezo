@@ -27,6 +27,7 @@ from app.shared.db.models.city_translation import CityTranslation
 from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.clinic_application import ClinicApplication
 from app.shared.db.models.clinic_custom_plan import ClinicCustomPlan
+from app.shared.db.models.clinic_demo import ClinicDemo
 from app.shared.db.models.clinic_ledger_entry import ClinicLedgerEntry
 from app.shared.db.models.clinic_usage_day import ClinicUsageDay
 from app.shared.db.models.clinic_wallet import ClinicWallet
@@ -91,6 +92,7 @@ __all__ = [
     "Clinic",
     "ClinicApplication",
     "ClinicCustomPlan",
+    "ClinicDemo",
     "ClinicLedgerEntry",
     "ClinicUsageDay",
     "ClinicWallet",

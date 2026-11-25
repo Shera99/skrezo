@@ -66,6 +66,15 @@ class DryRunWhatsAppClient:
     ) -> SentMessage:
         return self._sent("button", to=to_phone, button_id=button_id, text=body)
 
+    async def send_buttons(
+        self,
+        phone_number_id: str,
+        to_phone: str,
+        body: str,
+        buttons: list[tuple[str, str]],
+    ) -> SentMessage:
+        return self._sent("buttons", to=to_phone, buttons=buttons, text=body)
+
     async def send_typing(self, phone_number_id: str, message_id: str) -> None:
         # Пробный прогон пациенту ничего не показывает — и «печатает…» тоже.
         logger.info("wa_cloud_dry_run", kind="typing", message_id=message_id)

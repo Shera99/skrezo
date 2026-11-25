@@ -11,6 +11,7 @@ from app.modules.appointments.presentation.routes import (
     get_appointment,
     list_appointments,
     replace_items,
+    send_reminder,
     update_appointment,
 )
 
@@ -22,3 +23,4 @@ router.include_router(update_appointment.router)
 router.include_router(replace_items.router)
 router.include_router(apply_discount.router)
 router.include_router(complete_appointment.router)
+router.include_router(send_reminder.router)

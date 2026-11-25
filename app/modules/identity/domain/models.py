@@ -36,3 +36,5 @@ class MembershipContext:
     role_name: str
     role_key: str | None
     is_owner: bool
+    #: Демо-клиника для показов — кабинет показывает кнопку сброса.
+    demo: bool = False

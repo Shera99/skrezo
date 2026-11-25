@@ -5628,6 +5628,91 @@
         }
       }
     },
+    "/api/v1/clinic/appointments/{appointment_id}/reminder": {
+      "post": {
+        "tags": [
+          "appointments"
+        ],
+        "summary": "Напомнить о приёме сейчас",
+        "description": "Отправить пациенту напоминание в WhatsApp, не дожидаясь расписания.\n\nПриём на сегодня или завтра (сутки клиники) в статусе `scheduled`, который\nещё не начался. Текст — «накануне» для завтрашнего и «в день приёма» для\nсегодняшнего, кнопки «Приду» и «Перенести». Окно 24 часов открыто — уходит\nобычным сообщением, закрыто — одобренным шаблоном. От ступени ассистента и\nумения `reminders` не зависит.\n\nОтказ WhatsApp — не ошибка запроса: ответ 200, а в `reminder` статус\n`failed` и причина словами. Чаще раза в 30 минут на приём не отправляется;\nнеудавшаяся отправка (`failed`) срок не занимает.",
+        "operationId": "send_reminder_api_v1_clinic_appointments__appointment_id__reminder_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "appointment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Appointment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Приём с исходом отправки в поле `reminder`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Приём не найден",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "appointment_not_found",
+                  "message": "Приём не найден"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp не подключён к клинике",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "whatsapp_not_connected",
+                  "message": "WhatsApp не подключён к клинике"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "О приёме нельзя напомнить: `reason` — `status` (не `scheduled`), `started` (время наступило), `day` (не сегодня и не завтра)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "reminder_not_available",
+                  "message": "Напомнить можно о приёме на сегодня или завтра",
+                  "reason": "day"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Напоминание по этому приёму уходило меньше 30 минут назад; `retryAfter` — через сколько секунд можно повторить",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "reminder_too_soon",
+                  "message": "Напоминание по этому приёму уже отправлено — повторить можно чуть позже",
+                  "retryAfter": 1260
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinic/cash/payments": {
       "get": {
         "tags": [
@@ -7025,6 +7110,127 @@
                 "example": {
                   "error": "invalid_timezone",
                   "message": "Неизвестная таймзона: Asia/Bishkeck. Ожидается зона IANA, например Asia/Bishkek"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinic/demo/reset": {
+      "post": {
+        "tags": [
+          "clinic-settings"
+        ],
+        "summary": "Сбросить демо-клинику",
+        "description": "Убрать показанное и собрать сегодняшний день от текущего времени.\n\nУдаляются пациенты, записи, оплаты и переписки, появившиеся после включения\nпризнака демо (в том числе собранные прошлым сбросом). Данные до включения не\nтрогаются. Карточка пациента, который лечится и в другой клинике, остаётся.\n\nСобирается: два завершённых приёма (оплаченный и с долгом), неявка час\nназад, пациент в кресле и три записи впереди, одна из них подтверждена, — на\nдвух-трёх врачей клиники. Завтрашний день свободен. Тот же сброс сам идёт\nкаждый день в 06:00 по времени клиники.",
+        "operationId": "reset_demo_api_v1_clinic_demo_reset_post",
+        "responses": {
+          "200": {
+            "description": "Что удалено и что собрано",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoResetResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Клиника не демонстрационная либо нет права `schedule.manage_all`",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_demo_clinic",
+                  "message": "Сброс есть только у демо-клиники"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Собрать день не из чего: нет врача или услуги с ценой",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "demo_not_ready",
+                  "message": "Чтобы собрать день, клинике нужны хотя бы один врач и одна услуга с ценой",
+                  "doctors": 0,
+                  "services": 4
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/clients/{clinic_id}/demo": {
+      "put": {
+        "tags": [
+          "clients"
+        ],
+        "summary": "Признак демо-клиники",
+        "description": "Включить или снять признак демо-клиники.\n\n⚠️ У демо-клиники каждое утро удаляется всё, что появилось после включения,\nпоэтому оно подтверждается названием (`confirmName`). Данные до включения\nсброс не трогает. Плановые напоминания пациентам у демо-клиники не уходят.",
+        "operationId": "set_demo_api_v1_admin_clients__clinic_id__demo_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clinic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Clinic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDemoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Признак после правки",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoStateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Клиент не найден",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "client_not_found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Включение не подтверждено названием клиники",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "confirm_name_mismatch",
+                  "message": "Название клиники не совпадает — признак демо не включён"
                 }
               }
             }
@@ -17608,6 +17814,15 @@
               }
             ],
             "description": "Открытая заявка клиента «нужно больше мест» (`/admin/plan-requests`)"
+          },
+          "demo": {
+            "type": "boolean",
+            "title": "Demo",
+            "description": "Демо-клиника для показов (`PUT /admin/clients/{id}/demo`)",
+            "default": false,
+            "examples": [
+              false
+            ]
           }
         },
         "type": "object",
@@ -18079,6 +18294,15 @@
           "isOwner": {
             "type": "boolean",
             "title": "Isowner"
+          },
+          "demo": {
+            "type": "boolean",
+            "title": "Demo",
+            "description": "Демо-клиника для показов: показывать ли кнопку сброса `POST /clinic/demo/reset`",
+            "default": false,
+            "examples": [
+              false
+            ]
           }
         },
         "type": "object",
@@ -18405,6 +18629,14 @@
             "examples": [
               5
             ]
+          },
+          "demo": {
+            "type": "boolean",
+            "title": "Demo",
+            "description": "Демо-клиника (только чтение, включает Skrezo): показывать ли кнопку сброса `POST /clinic/demo/reset`",
+            "examples": [
+              false
+            ]
           }
         },
         "type": "object",
@@ -18413,7 +18645,8 @@
           "name",
           "type",
           "lang",
-          "timezone"
+          "timezone",
+          "demo"
         ],
         "title": "ClinicSettingsResponse",
         "description": "Настройки своей клиники.\n\nТариф (`type`, `seatsLimit`) показан только для чтения — им управляет Skrezo;\nзаметок саппорта здесь нет вовсе."
@@ -20345,6 +20578,171 @@
         ],
         "title": "DebtsResponse",
         "description": "Долги клиники и их общая сумма."
+      },
+      "DemoCreated": {
+        "properties": {
+          "patients": {
+            "type": "integer",
+            "title": "Patients",
+            "description": "Выдуманных пациентов",
+            "examples": [
+              7
+            ]
+          },
+          "appointments": {
+            "type": "integer",
+            "title": "Appointments",
+            "description": "Приёмов демо-дня",
+            "examples": [
+              7
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "patients",
+          "appointments"
+        ],
+        "title": "DemoCreated",
+        "description": "Сколько собрал сброс."
+      },
+      "DemoDeleted": {
+        "properties": {
+          "patients": {
+            "type": "integer",
+            "title": "Patients",
+            "description": "Карточек пациентов",
+            "examples": [
+              8
+            ]
+          },
+          "appointments": {
+            "type": "integer",
+            "title": "Appointments",
+            "description": "Записей",
+            "examples": [
+              9
+            ]
+          },
+          "payments": {
+            "type": "integer",
+            "title": "Payments",
+            "description": "Платежей и возвратов",
+            "examples": [
+              3
+            ]
+          },
+          "conversations": {
+            "type": "integer",
+            "title": "Conversations",
+            "description": "Переписок WhatsApp",
+            "examples": [
+              1
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "patients",
+          "appointments",
+          "payments",
+          "conversations"
+        ],
+        "title": "DemoDeleted",
+        "description": "Сколько удалил сброс."
+      },
+      "DemoResetResponse": {
+        "properties": {
+          "resetAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resetat",
+            "description": "Момент, от которого собран день"
+          },
+          "deleted": {
+            "$ref": "#/components/schemas/DemoDeleted"
+          },
+          "created": {
+            "$ref": "#/components/schemas/DemoCreated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resetAt",
+          "deleted",
+          "created"
+        ],
+        "title": "DemoResetResponse",
+        "description": "Итог сброса демо-клиники.",
+        "example": {
+          "created": {
+            "appointments": 7,
+            "patients": 7
+          },
+          "deleted": {
+            "appointments": 9,
+            "conversations": 1,
+            "patients": 8,
+            "payments": 3
+          },
+          "resetAt": "2026-11-25T08:40:00Z"
+        }
+      },
+      "DemoStateResponse": {
+        "properties": {
+          "clinicId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Clinicid"
+          },
+          "demo": {
+            "type": "boolean",
+            "title": "Demo",
+            "description": "Клиника — демонстрационная",
+            "examples": [
+              true
+            ]
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since",
+            "description": "С какого момента данные клиники демонстрационные: появившееся позже удаляет сброс, появившееся раньше он не трогает; `null` — признак не включали",
+            "examples": [
+              "2026-11-25T10:00:00Z"
+            ]
+          },
+          "resetAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resetat",
+            "description": "Когда день собран в последний раз; `null` — сброса ещё не было",
+            "examples": [
+              "2026-11-26T00:00:03Z"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "clinicId",
+          "demo"
+        ],
+        "title": "DemoStateResponse",
+        "description": "Признак демо и граница, раньше которой сброс данные не трогает."
       },
       "DevicePlatform": {
         "type": "string",
@@ -26830,6 +27228,43 @@
         ],
         "title": "SetApplicationStatusRequest",
         "description": "Смена статуса заявки из админки."
+      },
+      "SetDemoRequest": {
+        "properties": {
+          "demo": {
+            "type": "boolean",
+            "title": "Demo",
+            "description": "Включить (`true`) или снять (`false`) признак",
+            "examples": [
+              true
+            ]
+          },
+          "confirmName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmname",
+            "description": "Название клиники — подтверждение включения (регистр не важен). При снятии признака не нужно",
+            "examples": [
+              "Демо Skrezo"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "demo"
+        ],
+        "title": "SetDemoRequest",
+        "description": "Включить или выключить признак демо.",
+        "example": {
+          "confirmName": "Демо Skrezo",
+          "demo": true
+        }
       },
       "SetDoctorHoursRequest": {
         "properties": {

@@ -53,6 +53,7 @@ from app.jobs.tasks.ai import (
 from app.jobs.tasks.ai_cleanup import cleanup_ai_history
 from app.jobs.tasks.ai_health import check_ai_health, check_whatsapp_tokens
 from app.jobs.tasks.billing import autopay_subscriptions
+from app.jobs.tasks.demo import reset_demo_clinics
 from app.jobs.tasks.digests import send_daily_digests
 from app.jobs.tasks.maintenance import cleanup_job_runs, heartbeat
 from app.jobs.tasks.notifications import send_notification, send_team_notification
@@ -168,6 +169,9 @@ class WorkerSettings:
         # минутах: приёмы начинаются в :00 и :30, и пуш приходит ровно за час,
         # а не «за 56 минут». Повторный тик безвреден — дедуп в push_event.
         cron(notify_unconfirmed_visits, minute=set(range(0, 60, 5))),
+        # Демо-клиники собирают день в 06:00 СВОЕГО времени: тик каждый час, а
+        # наступило ли — решает задача. Три тика — запас на упавший прогон.
+        cron(reset_demo_clinics, minute={0, 10, 20}),
         # Ф7: долг и повторный осмотр — раз в сутки утром (04:12 UTC = 10:12 Бишкек).
         cron(send_patient_reminders, hour=4, minute=12),
         # Сводки дня: тик раз в 5 минут, окно совпадения 15 — момент сводки

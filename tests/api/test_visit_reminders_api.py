@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 import app.jobs.tasks.visits as visit_tasks
 import app.modules.appointments.application.services.signals as appointment_signals
@@ -45,6 +45,8 @@ class _FakeWa:
     def __init__(self, refuse_code: int | None = None) -> None:
         self.templates: list[dict[str, Any]] = []
         self.texts: list[tuple[str, str]] = []
+        #: Обычные сообщения с кнопками («напомнить сейчас» в открытое окно).
+        self.buttons: list[dict[str, Any]] = []
         #: Код Meta, которым Graph API отказывает в отправке шаблона.
         self.refuse_code = refuse_code
 
@@ -81,6 +83,16 @@ class _FakeWa:
 
     async def send_confirm_button(self, *args: Any, **kwargs: Any) -> SentMessage:
         return SentMessage(wa_message_id="fake-btn")
+
+    async def send_buttons(
+        self, phone_number_id: str, to_phone: str, body: str, buttons: list[tuple[str, str]]
+    ) -> SentMessage:
+        if self.refuse_code is not None:
+            raise WhatsAppSendError(
+                f"Graph API 400 ({self.refuse_code})", status=400, code=self.refuse_code
+            )
+        self.buttons.append({"to": to_phone, "body": body, "buttons": buttons})
+        return SentMessage(wa_message_id=f"fake-btns-{len(self.buttons)}")
 
     async def check_token(self, phone_number_id: str) -> bool:
         return True
@@ -179,6 +191,17 @@ async def _reminder(res: Resources, appointment_id: str) -> AppointmentReminder 
                 )
             )
         ).scalar_one_or_none()
+
+
+async def _age_reminders(res: Resources, minutes: int = 60) -> None:
+    """Состарить отправки: только что ушедшему дают время на ответ и не закрывают."""
+    async with res.factory() as session:
+        await session.execute(
+            update(AppointmentReminder).values(
+                sent_at=AppointmentReminder.sent_at - timedelta(minutes=minutes)
+            )
+        )
+        await session.commit()
 
 
 async def _press(admin_client: AsyncClient, ctx: Ctx, payload: str) -> Any:
@@ -300,6 +323,9 @@ async def test_unanswered_reminder_closes_without_event(
     # Контрольный срок сдвинут дальше самого далёкого слота из _tomorrow() — визит
     # уже «без ответа» при любом дне запуска (48 часов не хватало по субботам).
     monkeypatch.setattr(settings, "visit_unconfirmed_hours_before", _HORIZON_HOURS)
+    # Только что ушедшему дают время на ответ, даже если контрольный срок прошёл.
+    assert "без ответа: 0" in await _run(monkeypatch, _resources, fake)
+    await _age_reminders(_resources)
     summary = await _run(monkeypatch, _resources, fake)
     assert "без ответа: 1" in summary
     reminder = await _reminder(_resources, appointment_id)
@@ -502,6 +528,7 @@ async def test_every_reminder_change_is_signalled_to_open_screens(
     assert (_signalled(coming_id), _signalled(silent_id)) == (2, 1)  # confirmed
 
     monkeypatch.setattr(settings, "visit_unconfirmed_hours_before", _HORIZON_HOURS)
+    await _age_reminders(_resources)
     assert "без ответа: 1" in await _run(monkeypatch, _resources, fake)
     # Отвеченное напоминание контрольный срок не трогает — и повторно не сигналит.
     assert (_signalled(coming_id), _signalled(silent_id)) == (2, 2)  # no_answer

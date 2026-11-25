@@ -110,6 +110,21 @@ class WhatsAppCloudClient(Protocol):
         """
         ...
 
+    async def send_buttons(
+        self,
+        phone_number_id: str,
+        to_phone: str,
+        body: str,
+        buttons: list[tuple[str, str]],
+    ) -> SentMessage:
+        """Обычное сообщение с кнопками ответа — только в открытое окно 24 часов.
+
+        ``buttons`` — пары (payload, подпись) по порядку, не больше трёх (предел
+        Meta); подпись — до 20 символов. Нажатие возвращается вебхуком как
+        ``button_reply.id``, тем же payload, что у кнопок шаблона.
+        """
+        ...
+
     async def send_typing(self, phone_number_id: str, message_id: str) -> None:
         """Отметить входящее прочитанным и показать пациенту «печатает…».
 

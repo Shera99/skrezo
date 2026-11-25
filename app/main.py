@@ -42,6 +42,8 @@ from app.modules.clinic_applications.presentation.routes import (
 )
 from app.modules.clinics.presentation.routes import router as clinic_settings_router
 from app.modules.dashboard.presentation.routes import router as dashboard_router
+from app.modules.demo.presentation.routes import admin_router as demo_admin_router
+from app.modules.demo.presentation.routes import router as demo_router
 from app.modules.identity.presentation.routes import onboarding_router
 from app.modules.identity.presentation.routes import router as identity_router
 from app.modules.jobs.presentation.routes import router as jobs_router
@@ -538,6 +540,8 @@ def create_app() -> FastAPI:
     app.include_router(reports_router, prefix=settings.api_v1_prefix)
     app.include_router(subscription_router, prefix=settings.api_v1_prefix)
     app.include_router(clinic_settings_router, prefix=settings.api_v1_prefix)
+    app.include_router(demo_router, prefix=settings.api_v1_prefix)
+    app.include_router(demo_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(roles_router, prefix=settings.api_v1_prefix)
     app.include_router(reports_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(access_admin_router, prefix=settings.api_v1_prefix)

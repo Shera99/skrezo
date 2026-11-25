@@ -179,7 +179,8 @@ class PatientReminderService:
             await self._session.execute(
                 select(Clinic, ClinicWhatsApp)
                 .join(ClinicWhatsApp, ClinicWhatsApp.clinic_id == Clinic.id)
-                .where(ClinicWhatsApp.active.is_(True))
+                # Демо-клинике по расписанию не шлём: номера её пациентов выдуманы.
+                .where(ClinicWhatsApp.active.is_(True), Clinic.demo.is_(False))
             )
         ).all()
         return [

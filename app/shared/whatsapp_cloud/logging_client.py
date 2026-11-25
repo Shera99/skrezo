@@ -52,6 +52,16 @@ class LoggingWhatsAppClient:
         logger.info("wa_cloud_button_logged", to=to_phone, button_id=button_id, text=body)
         return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
 
+    async def send_buttons(
+        self,
+        phone_number_id: str,
+        to_phone: str,
+        body: str,
+        buttons: list[tuple[str, str]],
+    ) -> SentMessage:
+        logger.info("wa_cloud_buttons_logged", to=to_phone, buttons=buttons, text=body)
+        return SentMessage(wa_message_id=f"log-{uuid.uuid4()}")
+
     async def send_typing(self, phone_number_id: str, message_id: str) -> None:
         logger.info("wa_cloud_typing_logged", message_id=message_id)
 

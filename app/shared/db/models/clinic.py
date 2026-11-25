@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,5 +56,8 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     ai_skills: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    # Демо-клиника для показов: её день собирается заново сбросом (модуль demo), а
+    # плановые напоминания пациентам не уходят — номера выдуманы. Включает Skrezo.
+    demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Заметки саппорта — видны и правятся только в платформенной зоне.
     support_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

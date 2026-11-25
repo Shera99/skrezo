@@ -288,6 +288,11 @@ class ClientDetailResponse(ClientListItem):
         default=None,
         description="Открытая заявка клиента «нужно больше мест» (`/admin/plan-requests`)",
     )
+    demo: bool = Field(
+        default=False,
+        description="Демо-клиника для показов (`PUT /admin/clients/{id}/demo`)",
+        examples=[False],
+    )
 
     @classmethod
     def from_detail(cls, detail: ClientDetail) -> ClientDetailResponse:
@@ -330,6 +335,7 @@ class ClientDetailResponse(ClientListItem):
             ai_mode=clinic.ai_mode,
             ai_mode_reason=clinic.ai_mode_reason,
             ai_mode_changed_at=clinic.ai_mode_changed_at,
+            demo=clinic.demo,
             custom_plan=(
                 ClientCustomPlan(
                     title=detail.custom_plan.title,

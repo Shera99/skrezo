@@ -69,6 +69,13 @@ class ClinicSettingsResponse(CamelModel):
     seats_limit: int | None = Field(
         default=None, description="Лимит мест по тарифу (только чтение)", examples=[5]
     )
+    demo: bool = Field(
+        description=(
+            "Демо-клиника (только чтение, включает Skrezo): показывать ли кнопку сброса "
+            "`POST /clinic/demo/reset`"
+        ),
+        examples=[False],
+    )
 
     @classmethod
     def from_view(cls, view: ClinicSettingsView) -> ClinicSettingsResponse:
@@ -84,6 +91,7 @@ class ClinicSettingsResponse(CamelModel):
             lang=c.lang,
             timezone=c.timezone,
             seats_limit=c.seats_limit,
+            demo=c.demo,
         )
 
 

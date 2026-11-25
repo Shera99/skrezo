@@ -16,20 +16,32 @@ Meta позже), остаётся у приёма со статусом ``faile
 Каждая смена состояния напоминания — отправка, ответ кнопкой, «не ответил»,
 отказ — сигналит открытым экранам ``appointment.updated`` с полем ``reminder``:
 статус приёма при этом обычно не меняется, и событие каталога о ней не скажет.
+
+«Напомнить сейчас» (:meth:`VisitReminderService.remind_now`) — то же напоминание
+по кнопке сотрудника, не дожидаясь расписания и независимо от ступени
+ассистента: приём на сегодня или завтра, в открытое окно 24 часов — обычным
+сообщением с теми же кнопками, в закрытое — шаблоном.
 """
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import AppError
+from app.core.errors import (
+    AppError,
+    ConflictError,
+    NotFoundError,
+    TooManyRequestsError,
+    ValidationAppError,
+)
 from app.modules.ai.domain.skills import effective_level
 from app.modules.ai.domain.texts import booking_text
 from app.modules.appointments.application.services.signals import signal_appointment_updated
@@ -48,6 +60,7 @@ from app.modules.whatsapp.application.services.credentials import client_for
 from app.modules.whatsapp.application.use_cases.send_template import render_template_body
 from app.modules.whatsapp.domain.delivery import describe_failure, reminder_failure_text
 from app.modules.whatsapp.domain.lifecycle import reopen_if_closed
+from app.modules.whatsapp.domain.window import is_window_open
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -76,6 +89,54 @@ def _lang_of(patient: Patient | None, conversation: AiConversation | None) -> st
     return "ru"
 
 
+def _tz(clinic: Clinic) -> ZoneInfo:
+    return ZoneInfo(clinic.timezone or "Asia/Bishkek")
+
+
+def _ensure_remindable(appointment: Appointment, clinic: Clinic, now: datetime) -> None:
+    """Можно ли напомнить сейчас: ``scheduled``, ещё не начался, сегодня или завтра."""
+    reason: str | None = None
+    if appointment.status is not AppointmentStatus.SCHEDULED or appointment.scheduled_at is None:
+        reason, message = "status", "Напомнить можно только о неподтверждённом приёме"
+    elif appointment.scheduled_at <= now:
+        reason, message = "started", "Время приёма уже наступило"
+    else:
+        tz = _tz(clinic)
+        today = now.astimezone(tz).date()
+        if appointment.scheduled_at.astimezone(tz).date() > today + timedelta(days=1):
+            reason, message = "day", "Напомнить можно о приёме на сегодня или завтра"
+    if reason is not None:
+        raise ValidationAppError(message, code="reminder_not_available", extra={"reason": reason})
+
+
+def _too_soon(left: timedelta) -> TooManyRequestsError:
+    """429: напоминание по этому приёму только что уходило."""
+    seconds = max(1, math.ceil(left.total_seconds()))
+    return TooManyRequestsError(
+        "Напоминание по этому приёму уже отправлено — повторить можно чуть позже",
+        code="reminder_too_soon",
+        extra={"retryAfter": seconds},
+        headers={"Retry-After": str(seconds)},
+    )
+
+
+def _window_text(
+    patient: Patient, clinic: Clinic, local: datetime, lang: str, *, today: bool
+) -> str:
+    """Текст обычного сообщения, когда подходящего шаблона у клиники нет."""
+    address = (clinic.address or "").strip()
+    if not today:
+        key = "visit_remind_tomorrow"
+    else:
+        key = "visit_remind_today" if address else "visit_remind_today_no_address"
+    return booking_text(key, lang).format(
+        name=patient.first_name,
+        time=local.strftime("%H:%M"),
+        clinic=clinic.name,
+        address=address,
+    )
+
+
 class VisitReminderService:
     def __init__(self, session: AsyncSession, wa_client: WhatsAppCloudClient) -> None:
         self._session = session
@@ -90,6 +151,7 @@ class VisitReminderService:
         Приём попадает в рассылку один раз (уникальность по приёму): между
         контрольным сроком и горизонтом, статус ``scheduled``, у клиники живой
         WhatsApp, включённое умение «напоминания» и одобренный шаблон.
+        Демо-клинике по расписанию не шлём: номера её пациентов выдуманы.
         """
         now = now or datetime.now(UTC)
         horizon = now + timedelta(hours=settings.visit_reminder_hours_before)
@@ -108,6 +170,7 @@ class VisitReminderService:
                     Appointment.scheduled_at > cutoff,
                     Appointment.scheduled_at <= horizon,
                     ClinicWhatsApp.active.is_(True),
+                    Clinic.demo.is_(False),
                     AppointmentReminder.id.is_(None),
                 )
                 .order_by(Appointment.scheduled_at)
@@ -130,6 +193,99 @@ class VisitReminderService:
         binding: ClinicWhatsApp,
         now: datetime,
     ) -> bool:
+        """Плановое напоминание: шаблоном и одно на приём."""
+        if not await self._claim(appointment.id):
+            return False  # сотрудник прямо сейчас напоминает сам
+        if await self._reminder(appointment.id) is not None:
+            return False  # пока шёл проход, сотрудник уже напомнил
+        reminder = AppointmentReminder(clinic_id=clinic.id, appointment_id=appointment.id)
+        return await self._deliver(
+            reminder, appointment, patient, clinic, binding, now, manual=False
+        )
+
+    # ── «Напомнить сейчас» (кнопка сотрудника) ───────────────────────────────
+
+    async def remind_now(
+        self, clinic_id: uuid.UUID, appointment_id: uuid.UUID, now: datetime | None = None
+    ) -> AppointmentReminder:
+        """Напомнить о приёме сразу; результат — в напоминании приёма.
+
+        Приём на сегодня или завтра (сутки клиники), ещё не начался и всё ещё
+        ``scheduled``. От ступени ассистента и умения «напоминания» не зависит:
+        отправляет человек. Отказ WhatsApp — не ошибка запроса, а исход:
+        напоминание получает ``failed`` с причиной, как и плановое.
+
+        Чаще раза в ``VISIT_REMINDER_RESEND_MINUTES`` на приём не уходит —
+        считается и плановое. Неотправленное (``failed``) срок не занимает:
+        пациент его не получил, и повтор после исправления причины нужен сразу.
+        """
+        now = now or datetime.now(UTC)
+        row = (
+            await self._session.execute(
+                select(Appointment, Patient, Clinic)
+                .join(Patient, Patient.id == Appointment.patient_id)
+                .join(Clinic, Clinic.id == Appointment.clinic_id)
+                .where(Appointment.id == appointment_id, Appointment.clinic_id == clinic_id)
+            )
+        ).first()
+        if row is None:
+            raise NotFoundError("Приём не найден", code="appointment_not_found")
+        appointment, patient, clinic = row
+        _ensure_remindable(appointment, clinic, now)
+        binding = await self._repository.binding_by_clinic(clinic_id)
+        if binding is None or not binding.active:
+            raise ConflictError("WhatsApp не подключён к клинике", code="whatsapp_not_connected")
+
+        interval = timedelta(minutes=settings.visit_reminder_resend_minutes)
+        if not await self._claim(appointment.id):
+            raise _too_soon(interval)  # то же напоминание уходит с другого экрана
+        reminder = await self._reminder(appointment.id)
+        if reminder is None:
+            reminder = AppointmentReminder(clinic_id=clinic.id, appointment_id=appointment.id)
+        elif reminder.status != "failed" and reminder.sent_at + interval > now:
+            raise _too_soon(reminder.sent_at + interval - now)
+        await self._deliver(reminder, appointment, patient, clinic, binding, now, manual=True)
+        return reminder
+
+    # ── Отправка (общая для планового и ручного) ─────────────────────────────
+
+    async def _claim(self, appointment_id: uuid.UUID) -> bool:
+        """Занять напоминание приёма до конца транзакции; ``False`` — занято.
+
+        Замок на время отправки: два нажатия разом или нажатие под плановую
+        рассылку иначе отправили бы пациенту два сообщения. Уровень транзакции,
+        а не сессии, — иначе под PgBouncer замок остался бы на чужом соединении.
+        """
+        key = func.hashtextextended(f"visit-reminder:{appointment_id}", 0)
+        return bool(
+            (await self._session.execute(select(func.pg_try_advisory_xact_lock(key)))).scalar_one()
+        )
+
+    async def _reminder(self, appointment_id: uuid.UUID) -> AppointmentReminder | None:
+        return (
+            await self._session.execute(
+                select(AppointmentReminder).where(
+                    AppointmentReminder.appointment_id == appointment_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def _deliver(
+        self,
+        reminder: AppointmentReminder,
+        appointment: Appointment,
+        patient: Patient,
+        clinic: Clinic,
+        binding: ClinicWhatsApp,
+        now: datetime,
+        *,
+        manual: bool,
+    ) -> bool:
+        """Отправить напоминание и записать исход в ``reminder``; ``True`` — ушло.
+
+        Плановое уходит только шаблоном. Ручное в открытое окно — обычным
+        сообщением с теми же кнопками, и только в закрытое — шаблоном.
+        """
         conversation = await self._repository.conversation_by_phone(clinic.id, patient.phone)
         if conversation is None:
             conversation = await self._repository.create_conversation(
@@ -138,40 +294,62 @@ class VisitReminderService:
         else:
             # Диалог постоянный: напоминание в закрытый — возобновляет его.
             reopen_if_closed(conversation)
-        lang = _lang_of(patient, conversation)
-        template = await self._template(clinic.id, lang)
-        reminder = AppointmentReminder(
-            clinic_id=clinic.id,
-            appointment_id=appointment.id,
-            conversation_id=conversation.id,
-            sent_at=now,
-        )
-        if template is None:
-            await self._save_failed(
-                reminder,
-                "Напоминание не отправлено: у клиники нет одобренного шаблона "
-                f"{settings.wa_visit_reminder_template}",
-            )
-            logger.warning("visit_reminder_no_template", clinic_id=str(clinic.id))
-            return False
+        # Строка у приёма одна: повторное напоминание начинает её заново, иначе
+        # рядом с новой отправкой остался бы ответ или отказ прошлой.
+        reminder.conversation_id = conversation.id
+        reminder.sent_at = now
+        reminder.status = "sent"
+        reminder.note = None
+        reminder.answered_at = None
+        reminder.wa_message_id = None
+
         assert appointment.scheduled_at is not None
-        local = appointment.scheduled_at.astimezone(ZoneInfo(clinic.timezone or "Asia/Bishkek"))
-        values = [patient.first_name, local.strftime("%d.%m"), local.strftime("%H:%M"), clinic.name]
-        variables = values[: len(template.variables)]
-        buttons = (
-            [f"{VISIT_PREFIX}{appointment.id}:confirm", f"{VISIT_PREFIX}{appointment.id}:change"]
-            if settings.wa_visit_reminder_buttons
-            else None
+        tz = _tz(clinic)
+        local = appointment.scheduled_at.astimezone(tz)
+        today = manual and local.date() == now.astimezone(tz).date()
+        lang = _lang_of(patient, conversation)
+        template, values, exact = await self._template_for(
+            clinic, patient, local, lang, today=today
         )
+        variables = values[: len(template.variables)] if template is not None else []
+        confirm_id = f"{VISIT_PREFIX}{appointment.id}:confirm"
+        change_id = f"{VISIT_PREFIX}{appointment.id}:change"
+        in_window = manual and is_window_open(conversation.last_patient_msg_at, now)
         try:
-            result = await client_for(self._wa, binding).send_template(
-                binding.phone_number_id,
-                patient.phone,
-                template.meta_name,
-                template.lang,
-                variables,
-                buttons=buttons,
-            )
+            transport = client_for(self._wa, binding)
+            if in_window:
+                body = (
+                    render_template_body(template.body_preview, variables)
+                    if template is not None and exact
+                    else _window_text(patient, clinic, local, lang, today=today)
+                )
+                result = await transport.send_buttons(
+                    binding.phone_number_id,
+                    patient.phone,
+                    body,
+                    [
+                        (confirm_id, booking_text("visit_come_title", lang)),
+                        (change_id, booking_text("visit_move_title", lang)),
+                    ],
+                )
+            elif template is None:
+                await self._save_failed(
+                    reminder,
+                    "Напоминание не отправлено: у клиники нет одобренного шаблона "
+                    f"{settings.wa_visit_reminder_template}",
+                )
+                logger.warning("visit_reminder_no_template", clinic_id=str(clinic.id))
+                return False
+            else:
+                body = render_template_body(template.body_preview, variables)
+                result = await transport.send_template(
+                    binding.phone_number_id,
+                    patient.phone,
+                    template.meta_name,
+                    template.lang,
+                    variables,
+                    buttons=[confirm_id, change_id] if settings.wa_visit_reminder_buttons else None,
+                )
         except WhatsAppSendError as exc:
             # То же объяснение, что в чате клиники: «Graph API 400» администратору
             # ничего не говорит, а «у номера нет WhatsApp» — повод позвонить.
@@ -188,7 +366,7 @@ class VisitReminderService:
         await self._repository.add_message(
             conversation,
             role=AiMessageRole.SYSTEM,
-            body=render_template_body(template.body_preview, variables),
+            body=body,
             wa_message_id=result.wa_message_id,
             sent_at=now,
         )
@@ -227,9 +405,14 @@ class VisitReminderService:
         (:class:`~app.modules.push.application.unconfirmed_service.UnconfirmedVisitService`)
         — он не зависит от того, ушло ли напоминание вообще. Возвращает число
         напоминаний, оставшихся без ответа.
+
+        «Напомнить сейчас» уходит и после контрольного срока — за час до приёма.
+        Такому даём ``VISIT_REMINDER_RESEND_MINUTES`` на ответ (или до начала
+        приёма): иначе ближайший проход объявил бы «не ответил» через минуту.
         """
         now = now or datetime.now(UTC)
         cutoff = now + timedelta(hours=settings.visit_unconfirmed_hours_before)
+        answered_by = now - timedelta(minutes=settings.visit_reminder_resend_minutes)
         rows = (
             await self._session.execute(
                 select(AppointmentReminder, Appointment)
@@ -237,6 +420,10 @@ class VisitReminderService:
                 .where(
                     AppointmentReminder.status == "sent",
                     Appointment.scheduled_at <= cutoff,
+                    or_(
+                        AppointmentReminder.sent_at <= answered_by,
+                        Appointment.scheduled_at <= now,
+                    ),
                 )
                 .limit(500)
             )
@@ -282,13 +469,7 @@ class VisitReminderService:
         )
         if not own or appointment.scheduled_at is None:
             return booking_text("visit_gone", lang)
-        reminder = (
-            await self._session.execute(
-                select(AppointmentReminder).where(
-                    AppointmentReminder.appointment_id == appointment.id
-                )
-            )
-        ).scalar_one_or_none()
+        reminder = await self._reminder(appointment.id)
         now = datetime.now(UTC)
         clinic = await self._session.get(Clinic, appointment.clinic_id)
         local = appointment.scheduled_at.astimezone(
@@ -350,11 +531,35 @@ class VisitReminderService:
         value = (clinic.ai_skills or {}).get("reminders")
         return str(value) if value in ("off", "assisted", "auto") else "off"
 
-    async def _template(self, clinic_id: uuid.UUID, lang: str) -> WhatsAppTemplate | None:
-        """Одобренный шаблон напоминания — свой или общий, на языке пациента."""
-        candidates = await self._repository.templates_by_name(
-            clinic_id, settings.wa_visit_reminder_template
-        )
+    async def _template_for(
+        self, clinic: Clinic, patient: Patient, local: datetime, lang: str, *, today: bool
+    ) -> tuple[WhatsAppTemplate | None, list[str], bool]:
+        """Шаблон на этот день, значения переменных и «тот ли это текст».
+
+        На сегодня — шаблон «в день приёма», если он одобрен и у клиники есть
+        адрес (пустую переменную Meta не принимает); иначе общий — в нём и дата,
+        и время, он верен для любого дня. ``exact`` — текст шаблона подходит и
+        обычному сообщению: он про этот день и на языке пациента.
+        """
+        time = local.strftime("%H:%M")
+        address = (clinic.address or "").strip()
+        if today and address:
+            template = await self._template(
+                clinic.id, settings.wa_visit_reminder_today_template, lang
+            )
+            if template is not None:
+                exact = template.lang.lower().startswith(lang)
+                return template, [time, clinic.name, address], exact
+        template = await self._template(clinic.id, settings.wa_visit_reminder_template, lang)
+        values = [patient.first_name, local.strftime("%d.%m"), time, clinic.name]
+        exact = not today and template is not None and template.lang.lower().startswith(lang)
+        return template, values, exact
+
+    async def _template(
+        self, clinic_id: uuid.UUID, meta_name: str, lang: str
+    ) -> WhatsAppTemplate | None:
+        """Одобренный шаблон с этим именем — свой или общий, на языке пациента."""
+        candidates = await self._repository.templates_by_name(clinic_id, meta_name)
         for template in candidates:
             if template.lang.lower().startswith(lang):
                 return template
