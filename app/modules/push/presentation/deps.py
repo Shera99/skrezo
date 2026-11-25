@@ -9,6 +9,7 @@ from app.core.db import get_session
 from app.modules.push.application.use_cases.get_notification_plan import (
     GetNotificationPlanUseCase,
 )
+from app.modules.push.application.use_cases.get_prefs import GetPrefsUseCase
 from app.modules.push.application.use_cases.register_device import RegisterDeviceUseCase
 from app.modules.push.application.use_cases.unregister_device import UnregisterDeviceUseCase
 from app.modules.push.application.use_cases.update_prefs import UpdatePrefsUseCase
@@ -50,6 +51,12 @@ def get_update_prefs_use_case(
     prefs: NotificationPrefRepository = Depends(get_notification_pref_repository),
 ) -> UpdatePrefsUseCase:
     return UpdatePrefsUseCase(session, prefs)
+
+
+def get_prefs_use_case(
+    prefs: NotificationPrefRepository = Depends(get_notification_pref_repository),
+) -> GetPrefsUseCase:
+    return GetPrefsUseCase(prefs)
 
 
 def get_notification_plan_use_case(

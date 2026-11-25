@@ -57,6 +57,9 @@ class AppointmentRow:
     duration_min: int
     status: AppointmentStatus
     price_total_tiyin: int
+    #: Когда запись создана: клиенты отличают по нему запись «только что у
+    #: стойки» — её не поднимают как неподтверждённую (то же правило у пуша).
+    created_at: datetime
     #: Членство врача — фронт сопоставляет врача по id, а не по имени.
     doctor_membership_id: uuid.UUID | None = None
     #: Телефон пациента — без отдельного запроса карточки.

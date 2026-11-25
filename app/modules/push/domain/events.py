@@ -80,9 +80,15 @@ EVENT_CATALOG: dict[str, EventSpec] = {
     # отдать слот. Врачу приёма тоже: у соло-врача и в клинике без
     # администратора звонить больше некому. Эмитит скан расписания
     # (UnconfirmedVisitService), от напоминаний пациенту не зависит. TTL до
-    # начала приёма: после него сообщение бессмысленно.
+    # начала приёма: после него сообщение бессмысленно. Канал Android —
+    # срочный (звук и всплытие): это призыв позвонить в ближайший час, и тот
+    # же канал занимало локальное уведомление приложения, которое пуш заменил.
     "appointment.unconfirmed": EventSpec(
-        _ALL, Rung.NORMAL, ttl_seconds=None, ignores_clinic_quiet=True
+        _ALL,
+        Rung.NORMAL,
+        android_channel="appointments-urgent.v1",
+        ttl_seconds=None,
+        ignores_clinic_quiet=True,
     ),
     "payment.created": EventSpec(
         frozenset({Audience.MANAGER, Audience.OWNER}),

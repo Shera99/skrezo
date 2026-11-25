@@ -33,6 +33,11 @@ MAX_ITEM_QUANTITY = 999
 
 
 #: Описание поля ``reminder`` — одно на список и карточку приёма.
+_CREATED_AT_DESCRIPTION = (
+    "Когда запись создана. Запись, созданную меньше чем за 2 часа до начала, сервер "
+    "не поднимает как неподтверждённую (пуш `appointment.unconfirmed`) — по этому "
+    "полю клиенты применяют то же правило у себя"
+)
 _REMINDER_DESCRIPTION = (
     "Напоминание пациенту о визите в WhatsApp. `null` — не отправлялось: срок "
     "ещё не подошёл, напоминания у клиники выключены или WhatsApp не подключён. "
@@ -113,6 +118,9 @@ class AppointmentListItem(CamelModel):
     duration_min: int = Field(description="Длительность, минуты", examples=[45])
     status: AppointmentStatus
     price_total_tiyin: int = Field(description="Итог приёма в тыйынах", examples=[425000])
+    created_at: datetime = Field(
+        description=_CREATED_AT_DESCRIPTION, examples=["2026-11-24T09:15:00Z"]
+    )
     reminder: AppointmentReminderOut | None = Field(default=None, description=_REMINDER_DESCRIPTION)
 
     @classmethod
@@ -129,6 +137,7 @@ class AppointmentListItem(CamelModel):
             duration_min=r.duration_min,
             status=r.status,
             price_total_tiyin=r.price_total_tiyin,
+            created_at=r.created_at,
             reminder=AppointmentReminderOut.from_state(r.reminder),
         )
 
@@ -356,6 +365,9 @@ class AppointmentDetailResponse(CamelModel):
         default=None, description="Пояснение к бесплатному приёму"
     )
     items: list[AppointmentItemOut] = Field(description="Позиции чека")
+    created_at: datetime = Field(
+        description=_CREATED_AT_DESCRIPTION, examples=["2026-11-24T09:15:00Z"]
+    )
     reminder: AppointmentReminderOut | None = Field(default=None, description=_REMINDER_DESCRIPTION)
 
     @classmethod
@@ -381,6 +393,7 @@ class AppointmentDetailResponse(CamelModel):
             no_charge=a.no_charge,
             no_charge_comment=a.no_charge_comment,
             items=[AppointmentItemOut.from_row(i) for i in d.items],
+            created_at=a.created_at,
             reminder=AppointmentReminderOut.from_state(d.reminder),
         )
 

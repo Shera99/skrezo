@@ -283,6 +283,7 @@ class AppointmentRepository:
                 AppointmentReminder.sent_at.label("reminder_sent_at"),
                 AppointmentReminder.answered_at.label("reminder_answered_at"),
                 AppointmentReminder.note.label("reminder_note"),
+                Appointment.created_at,
             )
             .join(Patient, Patient.id == Appointment.patient_id)
             .outerjoin(Membership, Membership.id == Appointment.doctor_membership_id)
@@ -325,6 +326,7 @@ class AppointmentRepository:
                 duration_min=r[6],
                 status=r[7],
                 price_total_tiyin=r[8],
+                created_at=r[15],
                 doctor_membership_id=r[9],
                 patient_phone=r[10],
                 reminder=_reminder_state(r[11], r[12], r[13], r[14]),

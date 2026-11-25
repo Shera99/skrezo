@@ -1210,6 +1210,9 @@ async def test_unconfirmed_push_passes_clinic_quiet_hours(
     assert message.data["appointmentId"] == appointment_id
     assert message.data["entityId"] == appointment_id
     assert message.ttl_seconds is not None and 0 < message.ttl_seconds <= 3600
+    # Срочный канал Android: призыв позвонить всплывает со звуком, как раньше
+    # всплывало локальное уведомление приложения.
+    assert message.android_channel == "appointments-urgent.v1"
 
 
 async def test_cleanup_drops_old_scheduler_marks(

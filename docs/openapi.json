@@ -9966,6 +9966,42 @@
       }
     },
     "/api/v1/clinic/notifications/prefs": {
+      "get": {
+        "tags": [
+          "push"
+        ],
+        "summary": "Настройки уведомлений",
+        "description": "Отключённые типы пушей и тихие часы своего членства.\n\nИсточник истины для экрана настроек: без него приложение держало копию у\nсебя, и тумблер на втором устройстве показывал неправду. Настройки свои —\nпара (аккаунт, клиника) из токена. Пока их ни разу не правили, возвращается\nдефолт: ничего не отключено, тихих часов нет.",
+        "operationId": "get_prefs_api_v1_clinic_notifications_prefs_get",
+        "responses": {
+          "200": {
+            "description": "Действующие настройки своего членства",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrefsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "В токене не выбрана клиника",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "clinic_not_selected",
+                  "message": "Не выбрана клиника"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
       "put": {
         "tags": [
           "push"
@@ -16122,6 +16158,15 @@
             "title": "Items",
             "description": "Позиции чека"
           },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat",
+            "description": "Когда запись создана. Запись, созданную меньше чем за 2 часа до начала, сервер не поднимает как неподтверждённую (пуш `appointment.unconfirmed`) — по этому полю клиенты применяют то же правило у себя",
+            "examples": [
+              "2026-11-24T09:15:00Z"
+            ]
+          },
           "reminder": {
             "anyOf": [
               {
@@ -16146,7 +16191,8 @@
           "subtotalTiyin",
           "discountPercent",
           "discountTiyin",
-          "items"
+          "items",
+          "createdAt"
         ],
         "title": "AppointmentDetailResponse"
       },
@@ -16342,6 +16388,15 @@
               425000
             ]
           },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat",
+            "description": "Когда запись создана. Запись, созданную меньше чем за 2 часа до начала, сервер не поднимает как неподтверждённую (пуш `appointment.unconfirmed`) — по этому полю клиенты применяют то же правило у себя",
+            "examples": [
+              "2026-11-24T09:15:00Z"
+            ]
+          },
           "reminder": {
             "anyOf": [
               {
@@ -16363,7 +16418,8 @@
           "appointmentType",
           "durationMin",
           "status",
-          "priceTotalTiyin"
+          "priceTotalTiyin",
+          "createdAt"
         ],
         "title": "AppointmentListItem"
       },

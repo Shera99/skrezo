@@ -557,3 +557,29 @@ async def test_arrived_counted_in_reports(client: AsyncClient, ctx: ClinicCtx) -
     summary = await client.get(f"{API}/clinic/reports/summary", headers=ctx.headers)
     assert summary.status_code == 200, summary.text
     assert summary.json()["appointments"]["arrived"] >= 1
+
+
+async def test_created_at_is_in_list_card_and_patch_answer(
+    client: AsyncClient, ctx: ClinicCtx
+) -> None:
+    """``createdAt`` приходит везде, где приходит приём, и правкой не меняется.
+
+    По нему клиенты отличают запись «только что у стойки»: созданную меньше чем
+    за два часа до начала не поднимают как неподтверждённую — как и сервер.
+    """
+    appointment_id = await _book(client, ctx)
+
+    detail = await client.get(f"{API}/clinic/appointments/{appointment_id}", headers=ctx.headers)
+    assert detail.status_code == 200, detail.text
+    created_at = detail.json()["createdAt"]
+    # Момент времени с поясом, а не «локальные часы» без него.
+    assert datetime.fromisoformat(created_at).tzinfo is not None
+
+    listed = await client.get(f"{API}/clinic/appointments", headers=ctx.headers)
+    assert listed.status_code == 200, listed.text
+    row = next(item for item in listed.json()["list"] if item["id"] == appointment_id)
+    assert row["createdAt"] == created_at
+
+    patched = await _patch(client, ctx, appointment_id, status="confirmed")
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["createdAt"] == created_at

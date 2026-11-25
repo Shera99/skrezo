@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.modules.push.presentation.routes import (
+    get_prefs,
     inbox,
     notification_plan,
     register_device,
@@ -16,6 +17,7 @@ from app.modules.push.presentation.routes import (
 router = APIRouter(tags=["push"])
 router.include_router(register_device.router)
 router.include_router(unregister_device.router)
+router.include_router(get_prefs.router)
 router.include_router(update_prefs.router)
 router.include_router(inbox.router)
 router.include_router(telemetry.router)

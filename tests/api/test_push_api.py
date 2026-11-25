@@ -246,6 +246,30 @@ async def test_prefs_upsert_then_update(client: AsyncClient, owner: dict[str, st
     assert second.json()["disabled"] == []
 
 
+async def test_get_prefs_returns_default_then_saved(
+    client: AsyncClient, owner: dict[str, str]
+) -> None:
+    """GET — источник истины для тумблеров: дефолт до первой правки, потом сохранённое."""
+    fresh = await client.get(f"{API}/clinic/notifications/prefs", headers=owner)
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json() == {"disabled": [], "quietFrom": None, "quietTo": None}
+
+    saved = await client.put(
+        f"{API}/clinic/notifications/prefs",
+        headers=owner,
+        json={
+            "disabled": ["appointment.unconfirmed"],
+            "quietFrom": "22:00:00",
+            "quietTo": "08:00:00",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    read = await client.get(f"{API}/clinic/notifications/prefs", headers=owner)
+    assert read.status_code == 200, read.text
+    assert read.json() == saved.json()
+    assert read.json()["disabled"] == ["appointment.unconfirmed"]
+
+
 # ── Доступ ───────────────────────────────────────────────────────────────────
 
 
@@ -272,18 +296,27 @@ async def test_worker_can_manage_own_push(client: AsyncClient, owner: dict[str, 
     )
     assert prefs.status_code == 200, prefs.text
 
+    # Настройки свои: правку врача видит он сам, а владелец — нет.
+    theirs = await client.get(f"{API}/clinic/notifications/prefs", headers=worker)
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["disabled"] == ["day.morning"]
+    mine = await client.get(f"{API}/clinic/notifications/prefs", headers=owner)
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["disabled"] == []
+
 
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
         ("POST", "/clinic/devices", {"token": "x", "platform": "android"}),
         ("DELETE", "/clinic/devices/x", None),
+        ("GET", "/clinic/notifications/prefs", None),
         ("PUT", "/clinic/notifications/prefs", {"disabled": []}),
     ],
 )
 async def test_push_endpoints_require_auth(
     client: AsyncClient, method: str, path: str, body: dict[str, Any] | None
 ) -> None:
-    """Все три ручки закрыты авторизацией."""
+    """Все ручки закрыты авторизацией."""
     resp = await client.request(method, f"{API}{path}", json=body)
     assert resp.status_code == 401, resp.text
