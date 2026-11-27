@@ -93,7 +93,8 @@ class TrustLadderService:
         for skill, cap in caps.items():
             if skill not in SKILLS or cap not in CAP_LEVELS:
                 raise ValidationAppError(
-                    "Умение: booking или changes; уровень: off, assisted или auto",
+                    "Умение: booking, changes, reminders, debts или recall; "
+                    "уровень: off, assisted или auto",
                     code="skill_unknown",
                 )
         merged = {**caps_from(clinic.ai_skills), **caps}

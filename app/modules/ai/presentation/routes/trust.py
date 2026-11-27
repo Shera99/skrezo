@@ -48,6 +48,42 @@ _GATE_CLOSED: dict[int | str, dict[str, Any]] = {
             }
         },
     },
+    422: {
+        "description": (
+            "Неизвестное умение или уровень в `skills` (`skill_unknown`) либо тело не "
+            "прошло валидацию: пустой запрос, неизвестная ступень (`validation_error`)"
+        ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "skill_unknown": {
+                        "summary": "Неизвестное умение или уровень",
+                        "value": {
+                            "error": "skill_unknown",
+                            "message": (
+                                "Умение: booking, changes, reminders, debts или recall; "
+                                "уровень: off, assisted или auto"
+                            ),
+                        },
+                    },
+                    "validation_error": {
+                        "summary": "Пустой запрос",
+                        "value": {
+                            "error": "validation_error",
+                            "message": "Тело запроса не прошло валидацию",
+                            "details": [
+                                {
+                                    "type": "value_error",
+                                    "loc": ["body"],
+                                    "msg": "Value error, Укажите level, enabled или skills",
+                                }
+                            ],
+                        },
+                    },
+                }
+            }
+        },
+    },
 }
 
 
@@ -123,7 +159,9 @@ async def get_trust_ladder(
     гейтом (`AI_TRUST_GATE_ENABLED=true`) каждая ступень показывает свои условия:
     «Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —
     одобренные ответы («153 из 200») и ноль фактических ошибок за неделю.
-    `stats` считаются всегда. Смотреть может ресепшен, менять — право
+    `stats` считаются всегда. `skills` — все пять умений: потолок клиники
+    (`cap`) и действующий уровень (`effective`), по нему видно, работает ли
+    умение на деле. Смотреть может ресепшен, менять — право
     `assistant.manage` (владелец всегда)."""
     clinic = await _clinic(context, session)
     return _response(await service.overview(clinic))
@@ -147,10 +185,14 @@ async def set_trust_ladder(
     гейт включён (`AI_TRUST_GATE_ENABLED=true`), вверх — только когда он открыт
     (иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`
     выключает, помня ступень; `enabled:true` без `level` возвращает её.
-    `skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у
-    модели, `assisted` оставляет подбор боту, а действие — администратору
-    (эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда
-    Skrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`."""
+    `skills` — потолки умений (матрица Ф7), присылать только меняемые:
+    `booking` (запись), `changes` (перенос и отмена), `reminders` (напоминание о
+    визите), `debts` (о долге), `recall` (повторный осмотр). У записи и переноса
+    `off` убирает инструменты умения у модели, `assisted` оставляет подбор боту, а
+    действие — администратору (эскалация с карточкой вместо кнопки), `auto` — как
+    ступень. У рассылок `off` выключает, а `assisted` и `auto` одинаково включают;
+    уходят они только на ступени «Проверяю» или «Доверяю». Команда Skrezo может
+    обойти гейт ручкой `/admin/clients/{id}/ai-mode`."""
     clinic = await _clinic(context, session)
     if body.enabled is not None or body.level is not None:
         was, now = await service.change(clinic, enabled=body.enabled, level=body.level)

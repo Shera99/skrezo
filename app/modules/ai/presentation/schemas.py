@@ -656,13 +656,24 @@ class TrustStatsOut(CamelModel):
 class SkillOut(CamelModel):
     """Умение × клиника: потолок и действующий уровень."""
 
-    key: str = Field(description="booking | changes", examples=["booking"])
-    title: str = Field(examples=["Запись на приём"])
+    key: str = Field(
+        description="booking | changes | reminders | debts | recall", examples=["reminders"]
+    )
+    title: str = Field(examples=["Напоминание о визите"])
     description: str
-    cap: str = Field(description="Потолок клиники: off | assisted | auto", examples=["assisted"])
+    cap: str = Field(
+        description=(
+            "Потолок клиники: off | assisted | auto. У рассылок (reminders, debts, recall) "
+            "assisted и auto равнозначны — рассылка включена"
+        ),
+        examples=["auto"],
+    )
     effective: str = Field(
-        description="Действующий уровень = min(ступень, потолок): off | shadow | assisted | auto",
-        examples=["assisted"],
+        description=(
+            "Действующий уровень = min(ступень, потолок): off | shadow | assisted | auto. "
+            "Работает ли умение на деле: рассылки уходят только при assisted или auto"
+        ),
+        examples=["auto"],
     )
 
 
@@ -685,7 +696,11 @@ class TrustLadderResponse(CamelModel):
     next: TrustStepOut | None = Field(default=None, description="Следующая ступень и её условия")
     skills: list[SkillOut] = Field(
         default_factory=list,
-        description="Матрица умений: запись, перенос/отмена — потолок и действующий уровень",
+        description=(
+            "Матрица умений — всегда все пять, в этом порядке: запись, перенос и отмена, "
+            "напоминание о визите, о долге, повторный осмотр; у каждого потолок и "
+            "действующий уровень"
+        ),
     )
 
 
@@ -701,8 +716,11 @@ class SetTrustRequest(CamelModel):
     )
     skills: dict[str, str] | None = Field(
         default=None,
-        description="Потолки умений: {booking?: off|assisted|auto, changes?: off|assisted|auto}",
-        examples=[{"booking": "assisted"}],
+        description=(
+            "Потолки умений off | assisted | auto — только меняемые: booking, changes, "
+            "reminders, debts, recall. Неизвестное умение или уровень — 422 skill_unknown"
+        ),
+        examples=[{"reminders": "auto", "debts": "off"}],
     )
 
     @model_validator(mode="after")

@@ -14499,7 +14499,7 @@
           "ai"
         ],
         "summary": "Лестница доверия: текущая ступень, условия следующей",
-        "description": "Наблюдаю → Проверяю → Доверяю. Пока гейт выключен (по умолчанию), все\nступени открыты: `ready: true`, `requirements` и `blockers` пусты. С включённым\nгейтом (`AI_TRUST_GATE_ENABLED=true`) каждая ступень показывает свои условия:\n«Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —\nодобренные ответы («153 из 200») и ноль фактических ошибок за неделю.\n`stats` считаются всегда. Смотреть может ресепшен, менять — право\n`assistant.manage` (владелец всегда).",
+        "description": "Наблюдаю → Проверяю → Доверяю. Пока гейт выключен (по умолчанию), все\nступени открыты: `ready: true`, `requirements` и `blockers` пусты. С включённым\nгейтом (`AI_TRUST_GATE_ENABLED=true`) каждая ступень показывает свои условия:\n«Проверяю» — ответы, прошедшие валидатор в теневом режиме; «Доверяю» —\nодобренные ответы («153 из 200») и ноль фактических ошибок за неделю.\n`stats` считаются всегда. `skills` — все пять умений: потолок клиники\n(`cap`) и действующий уровень (`effective`), по нему видно, работает ли\nумение на деле. Смотреть может ресепшен, менять — право\n`assistant.manage` (владелец всегда).",
         "operationId": "get_trust_ladder_api_v1_clinic_assistant_trust_get",
         "responses": {
           "200": {
@@ -14524,7 +14524,7 @@
           "ai"
         ],
         "summary": "Сменить ступень или выключить ассистента",
-        "description": "`level` ставит ступень (и включает бота) — любую, в любую сторону. Если\nгейт включён (`AI_TRUST_GATE_ENABLED=true`), вверх — только когда он открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её.\n`skills` — потолки умений (матрица Ф7): `off` убирает инструменты умения у\nмодели, `assisted` оставляет подбор боту, а действие — администратору\n(эскалация с карточкой вместо кнопки), `auto` — как ступень. Команда\nSkrezo может обойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
+        "description": "`level` ставит ступень (и включает бота) — любую, в любую сторону. Если\nгейт включён (`AI_TRUST_GATE_ENABLED=true`), вверх — только когда он открыт\n(иначе 409 с перечнем, чего не хватает), вниз — всегда. `enabled:false`\nвыключает, помня ступень; `enabled:true` без `level` возвращает её.\n`skills` — потолки умений (матрица Ф7), присылать только меняемые:\n`booking` (запись), `changes` (перенос и отмена), `reminders` (напоминание о\nвизите), `debts` (о долге), `recall` (повторный осмотр). У записи и переноса\n`off` убирает инструменты умения у модели, `assisted` оставляет подбор боту, а\nдействие — администратору (эскалация с карточкой вместо кнопки), `auto` — как\nступень. У рассылок `off` выключает, а `assisted` и `auto` одинаково включают;\nуходят они только на ступени «Проверяю» или «Доверяю». Команда Skrezo может\nобойти гейт ручкой `/admin/clients/{id}/ai-mode`.",
         "operationId": "set_trust_ladder_api_v1_clinic_assistant_trust_put",
         "requestBody": {
           "content": {
@@ -14563,11 +14563,33 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Неизвестное умение или уровень в `skills` (`skill_unknown`) либо тело не прошло валидацию: пустой запрос, неизвестная ступень (`validation_error`)",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                "examples": {
+                  "skill_unknown": {
+                    "summary": "Неизвестное умение или уровень",
+                    "value": {
+                      "error": "skill_unknown",
+                      "message": "Умение: booking, changes, reminders, debts или recall; уровень: off, assisted или auto"
+                    }
+                  },
+                  "validation_error": {
+                    "summary": "Пустой запрос",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Тело запроса не прошло валидацию",
+                      "details": [
+                        {
+                          "type": "value_error",
+                          "loc": [
+                            "body"
+                          ],
+                          "msg": "Value error, Укажите level, enabled или skills"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             }
@@ -27327,10 +27349,11 @@
               }
             ],
             "title": "Skills",
-            "description": "Потолки умений: {booking?: off|assisted|auto, changes?: off|assisted|auto}",
+            "description": "Потолки умений off | assisted | auto — только меняемые: booking, changes, reminders, debts, recall. Неизвестное умение или уровень — 422 skill_unknown",
             "examples": [
               {
-                "booking": "assisted"
+                "debts": "off",
+                "reminders": "auto"
               }
             ]
           }
@@ -27513,16 +27536,16 @@
           "key": {
             "type": "string",
             "title": "Key",
-            "description": "booking | changes",
+            "description": "booking | changes | reminders | debts | recall",
             "examples": [
-              "booking"
+              "reminders"
             ]
           },
           "title": {
             "type": "string",
             "title": "Title",
             "examples": [
-              "Запись на приём"
+              "Напоминание о визите"
             ]
           },
           "description": {
@@ -27532,17 +27555,17 @@
           "cap": {
             "type": "string",
             "title": "Cap",
-            "description": "Потолок клиники: off | assisted | auto",
+            "description": "Потолок клиники: off | assisted | auto. У рассылок (reminders, debts, recall) assisted и auto равнозначны — рассылка включена",
             "examples": [
-              "assisted"
+              "auto"
             ]
           },
           "effective": {
             "type": "string",
             "title": "Effective",
-            "description": "Действующий уровень = min(ступень, потолок): off | shadow | assisted | auto",
+            "description": "Действующий уровень = min(ступень, потолок): off | shadow | assisted | auto. Работает ли умение на деле: рассылки уходят только при assisted или auto",
             "examples": [
-              "assisted"
+              "auto"
             ]
           }
         },
@@ -29237,7 +29260,7 @@
             },
             "type": "array",
             "title": "Skills",
-            "description": "Матрица умений: запись, перенос/отмена — потолок и действующий уровень"
+            "description": "Матрица умений — всегда все пять, в этом порядке: запись, перенос и отмена, напоминание о визите, о долге, повторный осмотр; у каждого потолок и действующий уровень"
           }
         },
         "type": "object",
