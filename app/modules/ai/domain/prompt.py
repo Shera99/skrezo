@@ -140,6 +140,13 @@ _BOOKING_BLOCK = _RULES[_BOOKING_START:_CHANGES_START]
 _CHANGES_BLOCK = _RULES[_CHANGES_START:_TAIL_START]
 _RULES_TAIL = _RULES[_TAIL_START:]
 
+_ANSWERS_OFF = """ОТВЕТЫ НА ВОПРОСЫ ОТКЛЮЧЕНЫ клиникой: на вопросы о ценах, адресе, часах
+работы, услугах и условиях клиники не отвечай сам — вызови escalate с reason:
+policy, а в note коротко запиши вопрос пациента. Цены не называй, даже при
+записи: шаг «сразу скажи цену» пропусти. Поздороваться, уточнить, чего хочет
+пациент, и вести запись или перенос (если они не отключены ниже) можно.
+
+"""
 _BOOKING_OFF = """ЗАПИСЬ ЧЕРЕЗ БОТА ОТКЛЮЧЕНА клиникой: инструментов записи у тебя нет. На
 просьбу записаться ответь, что запись оформит администратор, и поставь
 needs_human: true.
@@ -163,11 +170,17 @@ def _skill_block(block: str, level: str, off_text: str, assisted_note: str) -> s
     return block
 
 
+def answers_off(skills: Mapping[str, str] | None) -> bool:
+    """Выключены ли ответы на вопросы (умение ``answers``)."""
+    return (skills or {}).get("answers", "auto") == "off"
+
+
 def rules_for(skills: Mapping[str, str] | None) -> str:
     """Правила с блоками умений по их действующим уровням (Ф7)."""
     levels = skills or {}
     return (
         _RULES_HEAD
+        + (_ANSWERS_OFF if answers_off(levels) else "")
         + _skill_block(
             _BOOKING_BLOCK, levels.get("booking", "auto"), _BOOKING_OFF, _BOOKING_ASSISTED_NOTE
         )
@@ -232,7 +245,13 @@ def build_system_prompt(
     языка или детектор не уверен): она сама распознаёт язык собеседника по
     переписке (§10.2) и отвечает на нём. ``skills`` —
     действующие уровни умений (Ф7): выключенное умение теряет свой блок правил.
+
+    Выключенные ответы (``answers: off``) убирают и то, из чего бот отвечал бы
+    на вопросы: адрес, телефон, часы работы и базу знаний. В карточке остаётся
+    название — без него бот не представится. Глоссарий остаётся: он помогает
+    понять пациента, а не ответить ему.
     """
+    closed = answers_off(skills)
     lang_rule = (
         f"Отвечай на языке {lang} (ru — русский, ky — кыргызский): на нём пациент "
         "написал последнее сообщение."
@@ -243,11 +262,11 @@ def build_system_prompt(
     blocks = [rules_for(skills).format(clinic_name=card.name, lang_rule=lang_rule)]
 
     card_lines = [f"КАРТОЧКА КЛИНИКИ:\nНазвание: {card.name}"]
-    if card.address:
+    if card.address and not closed:
         card_lines.append(f"Адрес: {card.address}")
-    if card.phone:
+    if card.phone and not closed:
         card_lines.append(f"Телефон: {card.phone}")
-    if card.working_hours:
+    if card.working_hours and not closed:
         card_lines.append(f"Часы работы: {card.working_hours}")
     blocks.append("\n".join(card_lines))
 
@@ -255,7 +274,7 @@ def build_system_prompt(
         lines = "\n".join(f"- «{phrase}» — {meaning}" for phrase, meaning in glossary)
         blocks.append(f"ГЛОССАРИЙ (как понимать фразы пациентов):\n{lines}")
 
-    if kb_documents:
+    if kb_documents and not closed:
         docs = "\n\n".join(f"### {title}\n{body}" for title, body in kb_documents)
         blocks.append(f"БАЗА ЗНАНИЙ КЛИНИКИ (пересказывай, не добавляя от себя):\n{docs}")
 

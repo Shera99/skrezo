@@ -93,7 +93,7 @@ class TrustLadderService:
         for skill, cap in caps.items():
             if skill not in SKILLS or cap not in CAP_LEVELS:
                 raise ValidationAppError(
-                    "Умение: booking, changes, reminders, debts или recall; "
+                    "Умение: answers, booking, changes, reminders, debts или recall; "
                     "уровень: off, assisted или auto",
                     code="skill_unknown",
                 )
@@ -123,8 +123,11 @@ class TrustLadderService:
     ) -> tuple[AiMode, AiMode]:
         """Сменить режим; вернуть (было, стало). Коммитит.
 
-        ``level`` задаёт ступень (и включает), ``enabled=False`` выключает,
-        ``enabled=True`` без ступени возвращает заработанную до выключения.
+        ``level`` задаёт ступень (и включает), ``enabled=False`` выключает.
+        ``enabled=True`` без ступени — «ассистент отвечает сам»: ``auto`` из
+        любого режима, ступеней в кабинете и приложении больше нет (решение
+        фронта 27.11.2026). Только при включённом гейте доверия — по-старому:
+        заработанная до выключения ступень, а без неё — «Наблюдаю».
         ``force`` — для команды Skrezo: гейт не проверяется, причина пишется.
         """
         current = clinic.ai_mode
@@ -136,6 +139,8 @@ class TrustLadderService:
             target = AiMode(level)
         elif enabled is False:
             target = AiMode.OFF
+        elif enabled is True and not settings.ai_trust_gate_enabled:
+            target = AiMode.AUTO
         elif enabled is True:
             target = (
                 current

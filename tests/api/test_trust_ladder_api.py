@@ -4,6 +4,9 @@
 гейтом вверх — только по цифрам (теневой режим, одобрения, чистая неделя),
 вниз и «выключить» — всегда; выключение помнит заработанную ступень;
 команда Skrezo обходит гейт, и владелец видит, что менял не он.
+
+С 27.11.2026 ступеней в кабинете и приложении нет: «включить» без гейта — сразу
+«отвечает сам» (``auto``) из любого режима.
 """
 
 from __future__ import annotations
@@ -184,3 +187,22 @@ async def test_switching_off_remembers_level_and_admin_override_is_visible(
     assert empty.status_code == 422
     same = await _set(client, ctx, level="auto")
     assert same.status_code == 200 and same.json()["level"] == "auto"
+
+
+async def test_switching_on_means_bot_answers_itself(client: AsyncClient, ctx: Ctx) -> None:
+    """Выключатель без ступеней: enabled:true — сразу auto, что бы ни было до этого."""
+    on = await _set(client, ctx, enabled=True)  # новая клиника: была выключена
+    assert on.status_code == 200, on.text
+    assert on.json()["mode"] == "auto" and on.json()["enabled"] is True
+    assert on.json()["reason"] == "manual"
+
+    for level in ("assisted", "shadow"):
+        assert (await _set(client, ctx, level=level)).json()["level"] == level
+        off = await _set(client, ctx, enabled=False)
+        assert off.json()["levelBeforeOff"] == level
+        assert (await _set(client, ctx, enabled=True)).json()["mode"] == "auto"
+
+    # «Проверяю» без выключения — кнопка «Пусть отвечает сам» тоже даёт auto.
+    await _set(client, ctx, level="assisted")
+    up = await _set(client, ctx, enabled=True)
+    assert up.status_code == 200 and up.json()["mode"] == "auto"

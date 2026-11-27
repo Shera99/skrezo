@@ -40,8 +40,9 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     timezone: Mapped[str] = mapped_column(Text, nullable=False, server_default=DEFAULT_TIMEZONE)
     # Лимит оплаченных мест (врачей) по тарифу — только для type=clinic.
     seats_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Режим AI-ассистента (§13.1): новая клиника — только shadow/off; auto —
-    # решение по цифрам теневого режима, включает команда Skrezo.
+    # Режим AI-ассистента (§13.1): новая клиника — off. Кабинет и приложение
+    # включают сразу auto (27.11.2026); shadow/assisted — у тех, кто на них уже
+    # стоит, и у опущенных мониторингом здоровья.
     ai_mode: Mapped[AiMode] = mapped_column(
         AiModeType, nullable=False, server_default=AiMode.OFF.value
     )
@@ -52,7 +53,8 @@ class Clinic(Base, UUIDPKMixin, TimestampMixin):
     )
     ai_mode_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_mode_before_off: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Ф7: потолки умений {booking, changes}: off | assisted | auto; пусто — как ступень.
+    # Ф7: потолки умений {answers, booking, changes, reminders, debts, recall}:
+    # off | assisted | auto; ключа нет — дефолт умения (DEFAULT_SKILLS).
     ai_skills: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )

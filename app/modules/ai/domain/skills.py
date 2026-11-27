@@ -4,6 +4,11 @@
 (``off`` — выключено, ``assisted`` — бот готовит, действие за человеком,
 ``auto`` — бот действует сам). Действующий уровень = min(ступень, потолок):
 клиника в «Доверяю» может отвечать сама, но запись оставить за администратором.
+
+Кабинет и приложение показывают только выключатели (решение фронта 27.11.2026):
+ассистент включён — отвечает сам (``auto``), у умения — ``auto`` или ``off``.
+``assisted`` и ступени ниже ``auto`` остаются для клиник, которые на них уже
+стоят, и для мониторинга здоровья.
 """
 
 from __future__ import annotations
@@ -13,8 +18,12 @@ from typing import Any
 
 from app.shared.db.enums import AiMode
 
-SKILLS: tuple[str, ...] = ("booking", "changes", "reminders", "debts", "recall")
+SKILLS: tuple[str, ...] = ("answers", "booking", "changes", "reminders", "debts", "recall")
 SKILL_TITLES: dict[str, tuple[str, str]] = {
+    "answers": (
+        "Ответы в чате",
+        "Вопросы о ценах, адресе, графике; выключено — такой вопрос уходит администратору",
+    ),
     "booking": ("Запись на приём", "Подбор времени и кнопка подтверждения записи"),
     "changes": ("Перенос и отмена", "Своих будущих записей пациента — по кнопке"),
     "reminders": (
@@ -31,6 +40,7 @@ CAP_LEVELS: tuple[str, ...] = ("off", "assisted", "auto")
 #: Напоминания по умолчанию выключены: рассылку пациентам включает владелец,
 #: когда шаблон одобрен Meta и клиника к этому готова.
 DEFAULT_SKILLS: dict[str, str] = {
+    "answers": "auto",
     "booking": "auto",
     "changes": "auto",
     "reminders": "off",

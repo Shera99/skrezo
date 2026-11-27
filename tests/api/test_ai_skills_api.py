@@ -17,6 +17,8 @@ from sqlalchemy import select
 
 from app.shared.ai import AiResult, ToolCallRequest
 from app.shared.db.models.ai_escalation import AiEscalation
+from app.shared.db.models.ai_knowledge_gap import AiKnowledgeGap
+from app.shared.db.models.clinic import Clinic
 from app.shared.db.models.slot_hold import SlotHold
 from tests.api.conftest import Ctx, _FakeProvider, _reply_json, _set_mode, _simulate
 from tests.conftest import API, Resources, own_membership_id
@@ -56,6 +58,7 @@ async def test_effective_level_is_min_of_ladder_and_cap(
 ) -> None:
     ladder = await _ladder(client, ctx)
     assert _skills(ladder) == {
+        "answers": ("auto", "off"),
         "booking": ("auto", "off"),
         "changes": ("auto", "off"),
         "reminders": ("off", "off"),
@@ -71,6 +74,7 @@ async def test_effective_level_is_min_of_ladder_and_cap(
 
     updated = await _set_skills(client, ctx, booking="assisted", changes="off", reminders="auto")
     assert _skills(updated) == {
+        "answers": ("auto", "auto"),
         "booking": ("assisted", "assisted"),
         "changes": ("off", "off"),
         "reminders": ("auto", "auto"),
@@ -80,6 +84,7 @@ async def test_effective_level_is_min_of_ladder_and_cap(
 
     await _set_mode(admin_client, ctx, "shadow")  # ступень ниже потолка — режет ступень
     assert _skills(await _ladder(client, ctx)) == {
+        "answers": ("auto", "shadow"),
         "booking": ("assisted", "shadow"),
         "changes": ("off", "off"),
         "reminders": ("auto", "shadow"),
@@ -178,3 +183,42 @@ async def test_assisted_booking_hands_card_to_admin_instead_of_button(
         assert note.startswith("Приём, врач ") and "10:00" in note
     # Кнопки не было: сообщений от системы с «Проверьте запись» нет.
     assert not any("Проверьте запись" in (m["body"] or "") for m in body["messages"])
+
+
+async def test_answers_off_hands_clinic_questions_to_admin(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    ctx: Ctx,
+    fake: _FakeProvider,
+    _resources: Resources,
+) -> None:
+    """«Ответы в чате» выключены: адреса и базы знаний у бота нет, вопрос — человеку."""
+    await _set_mode(admin_client, ctx, "auto")
+    async with _resources.factory() as session:
+        clinic = await session.get(Clinic, uuid.UUID(ctx.clinic_id))
+        assert clinic is not None
+        clinic.address = "Бишкек, ул. Токтогула, 1"
+        await session.commit()
+
+    fake.script = [AiResult(text=_reply_json("Здравствуйте! Чем помочь?"))]
+    await _simulate(admin_client, ctx, "Здравствуйте", "+996700800520")
+    assert "Адрес: Бишкек, ул. Токтогула, 1" in fake.calls[-1]["system"]
+
+    ladder = await _set_skills(client, ctx, answers="off")
+    assert _skills(ladder)["answers"] == ("off", "off")
+
+    fake.script = [
+        AiResult(
+            tool_call=ToolCallRequest(
+                name="escalate", args={"reason": "policy", "note": "сколько стоит чистка"}
+            )
+        )
+    ]
+    body = await _simulate(admin_client, ctx, "Сколько стоит чистка?", "+996700800521")
+    assert body["outcome"] == "escalated" and body["escalationReason"] == "policy"
+    system = fake.calls[-1]["system"]
+    assert "ОТВЕТЫ НА ВОПРОСЫ ОТКЛЮЧЕНЫ" in system and "Токтогула" not in system
+    assert "КАК ВЕСТИ ЗАПИСЬ" in system  # запись не выключали — она у бота осталась
+    async with _resources.factory() as session:
+        # Выключенные ответы — решение клиники, а не пробел знаний.
+        assert (await session.execute(select(AiKnowledgeGap))).scalars().all() == []

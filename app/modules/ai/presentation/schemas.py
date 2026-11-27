@@ -657,7 +657,8 @@ class SkillOut(CamelModel):
     """Умение × клиника: потолок и действующий уровень."""
 
     key: str = Field(
-        description="booking | changes | reminders | debts | recall", examples=["reminders"]
+        description="answers | booking | changes | reminders | debts | recall",
+        examples=["reminders"],
     )
     title: str = Field(examples=["Напоминание о визите"])
     description: str
@@ -684,7 +685,11 @@ class TrustLadderResponse(CamelModel):
     enabled: bool = Field(description="false — ассистент выключен (off)")
     level: str | None = Field(default=None, description="Ступень; null, когда выключен")
     level_before_off: str | None = Field(
-        default=None, description="Заработанная ступень до выключения — вернётся при включении"
+        default=None,
+        description=(
+            "Ступень до выключения — для справки: enabled:true включает сразу auto "
+            "(при выключенном гейте доверия, как на проде)"
+        ),
     )
     changed_at: datetime | None = None
     reason: str | None = Field(
@@ -697,9 +702,9 @@ class TrustLadderResponse(CamelModel):
     skills: list[SkillOut] = Field(
         default_factory=list,
         description=(
-            "Матрица умений — всегда все пять, в этом порядке: запись, перенос и отмена, "
-            "напоминание о визите, о долге, повторный осмотр; у каждого потолок и "
-            "действующий уровень"
+            "Матрица умений — всегда все шесть, в этом порядке: ответы в чате, запись, "
+            "перенос и отмена, напоминание о визите, о долге, повторный осмотр; у каждого "
+            "потолок и действующий уровень. Ассистент выключен — effective = off у всех"
         ),
     )
 
@@ -709,7 +714,10 @@ class SetTrustRequest(CamelModel):
 
     enabled: bool | None = Field(
         default=None,
-        description="false — выключить, помня ступень; true — включить на заработанную",
+        description=(
+            "false — выключить; true — включить: ассистент отвечает сам (auto) из любого "
+            "режима. При включённом гейте доверия — заработанная ступень"
+        ),
     )
     level: str | None = Field(
         default=None, pattern="^(shadow|assisted|auto)$", examples=["assisted"]
@@ -717,8 +725,9 @@ class SetTrustRequest(CamelModel):
     skills: dict[str, str] | None = Field(
         default=None,
         description=(
-            "Потолки умений off | assisted | auto — только меняемые: booking, changes, "
-            "reminders, debts, recall. Неизвестное умение или уровень — 422 skill_unknown"
+            "Потолки умений off | assisted | auto — только меняемые: answers, booking, "
+            "changes, reminders, debts, recall. Кабинет и приложение шлют auto (включено) "
+            "или off. Неизвестное умение или уровень — 422 skill_unknown"
         ),
         examples=[{"reminders": "auto", "debts": "off"}],
     )
