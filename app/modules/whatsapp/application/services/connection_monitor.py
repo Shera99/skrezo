@@ -105,7 +105,12 @@ class WhatsAppConnectionMonitor:
                 report.cleared += 1
             if self._onboarding is not None:
                 report.syncs += await request_app_data(binding, self._onboarding, now)
-            if own_token and binding.phone_number_id not in failed:
+            # Шаблоны — у работающего номера: своим токеном клиники или, у
+            # подключённого вручную, общим токеном Skrezo (копии нужны и ему,
+            # если номер живёт в WABA клиники, а не в WABA Skrezo).
+            if binding.phone_number_id not in failed and (
+                own_token or binding.connected_via != SELF_SERVICE
+            ):
                 await self._templates(binding, copier, report)
         report.notified = await self._notify_team(bindings, now)
         await self._session.commit()

@@ -8,8 +8,9 @@ Meta проверяет каждый шаблон сама: статус сна�
 WhatsApp Manager.
 
 Состав шаблонов — :mod:`app.modules.whatsapp.domain.reminder_templates`.
-После одобрения клиникам, подключившим номер сами, копии создаст ежечасный
-монитор номеров; остальным шаблоны попадут в каталог при синхронизации.
+После одобрения номерам в собственной WABA клиники (подключённым ею самой или
+вручную) копии создаст ежечасный монитор; номерам в WABA Skrezo шаблоны попадут
+в каталог при синхронизации.
 
     uv run python -m app.scripts.wa_reminder_templates
     uv run python -m app.scripts.wa_reminder_templates --apply

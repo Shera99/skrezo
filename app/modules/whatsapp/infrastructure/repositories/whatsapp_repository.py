@@ -16,6 +16,7 @@ from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, tru
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.modules.whatsapp.domain.connection import (
     DISCONNECTED,
     MANUAL,
@@ -1013,23 +1014,29 @@ def _visible_to(clinic_id: uuid.UUID) -> ColumnElement[bool]:
     """Шаблоны, которые номер клиники может отправить: свои и, возможно, общие.
 
     Шаблон живёт в одном WABA. Общие шаблоны платформы (``clinic_id IS NULL``)
-    зарегистрированы в WABA Skrezo — их отправит только номер, подключённый
-    командой вручную. Номер, который клиника подключила сама, сидит в её
-    собственном WABA: общий шаблон Meta отвергла бы («шаблон не существует»),
-    поэтому такой клинике видны только свои (туда же ложатся копии шаблонов
-    Skrezo, см. ``services/template_copies.py``).
+    зарегистрированы в WABA Skrezo — их отправит только номер, который живёт там
+    же. Номер в собственном WABA клиники (подключённый ею самой или командой
+    вручную, но в WABA клиники — правило ``domain.connection.in_own_waba``) общий шаблон не
+    отправит: Meta ответит «шаблон не существует». Такой клинике видны только
+    свои (туда же ложатся копии шаблонов Skrezo, см. ``services/template_copies.py``).
     """
-    self_service = (
-        select(ClinicWhatsApp.id)
-        .where(
-            ClinicWhatsApp.clinic_id == clinic_id,
-            ClinicWhatsApp.connected_via == SELF_SERVICE,
+    source = settings.wa_template_source_waba_id.strip()
+    own_waba: ColumnElement[bool] = ClinicWhatsApp.connected_via == SELF_SERVICE
+    if source:
+        own_waba = or_(
+            own_waba,
+            and_(
+                ClinicWhatsApp.waba_id.is_not(None),
+                ClinicWhatsApp.waba_id != "",
+                ClinicWhatsApp.waba_id != source,
+            ),
         )
-        .exists()
+    in_clinic_waba = (
+        select(ClinicWhatsApp.id).where(ClinicWhatsApp.clinic_id == clinic_id, own_waba).exists()
     )
     return or_(
         WhatsAppTemplate.clinic_id == clinic_id,
-        and_(WhatsAppTemplate.clinic_id.is_(None), ~self_service),
+        and_(WhatsAppTemplate.clinic_id.is_(None), ~in_clinic_waba),
     )
 
 

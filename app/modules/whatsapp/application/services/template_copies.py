@@ -1,12 +1,16 @@
-"""Копии шаблонов напоминаний Skrezo в WABA клиники, подключившей номер сама.
+"""Копии шаблонов напоминаний Skrezo в WABA клиники.
 
 Шаблон WhatsApp принадлежит одному WABA, и номер отправляет только шаблоны
 своего WABA. Шаблоны напоминаний (визит, долг, повторный осмотр) команда
 регистрирует в WABA Skrezo (``WA_TEMPLATE_SOURCE_WABA_ID``) — ими пользуются
-номера, подключённые вручную. Номер, который клиника подключила через окно
-Meta, живёт в её собственном WABA, поэтому туда создаются копии: те же имя,
-язык, категория и компоненты, что у одобренного оригинала. Meta проверяет копию
-заново; статус подтягивает сверка каталога (сразу и ежечасным монитором).
+номера, которые живут там же. Номер в собственном WABA клиники (подключённый
+ею самой через окно Meta или командой вручную, см.
+:func:`~app.modules.whatsapp.domain.connection.in_own_waba`) получает копии: те
+же имя, язык, категория и компоненты, что у одобренного оригинала. Копии
+создаются токеном номера: у подключившейся самой — её бизнес-токеном, у
+подключённой вручную — общим токеном Skrezo, которым номер и работает. Meta
+проверяет копию заново; статус подтягивает сверка каталога (сразу и ежечасным
+монитором).
 
 Копируется только недостающее: пара (имя, язык), которой нет ни в локальном
 каталоге клиники, ни в её WABA. Поэтому повторять безопасно, а шаблон,
@@ -21,6 +25,7 @@ import structlog
 
 from app.core.config import settings
 from app.modules.whatsapp.application.services.credentials import SELF_SERVICE, binding_token
+from app.modules.whatsapp.domain.connection import in_own_waba
 from app.modules.whatsapp.infrastructure.repositories.whatsapp_repository import (
     WhatsAppRepository,
 )
@@ -55,7 +60,7 @@ class PlatformTemplateCopier:
     async def copy_missing(self, binding: ClinicWhatsApp) -> int | None:
         """Создать недостающие копии; вернуть их число.
 
-        ``None`` — делать нечего (номер подключён не клиникой, источник не
+        ``None`` — делать нечего (номер живёт в WABA Skrezo, источник не
         настроен или всё уже есть в каталоге), либо Meta не ответила и проход
         повторит монитор. Число, в том числе ``0``, — WABA клиники спрошена и
         локальный каталог стоит сверить: копии появились или нашлись там без нас.
@@ -112,17 +117,25 @@ class PlatformTemplateCopier:
 
     @staticmethod
     def _own_token(binding: ClinicWhatsApp) -> str | None:
-        """Токен клиники, если номер в её собственном WABA и копировать есть откуда."""
+        """Токен для копий, если номер в своём WABA и копировать есть откуда.
+
+        Подключившаяся сама — только её токеном: общему токену Skrezo её WABA
+        недоступна. Подключённая вручную — своим токеном, если он у номера есть,
+        иначе общим: тем же, которым номер отправляет сообщения.
+        """
         source_waba = settings.wa_template_source_waba_id.strip()
         if (
             not binding.active
-            or binding.connected_via != SELF_SERVICE
             or not source_waba
             or not settings.wa_cloud_access_token
+            or not binding.waba_id
             or binding.waba_id == source_waba
+            or not in_own_waba(binding.connected_via, binding.waba_id, source_waba)
         ):
             return None
-        return binding_token(binding)
+        if binding.connected_via == SELF_SERVICE:
+            return binding_token(binding)
+        return binding_token(binding) or settings.wa_cloud_access_token
 
     async def _source_templates(self) -> list[TemplateDefinition]:
         """Одобренные шаблоны напоминаний в WABA Skrezo (один запрос на проход)."""

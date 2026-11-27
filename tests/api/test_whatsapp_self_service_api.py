@@ -1007,3 +1007,77 @@ async def test_monitor_copies_late_templates_and_follows_meta_review(
         report = await monitor.run([])
         assert report.catalogs == 0 and report.templates_copied == 0
         assert len([e for e in wa.log if e[0] == "templates"]) == calls
+
+
+async def _bind_manually(admin_client: AsyncClient, clinic: Clinic, waba_id: str) -> None:
+    """Номер привязывает команда Skrezo: общий токен, WABA — как указала команда."""
+    bound = await admin_client.put(
+        f"{API}/admin/clients/{clinic.clinic_id}/whatsapp",
+        json={"phoneNumberId": _digits(), "displayPhone": "+996700111222", "wabaId": waba_id},
+    )
+    assert bound.status_code == 200, bound.text
+
+
+async def test_manual_number_in_clinic_waba_gets_copies_with_platform_token(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    meta: tuple[FakeMeta, RecordingWa],
+    template_source: None,
+    _resources: Resources,
+) -> None:
+    """Номер, привязанный вручную, но живущий в WABA клиники, — как подключённый сам.
+
+    Шаблоны Skrezo ему не отправить, поэтому общие ему не видны, а копии
+    создаёт ежечасный монитор — общим токеном Skrezo, которым номер и работает.
+    """
+    fake, wa = meta
+    fake.templates = {
+        SOURCE_WABA: [_definition("visit_reminder", "ru"), _definition("debt_reminder", "ru")]
+    }
+    clinic = await _clinic(admin_client, client)
+    clinic_id = uuid.UUID(clinic.clinic_id)
+    shared = await _shared_template(_resources)
+    await _bind_manually(admin_client, clinic, CLINIC_WABA)
+
+    async with _resources.factory() as session:
+        repository = WhatsAppRepository(session)
+        assert await repository.templates_by_name(clinic_id, shared) == []
+
+        monitor = WhatsAppConnectionMonitor(session, fake, _TeamChat(), wa)  # type: ignore[arg-type]
+        report = await monitor.run([])
+        assert report.templates_copied == 2 and report.catalogs == 1
+        assert [(w, t, p["name"]) for w, t, p in fake.created] == [
+            (CLINIC_WABA, "platform-token", "visit_reminder"),
+            (CLINIC_WABA, "platform-token", "debt_reminder"),
+        ]
+        # Каталог сверен с WABA номера общим токеном транспорта.
+        assert ("templates", None, CLINIC_WABA) in wa.log
+
+        # Одобренная копия — своя у клиники, её и находят напоминания.
+        wa.catalog[:] = [_catalog_row("visit_reminder", "ru", "approved")]
+        await monitor.run([])
+        found = await repository.templates_by_name(clinic_id, "visit_reminder")
+        assert [(t.clinic_id, t.status) for t in found] == [(clinic_id, "approved")]
+
+
+async def test_manual_number_in_skrezo_waba_uses_shared_templates_without_copies(
+    admin_client: AsyncClient,
+    client: AsyncClient,
+    meta: tuple[FakeMeta, RecordingWa],
+    template_source: None,
+    _resources: Resources,
+) -> None:
+    fake, wa = meta
+    fake.templates = {SOURCE_WABA: [_definition("visit_reminder", "ru")]}
+    clinic = await _clinic(admin_client, client)
+    shared = await _shared_template(_resources)
+    await _bind_manually(admin_client, clinic, SOURCE_WABA)
+
+    async with _resources.factory() as session:
+        repository = WhatsAppRepository(session)
+        found = await repository.templates_by_name(uuid.UUID(clinic.clinic_id), shared)
+        assert [t.meta_name for t in found] == [shared]
+
+        monitor = WhatsAppConnectionMonitor(session, fake, _TeamChat(), wa)  # type: ignore[arg-type]
+        report = await monitor.run([])
+        assert report.templates_copied == 0 and fake.created == []

@@ -15,10 +15,27 @@ RECONNECT_REASONS: dict[str, str] = {
 }
 
 #: Пути подключения номера (``clinic_whatsapp.connected_via``): вручную командой
-#: Skrezo (номер в WABA Skrezo, общий токен) или самой клиникой через окно Meta
-#: (номер в WABA клиники, её бизнес-токен).
+#: Skrezo (общий токен; номер в WABA Skrezo или в WABA клиники, к которой у
+#: Skrezo есть доступ) или самой клиникой через окно Meta (номер в WABA
+#: клиники, её бизнес-токен).
 MANUAL = "manual"
 SELF_SERVICE = "embedded_signup"
+
+
+def in_own_waba(connected_via: str, waba_id: str | None, source_waba: str) -> bool:
+    """Живёт ли номер в своей WABA, а не в WABA Skrezo, где лежат общие шаблоны.
+
+    Номер, который клиника подключила сама, — всегда в своей. Номер, привязанный
+    командой вручную, — в своей, если его WABA известна и это не WABA Skrezo
+    (``source_waba``, ``WA_TEMPLATE_SOURCE_WABA_ID``). Пока WABA Skrezo не
+    задана или WABA номера неизвестна, считаем по-старому: номер в WABA Skrezo.
+    Такому номеру общие шаблоны не отправить: шаблон живёт в одной WABA.
+    """
+    if connected_via == SELF_SERVICE:
+        return True
+    source = source_waba.strip()
+    return bool(source and waba_id and waba_id != source)
+
 
 #: Состояние подключения для списка команды Skrezo: номер работает; номер
 #: включён, но Meta его больше не обслуживает у нас (нужно переподключить);

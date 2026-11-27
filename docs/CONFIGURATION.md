@@ -35,7 +35,7 @@
 | `WA_CLOUD_VERIFY_TOKEN` | подтверждение подписки вебхука (GET) | — |
 | `WA_CLOUD_APP_ID` | ID приложения Meta — окно подключения номера в кабинете (Embedded Signup) | — |
 | `WA_EMBEDDED_SIGNUP_CONFIG_ID` | ID конфигурации Facebook Login for Business (WhatsApp Embedded Signup) | — |
-| `WA_TEMPLATE_SOURCE_WABA_ID` | WABA Skrezo, где зарегистрированы шаблоны напоминаний; клинике, подключившей номер сама, одобренные `WA_*_REMINDER_TEMPLATE` копируются отсюда в её WABA (читается `WA_CLOUD_ACCESS_TOKEN`); пусто — не копировать | — |
+| `WA_TEMPLATE_SOURCE_WABA_ID` | WABA Skrezo, где зарегистрированы шаблоны напоминаний; номеру в собственной WABA клиники (подключённому ею самой или командой вручную, но с другим `wabaId`) одобренные `WA_*_REMINDER_TEMPLATE` копируются отсюда в его WABA (читается `WA_CLOUD_ACCESS_TOKEN`), а общие шаблоны ему не показываются; пусто — не копировать, номера, подключённые вручную, считаются живущими в WABA Skrezo | — |
 | `DATA_ENCRYPTION_KEY` | ключ Fernet для секретов в БД (токены Meta клиник); несколько через запятую — ротация, шифрует первый | — |
 | `AI_PROVIDER` | провайдер ассистента: `off` \| `gemini` | `off` |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | ключ Google AI Studio и модель | — / `gemini-3.6-flash` |
