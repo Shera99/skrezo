@@ -948,6 +948,24 @@ SECTIONS.append(
                 r"""pgsu -c "SELECT started_at, status, detail FROM job_run WHERE job_name = 'check_whatsapp_tokens' ORDER BY started_at DESC LIMIT 5;" """.strip(),
             ),
             C(
+                "Шаблоны напоминаний в WABA Skrezo",
+                "Визит, долг и повторный осмотр на ru и ky: какие уже есть и в каком статусе, "
+                "какие будут созданы. В Meta ничего не отправляет.",
+                r"""skrun python -m app.scripts.wa_reminder_templates""",
+                "Строки `✅ … APPROVED` у всех шести.",
+                kw="шаблон meta visit_reminder debt_reminder recall_reminder",
+            ),
+            C(
+                "Создать недостающие шаблоны напоминаний",
+                "Отправляет недостающие шаблоны на проверку Meta, существующие не трогает. "
+                "`--lang ru` — только русский. Клиникам, подключившим номер сами, копии "
+                "создаст ежечасный монитор после одобрения.",
+                r"""skrun python -m app.scripts.wa_reminder_templates --apply""",
+                "`🆕 … создан, статус PENDING`.",
+                flags=((WARN, "отправляет в Meta"),),
+                kw="шаблон meta создать",
+            ),
+            C(
                 "Кэш контекста ассистента",
                 "Для скольких клиник сейчас закэширован контекст ассистента у провайдера.",
                 r"""rcli --scan --pattern 'ai:prefix:*' | wc -l""",

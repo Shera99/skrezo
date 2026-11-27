@@ -468,6 +468,17 @@ sudo -u skrezo /opt/skrezo/app/.venv/bin/python -c "from cryptography.fernet imp
    заново. Пусто — копий нет, и напоминания у таких клиник не уйдут, пока клиника
    сама не заведёт шаблоны с теми же именами.
 
+   Сами шаблоны в WABA Skrezo создаёт скрипт: без `--apply` он только показывает,
+   что уже есть и что будет создано, с `--apply` отправляет недостающие на проверку
+   Meta (ru и ky; `--lang ru` — только русский). Существующие шаблоны не трогает.
+   Состав — `app/modules/whatsapp/domain/reminder_templates.py`; кыргызские тексты
+   до отправки стоит показать носителю языка.
+
+   ```bash
+   sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/python -m app.scripts.wa_reminder_templates'
+   sudo -u skrezo -H bash -c 'cd /opt/skrezo/app && .venv/bin/python -m app.scripts.wa_reminder_templates --apply'
+   ```
+
 После правки `.env` — перезапуск API и воркеров. Кнопка подключения появляется
 в кабинете, когда заданы все четыре значения шагов 2 и 5 (`GET /clinic/whatsapp` →
 `signup.available: true`).
